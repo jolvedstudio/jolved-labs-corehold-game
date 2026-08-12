@@ -1,0 +1,87 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 734fd835cec16074fa5bce42c59bf999, type: 3}
+  m_Name: Tower_ScanRelay
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
+  id: scan_relay
+  displayName: Scan Relay
+  icon: {fileID: 21300000, guid: 984acbf6fc268d24195c2e7c8148125b, type: 3}
+  description: Radar support. No damage. Buffs turrets in its aura radius. Auras
+    do not stack.
+  damageType: 0
+  canTargetAir: 1
+  basePrefab: {fileID: 4126523222679572581, guid: 963a3e22fe3fbcf48994751bb53c2504, type: 3}
+  tiers:
+  - cost: 90
+    weapons:
+    - damage: 5
+      fireRate: 1
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 2
+      chainFalloff: 0.7
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      tracerColor: {r: 0, g: 29.644934, b: 33.290565, a: 0}
+    range: 20
+    minRange: 0
+    damage: 0
+    fireRate: 0
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 100000, guid: 20e1981553f6e8f458ca183d29ea7bcc, type: 3}
+    fireSfx: {fileID: 8300000, guid: e88084c6f293c324db2b4dcf575d60dc, type: 3}
+    auraRadius: 10
+    auraFireRateBonus: 0.15
+    auraRangeBonus: 0.1
+    auraDamageBonus: 0
+  - cost: 110
+    weapons: []
+    range: 12
+    minRange: 0
+    damage: 0
+    fireRate: 0
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 1
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 12
+    auraFireRateBonus: 0.25
+    auraRangeBonus: 0.15
+    auraDamageBonus: 0
+  - cost: 160
+    weapons: []
+    range: 14
+    minRange: 0
+    damage: 0
+    fireRate: 0
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 2
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 14
+    auraFireRateBonus: 0.35
+    auraRangeBonus: 0.2
+    auraDamageBonus: 0.1

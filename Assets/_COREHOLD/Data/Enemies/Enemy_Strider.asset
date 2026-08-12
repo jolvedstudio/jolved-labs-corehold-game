@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 58a016623313bc749af838ac150c86f4, type: 3}
+  m_Name: Enemy_Strider
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
+  id: strider
+  displayName: Strider
+  icon: {fileID: 21300000, guid: a59b57fa3cf035b4d8b445c9aa24cc00, type: 3}
+  prefab: {fileID: 8751444216850120230, guid: 08bab85322ae7df40b4e0e650ca6422d, type: 3}
+  baseHealth: 110
+  armourType: 1
+  moveSpeed: 5
+  bounty: 12
+  leakDamage: 1
+  fireSound: {fileID: 8300000, guid: 7d156b8a5b340cd46bcf0a76557dd2dd, type: 3}
+  fireVolume: 0.7
+  firePitchSpread: 0.08
+  deathSound: {fileID: 8300000, guid: c27036221e6b287498c43036f7767c3e, type: 3}
+  deathVolume: 0.8
+  deathPitchSpread: 0.06
+  isAir: 0
+  flightAltitude: 0
+  animatorClipSpeedRef: 5
+  hasSecondPhase: 0
+  phaseChangeAtPathFraction: 0
+  secondPhaseSpeed: 0
+  enrageAtHealthFraction: 0
+  enrageSpeedMultiplier: 0

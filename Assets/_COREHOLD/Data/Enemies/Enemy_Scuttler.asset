@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 58a016623313bc749af838ac150c86f4, type: 3}
+  m_Name: Enemy_Scuttler
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
+  id: scuttler
+  displayName: Scuttler
+  icon: {fileID: 21300000, guid: 0e6f0f32f9972fa47a6968720619ef13, type: 3}
+  prefab: {fileID: 543174937331609184, guid: b4d83ef9621d564469e426a007981705, type: 3}
+  baseHealth: 45
+  armourType: 0
+  moveSpeed: 7.5
+  bounty: 8
+  leakDamage: 1
+  fireSound: {fileID: 8300000, guid: eb88de784932cc74f90bf9aafbd82704, type: 3}
+  fireVolume: 0.846
+  firePitchSpread: 0.08
+  deathSound: {fileID: 8300000, guid: a4934d1a3017c7148b17fa67d52005e8, type: 3}
+  deathVolume: 0.872
+  deathPitchSpread: 0.06
+  isAir: 0
+  flightAltitude: 0
+  animatorClipSpeedRef: 7.5
+  hasSecondPhase: 0
+  phaseChangeAtPathFraction: 0
+  secondPhaseSpeed: 0
+  enrageAtHealthFraction: 0
+  enrageSpeedMultiplier: 0

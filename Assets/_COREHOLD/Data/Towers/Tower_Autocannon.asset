@@ -1,0 +1,106 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 734fd835cec16074fa5bce42c59bf999, type: 3}
+  m_Name: Tower_Autocannon
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
+  id: autocannon
+  displayName: Autocannon
+  icon: {fileID: 21300000, guid: 0bd3ca247dc776648b47f6ba9bfab764, type: 3}
+  description: Two-barrel kinetic cannon. Hitscan, single target. The workhorse.
+  damageType: 0
+  canTargetAir: 1
+  basePrefab: {fileID: 7684711906550116464, guid: d8bc606dca1f55b47a2138b3a845cff4, type: 3}
+  tiers:
+  - cost: 100
+    weapons:
+    - damage: 10
+      fireRate: 2
+      muzzleIndex: 0
+      muzzleIndices: 0000000001000000
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      tracerColor: {r: 766.99615, g: 482.11188, b: 175.3134, a: 1}
+    range: 20
+    minRange: 0
+    damage: 10
+    fireRate: 2
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 8771972552311404799, guid: bbf9e36a48d6c5648a13889afab076fd, type: 3}
+    fireSfx: {fileID: 8300000, guid: 8fdcabd035384834882e425db462a5f3, type: 3}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 130
+    weapons:
+    - damage: 15
+      fireRate: 2.8
+      muzzleIndex: 0
+      muzzleIndices: 0000000001000000
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 13
+    minRange: 0
+    damage: 15
+    fireRate: 2.8
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 1
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 200
+    weapons:
+    - damage: 25
+      fireRate: 3.6
+      muzzleIndex: 0
+      muzzleIndices: 0000000001000000
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 14
+    minRange: 0
+    damage: 25
+    fireRate: 3.6
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 2
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0

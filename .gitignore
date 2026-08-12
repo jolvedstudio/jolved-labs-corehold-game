@@ -1,0 +1,49 @@
+# ---- Unity generated ----
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# ---- Asset Store / package tooling ----
+/[Aa]ssets/AssetStoreTools*
+/[Aa]ssets/Plugins/Editor/JetBrains*
+
+# ---- Vendored assets (excluded from version control) ----
+/[Aa]ssets/Vendor/
+/[Aa]ssets/Vendor.meta
+
+# ---- Visual Studio / Rider / VS Code ----
+.vs/
+.idea/
+.vscode/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.opendb
+*.VC.db
+
+# ---- Build artifacts ----
+*.apk
+*.aab
+*.unitypackage
+*.app
+ExportedObj/
+crashlytics-build.properties
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# ---- OS cruft ----
+.DS_Store
+Thumbs.db
+desktop.ini

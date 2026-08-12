@@ -1,0 +1,106 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 734fd835cec16074fa5bce42c59bf999, type: 3}
+  m_Name: Tower_SiegeMortar
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
+  id: siege_mortar
+  displayName: Siege Mortar
+  icon: {fileID: 21300000, guid: 33a521ec66636c142be9ccfae0ee97bb, type: 3}
+  description: Big mortar. Arcing shell, 6 m minimum range, ground only. Explosive.
+  damageType: 2
+  canTargetAir: 0
+  basePrefab: {fileID: 1177240434419835111, guid: 9fb81ea17d668904996fb5477844357a, type: 3}
+  tiers:
+  - cost: 200
+    weapons:
+    - damage: 90
+      fireRate: 0.35
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
+      projectileSpeed: 18
+      splashRadius: 4
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 20
+    minRange: 6
+    damage: 90
+    fireRate: 0.35
+    splashRadius: 4
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
+    projectileSpeed: 18
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 240
+    weapons:
+    - damage: 160
+      fireRate: 0.4
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
+      projectileSpeed: 18
+      splashRadius: 4.5
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 22
+    minRange: 6
+    damage: 160
+    fireRate: 0.4
+    splashRadius: 4.5
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
+    projectileSpeed: 18
+    weaponVisualIndex: 1
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 300
+    weapons:
+    - damage: 260
+      fireRate: 0.45
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
+      projectileSpeed: 18
+      splashRadius: 5
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 24
+    minRange: 6
+    damage: 260
+    fireRate: 0.45
+    splashRadius: 5
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
+    projectileSpeed: 18
+    weaponVisualIndex: 2
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0

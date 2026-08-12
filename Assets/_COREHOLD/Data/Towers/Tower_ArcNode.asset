@@ -1,0 +1,106 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 734fd835cec16074fa5bce42c59bf999, type: 3}
+  m_Name: Tower_ArcNode
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
+  id: arc_node
+  displayName: Arc Node
+  icon: {fileID: 21300000, guid: 38f2f6ca387e57344841915c8c237b1b, type: 3}
+  description: Plasma gun. Hitscan chain, 30% damage falloff per jump. Energy.
+  damageType: 1
+  canTargetAir: 1
+  basePrefab: {fileID: 5919821985147048559, guid: 03151f4ad0b84af4789dfedea8e1eb61, type: 3}
+  tiers:
+  - cost: 120
+    weapons:
+    - damage: 14
+      fireRate: 1.5
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 2
+      chainFalloff: 0.7
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 20
+    minRange: 0
+    damage: 14
+    fireRate: 1.5
+    splashRadius: 0
+    chainTargets: 2
+    chainFalloff: 0.7
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 7177991128484655659, guid: 59a35ab9f68edff40b6e5332bed330f5, type: 3}
+    fireSfx: {fileID: 8300000, guid: b8138f25b128a274d89948a0183dddab, type: 3}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 140
+    weapons:
+    - damage: 22
+      fireRate: 1.8
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 3
+      chainFalloff: 0.7
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 12
+    minRange: 0
+    damage: 22
+    fireRate: 1.8
+    splashRadius: 0
+    chainTargets: 3
+    chainFalloff: 0.7
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 1
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 200
+    weapons:
+    - damage: 34
+      fireRate: 2.2
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 4
+      chainFalloff: 0.7
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 14
+    minRange: 0
+    damage: 34
+    fireRate: 2.2
+    splashRadius: 0
+    chainTargets: 4
+    chainFalloff: 0.7
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 2
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0

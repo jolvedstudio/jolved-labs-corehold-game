@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc8344b9023536f4987abfd907b256b5, type: 3}
+  m_Name: Wave_10
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WaveDefinition
+  groups:
+  - enemy: {fileID: 11400000, guid: 3b63d6d6386832841b60e95507c0fb3c, type: 2}
+    count: 1
+    spawnGap: 0
+    startOffset: 4
+    spawnerIndex: 0
+  - enemy: {fileID: 11400000, guid: 17932bf9e35be0e459d8177a96e9c6df, type: 2}
+    count: 8
+    spawnGap: 2.4
+    startOffset: 0
+    spawnerIndex: 1
+  - enemy: {fileID: 11400000, guid: ddd6ac25d0683a64b9443acde334269e, type: 2}
+    count: 4
+    spawnGap: 3.6
+    startOffset: 14
+    spawnerIndex: 2
+  clearBonus: 240

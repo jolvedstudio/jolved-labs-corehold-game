@@ -1,0 +1,371 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Corehold.Core;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+/// <summary>
+/// Ticket 30/31 — Refinery Delta blockout builder.
+/// Run: Tools/COREHOLD/Build Refinery Delta.
+///
+/// Rebuilds the "RefineryLevel" container, route waypoints, hardpoints and set
+/// dressing, and removes the old placeholder Core / Route_* objects. Coordinate
+/// frame: X in [-65,65] (west = -X), Z in [-37.5,37.5] (north = +Z, camera sits
+/// at -Z). Core is lower-right = (+X, -Z).
+/// </summary>
+public static class RefineryDeltaBlockout
+{
+    // ---- Playfield ----
+    const float FieldW = 130f;
+    const float FieldD = 75f;
+
+    static readonly Vector3 CorePos = new Vector3(34.5f, 0f, -6.5f);
+    static readonly Vector3 Merge = new Vector3(-30f, 0f, 18f);
+
+    // West entrance leg (30 m). Straight east into the merge.
+    static readonly Vector3[] WestLeg =
+    {
+        new Vector3(-60f, 0f, 18f),
+        new Vector3(-45f, 0f, 18f),
+        Merge,
+    };
+
+    // North entrance leg (30 m). Angled down-left into the merge.
+    static readonly Vector3[] NorthLeg =
+    {
+        new Vector3(-6f, 0f, 36f),
+        new Vector3(-18f, 0f, 27f),
+        Merge,
+    };
+
+    // Shared 120 m snake, merge -> Core. Four hairpins with tight parallel legs
+    // (~10-11 m apart) folded around fixed refinery structures.
+    static readonly Vector3[] Snake =
+    {
+        // Merge (-30,18) prepended by the builder; do not repeat here.
+        new Vector3(-19f, 0f, 18f),   // S1  east off the merge (top run)
+        new Vector3(-19f, 0f, 9f),    // S2  hairpin 1 south (west of Tank_A)
+        new Vector3(-9f,  0f, 9f),    // S3  east step under Tank_A
+        new Vector3(-9f,  0f, 18f),   // S4  hairpin 2 north (east of Tank_A)
+        new Vector3(2f,   0f, 18f),   // S5  east along the top run
+        new Vector3(2f,   0f, 8f),    // S6  hairpin 3 south (west of Silo)
+        new Vector3(13f,  0f, 8f),    // S7  east step under the Silo
+        new Vector3(13f,  0f, 18f),   // S8  hairpin 4 north (east of Silo)
+        new Vector3(23f,  0f, 18f),   // S9  east on the top run
+        new Vector3(23f,  0f, 6f),    // S10 south toward the core wall
+        CorePos,                      // arrive at the Core (34.5,-6.5)
+    };
+
+    [MenuItem("Tools/COREHOLD/Build Refinery Delta")]
+    public static void Build()
+    {
+        var log = new StringBuilder();
+
+        // ---- Remove old placeholder objects from the starter scene ----
+        RemovePlaceholders(log);
+
+        // ---- Container ----
+        var root = GameObject.Find("RefineryLevel");
+        if (root != null) Object.DestroyImmediate(root);
+        root = new GameObject("RefineryLevel");
+        Undo.RegisterCreatedObjectUndo(root, "Build Refinery Delta");
+
+        // ---- Report route lengths (verify 30/30/120/150) ----
+        log.AppendLine("=== Route metrics ===");
+        var westFull = WestLeg.Concat(Snake).ToArray();
+        var northFull = NorthLeg.Concat(Snake).ToArray();
+        log.AppendLine($"West leg   : {PolyLen(WestLeg):0.00} m");
+        log.AppendLine($"North leg  : {PolyLen(NorthLeg):0.00} m");
+        float snakeLen = PolyLen(new[] { Merge }.Concat(Snake).ToArray());
+        log.AppendLine($"Shared snake (from merge): {snakeLen:0.00} m");
+        log.AppendLine($"West route TOTAL : {PolyLen(westFull):0.00} m");
+        log.AppendLine($"North route TOTAL: {PolyLen(northFull):0.00} m");
+
+        // ---- Floor ----
+        BuildFloor(root.transform);
+
+        // ---- Structures (hairpin anchors) ----
+        BuildStructures(root.transform);
+
+        // ---- Routes ----
+        var routesRoot = new GameObject("Routes");
+        routesRoot.transform.SetParent(root.transform, false);
+        var westRoute = BuildRoute(routesRoot.transform, "Route_West", westFull, new Color(0.2f, 1f, 0.6f, 1f));
+        var northRoute = BuildRoute(routesRoot.transform, "Route_North", northFull, new Color(0.2f, 0.6f, 1f, 1f));
+
+        // ---- Core ----
+        var core = BuildCore(root.transform);
+
+        // ---- Spawners wiring ----
+        WireSpawners(westRoute, northRoute, core, WestLeg[0], NorthLeg[0], log);
+
+        // ---- Hardpoints ----
+        BuildHardpoints(root.transform, westRoute, log);
+
+        // ---- Set dressing: wreck + radar ----
+        BuildWreckAndRadar(root.transform);
+
+        MarkDirty();
+        Debug.Log(log.ToString());
+    }
+
+    static void RemovePlaceholders(StringBuilder log)
+    {
+        foreach (var n in new[] { "Core", "Route_West", "Route_North" })
+        {
+            var go = GameObject.Find(n);
+            // Only remove the top-level placeholder (not the ones under RefineryLevel).
+            if (go != null && go.transform.parent == null)
+            {
+                Object.DestroyImmediate(go);
+                log.AppendLine($"[cleanup] removed placeholder '{n}'");
+            }
+        }
+    }
+
+    static void MarkDirty()
+    {
+        var scene = SceneManager.GetActiveScene();
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    static float PolyLen(Vector3[] pts)
+    {
+        float l = 0f;
+        for (int i = 1; i < pts.Length; i++) l += Vector3.Distance(pts[i - 1], pts[i]);
+        return l;
+    }
+
+    static GameObject Place(string assetPath, Transform parent, Vector3 pos, Vector3 euler, float scale, string name = null)
+    {
+        var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+        if (prefab == null)
+        {
+            Debug.LogWarning($"[Refinery] Missing prefab: {assetPath}");
+            return null;
+        }
+        var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+        go.transform.SetParent(parent, false);
+        go.transform.position = pos;
+        go.transform.eulerAngles = euler;
+        go.transform.localScale = Vector3.one * scale;
+        if (!string.IsNullOrEmpty(name)) go.name = name;
+        return go;
+    }
+
+    static void BuildFloor(Transform parent)
+    {
+        var floor = GameObject.Find("Floor");
+        if (floor == null)
+        {
+            floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            floor.name = "Floor";
+        }
+        floor.transform.position = Vector3.zero;
+        floor.transform.localScale = new Vector3(FieldW / 10f, 1f, FieldD / 10f);
+    }
+
+    const string CreepyRoot = "Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Prefabs/";
+
+    static void BuildStructures(Transform parent)
+    {
+        var s = new GameObject("Structures");
+        s.transform.SetParent(parent, false);
+        var t = s.transform;
+
+        // Tank_A inside hairpin 1/2 fold (legs x=-19 and x=-9).
+        Place(CreepyRoot + "Props/Container & Crate/P_Tank_Cistern_01.prefab", t,
+              new Vector3(-14f, 0f, 4f), Vector3.zero, 0.8f, "Refinery_Tank_A");
+
+        // Storage silo inside hairpin 3/4 fold (legs x=2..13..23).
+        Place(CreepyRoot + "Props/Machine/P_Storage_Liquid_Station_01.prefab", t,
+              new Vector3(8f, 0f, 3f), Vector3.zero, 0.28f, "Refinery_StorageSilo");
+
+        // Pumping station landmark back-left.
+        Place(CreepyRoot + "Props/Machine/P_Pumping_Station_01.prefab", t,
+              new Vector3(-48f, 0f, -6f), Vector3.zero, 0.30f, "Refinery_PumpingStation");
+
+        // Secondary tank on the east skyline.
+        Place(CreepyRoot + "Props/Container & Crate/P_Tank_Cistern_01_B.prefab", t,
+              new Vector3(30f, 0f, 26f), Vector3.zero, 0.9f, "Refinery_Tank_B");
+
+        // Connective containers / pipe run / props.
+        Place(CreepyRoot + "Props/Container & Crate/P_Container_01.prefab", t,
+              new Vector3(-32f, 0f, -18f), new Vector3(0f, 90f, 0f), 1f, "Container_A");
+        Place(CreepyRoot + "Props/Container & Crate/P_Container_01_C.prefab", t,
+              new Vector3(-28f, 0f, -18f), new Vector3(0f, 90f, 0f), 1f, "Container_B");
+        Place(CreepyRoot + "Props/Pipes & Cables/P_Pipe_Big_Line_01.prefab", t,
+              new Vector3(-4f, 0f, 34f), Vector3.zero, 1.5f, "Pipe_A");
+        Place(CreepyRoot + "Props/Machine/P_Solar_Power_01.prefab", t,
+              new Vector3(-56f, 0f, -26f), new Vector3(0f, 40f, 0f), 1f, "Solar_A");
+        Place(CreepyRoot + "Props/Machine/P_Wind_Turbine_01.prefab", t,
+              new Vector3(56f, 0f, 22f), new Vector3(0f, -30f, 0f), 1f, "Turbine_A");
+    }
+
+    static PathRoute BuildRoute(Transform parent, string name, Vector3[] pts, Color color)
+    {
+        var routeGo = new GameObject(name);
+        routeGo.transform.SetParent(parent, false);
+        var route = routeGo.AddComponent<PathRoute>();
+
+        var wps = new List<Transform>();
+        for (int i = 0; i < pts.Length; i++)
+        {
+            var wp = new GameObject($"WP_{i}");
+            wp.transform.SetParent(routeGo.transform, false);
+            wp.transform.position = pts[i];
+            wps.Add(wp.transform);
+        }
+
+        var so = new SerializedObject(route);
+        var arr = so.FindProperty("waypoints");
+        arr.arraySize = wps.Count;
+        for (int i = 0; i < wps.Count; i++)
+            arr.GetArrayElementAtIndex(i).objectReferenceValue = wps[i];
+        so.FindProperty("lineColor").colorValue = color;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        return route;
+    }
+
+    const string FiradzoRoot = "Assets/Vendor/TD_Sci-Fi_Turrets_Pack_V2/Prefabs/";
+
+    static Transform BuildCore(Transform parent)
+    {
+        var coreRoot = new GameObject("Core_Blockout");
+        coreRoot.transform.SetParent(parent, false);
+        coreRoot.transform.position = CorePos;
+
+        var platform = Place(CreepyRoot + "Bases & Hangars/P_Plateform_Big_01.prefab", coreRoot.transform,
+              CorePos, Vector3.zero, 0.3f, "Core_Platform");
+        float platTop = platform != null ? 5.92f * 0.3f : 0f;
+
+        Place(FiradzoRoot + "Shield_generator_2/Shield_generator_2_1.prefab", coreRoot.transform,
+              CorePos + new Vector3(0f, platTop, 0f), Vector3.zero, 1f, "Core_ShieldGenerator");
+
+        var target = new GameObject("Core_Target");
+        target.transform.SetParent(coreRoot.transform, false);
+        target.transform.position = CorePos + new Vector3(0f, platTop + 3f, 0f);
+        return target.transform;
+    }
+
+    static void WireSpawners(PathRoute west, PathRoute north, Transform core,
+                             Vector3 westStart, Vector3 northStart, StringBuilder log)
+    {
+        WireOne("Spawner_West", 0, west, core, westStart, log);
+        WireOne("Spawner_North", 1, north, core, northStart, log);
+        WireOne("Spawner_Air", 2, null, core, new Vector3(0f, 4f, 37f), log);
+    }
+
+    static void WireOne(string name, int index, PathRoute route, Transform core, Vector3 pos, StringBuilder log)
+    {
+        var go = GameObject.Find(name);
+        if (go == null)
+        {
+            log.AppendLine($"[warn] Spawner '{name}' not found; skipped.");
+            return;
+        }
+        var sp = go.GetComponent<Spawner>();
+        if (sp == null) { log.AppendLine($"[warn] '{name}' has no Spawner."); return; }
+        sp.SetIndex(index);
+        if (route != null) sp.SetRoute(route);
+        if (core != null) sp.SetCoreTarget(core);
+        go.transform.position = pos;
+        EditorUtility.SetDirty(sp);
+        log.AppendLine($"[ok] wired {name} (index {index}) at {pos}");
+    }
+
+    struct HP
+    {
+        public string name; public Vector3 pos;
+        public Corehold.Towers.HardpointCoverageGizmo.TurretKind kind;
+        public Corehold.Towers.HardpointCoverageGizmo.PadClass cls;
+    }
+
+    static HP MakeHP(string n, Vector3 p,
+                     Corehold.Towers.HardpointCoverageGizmo.TurretKind k,
+                     Corehold.Towers.HardpointCoverageGizmo.PadClass c)
+        => new HP { name = n, pos = p, kind = k, cls = c };
+
+    static void BuildHardpoints(Transform parent, PathRoute route, StringBuilder log)
+    {
+        var Autocannon = Corehold.Towers.HardpointCoverageGizmo.TurretKind.Autocannon;
+        var Missile = Corehold.Towers.HardpointCoverageGizmo.TurretKind.Missile;
+        var ArcNode = Corehold.Towers.HardpointCoverageGizmo.TurretKind.ArcNode;
+        var Mortar = Corehold.Towers.HardpointCoverageGizmo.TurretKind.Mortar;
+        var Premium = Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium;
+        var Standard = Corehold.Towers.HardpointCoverageGizmo.PadClass.Standard;
+        var Rear = Corehold.Towers.HardpointCoverageGizmo.PadClass.Rear;
+        var Overwatch = Corehold.Towers.HardpointCoverageGizmo.PadClass.Overwatch;
+
+        var hps = new List<HP>
+        {
+            // 3 premium (4+ segments) — nested in the fold corners between parallel legs.
+            MakeHP("HP_Premium_1", new Vector3(-7f,  0f, 13f), Missile,    Premium),
+            MakeHP("HP_Premium_2", new Vector3(4f,   0f, 13f), Autocannon, Premium),
+            MakeHP("HP_Premium_3", new Vector3(15f,  0f, 13f), ArcNode,    Premium),
+
+            // 2 standard (2-3 segments).
+            MakeHP("HP_Standard_1", new Vector3(-24f, 0f, 13f), Autocannon, Standard),
+            MakeHP("HP_Standard_2", new Vector3(-13f, 0f, 3f),  Missile,    Standard),
+
+            // 2 rear near the Core (final approach + air corridor terminal leg).
+            MakeHP("HP_Rear_1", new Vector3(29f, 0f, 2f),   Autocannon, Rear),
+            MakeHP("HP_Rear_2", new Vector3(24f, 0f, -2f),  ArcNode,    Rear),
+
+            // 1 overwatch — set back, Siege Mortar home (20 m ring, 6 m dead zone).
+            MakeHP("HP_Overwatch", new Vector3(24f, 0f, -8f), Mortar, Overwatch),
+        };
+
+        var hpRoot = new GameObject("Hardpoints");
+        hpRoot.transform.SetParent(parent, false);
+
+        log.AppendLine("=== Hardpoint coverage (per-turret tier-1 rings) ===");
+        int premiumFour = 0;
+        bool allPass = true;
+        foreach (var h in hps)
+        {
+            var go = new GameObject(h.name);
+            go.transform.SetParent(hpRoot.transform, false);
+            go.transform.position = h.pos;
+
+            Place(CreepyRoot + "Building/Floors/P_Floor_Cache_01.prefab", go.transform,
+                  h.pos, Vector3.zero, 0.5f, "Pad");
+
+            go.AddComponent<Corehold.Towers.TowerHardpoint>();
+            var gz = go.AddComponent<Corehold.Towers.HardpointCoverageGizmo>();
+            gz.intendedTurret = h.kind;
+            gz.padClass = h.cls;
+            gz.routes = new[] { route };
+
+            int covered = gz.CountCoveredSegments();
+            bool isPrem = h.cls == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium;
+            bool pass = isPrem ? covered >= 4 : covered >= 2;
+            if (isPrem && covered >= 4) premiumFour++;
+            if (!pass) allPass = false;
+            log.AppendLine($"{h.name,-14} {h.kind,-11} r{Corehold.Towers.HardpointCoverageGizmo.RangeFor(h.kind):0}m {h.cls,-9} -> {covered} segs {(pass ? "PASS" : "**FAIL**")}");
+        }
+        log.AppendLine($"Premium pads covering 4+: {premiumFour} (need >=3)");
+        log.AppendLine($"COVERAGE RULE: {(allPass && premiumFour >= 3 ? "SATISFIED" : "**NOT MET**")}");
+    }
+
+    static void BuildWreckAndRadar(Transform parent)
+    {
+        var d = new GameObject("Narrative");
+        d.transform.SetParent(parent, false);
+
+        // Toppled onto its back against the left edge, half-buried (sunk 0.4 m).
+        var wreck = Place("Assets/Vendor/Destructible_Humanoid_Robot/Prefabs/HumanBot_Unskinned.prefab",
+              d.transform, new Vector3(-60f, -0.4f, -6f), new Vector3(-90f, 55f, 0f), 1.5f, "TitanWreck");
+        if (wreck == null)
+            Place("Assets/Vendor/Destructible_Humanoid_Robot/Prefabs/HumanBot_Skinned_A.prefab",
+                  d.transform, new Vector3(-60f, -0.4f, -6f), new Vector3(-90f, 55f, 0f), 1.5f, "TitanWreck");
+
+        Place(FiradzoRoot + "Radar/Radar_1.prefab", d.transform,
+              new Vector3(-48f, 0f, 34f), new Vector3(0f, 20f, 0f), 2.2f, "Skyline_Radar");
+    }
+}

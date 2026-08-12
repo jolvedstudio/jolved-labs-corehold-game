@@ -1,0 +1,106 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 734fd835cec16074fa5bce42c59bf999, type: 3}
+  m_Name: Tower_MissileBattery
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
+  id: missile_battery
+  displayName: Missile Battery
+  icon: {fileID: 21300000, guid: fee657b445467de41804f86af2f79db7, type: 3}
+  description: Rocket launcher. Leading projectile with area splash. Explosive.
+  damageType: 2
+  canTargetAir: 1
+  basePrefab: {fileID: 8315169632584228583, guid: 9b44f4facb9ec064c8b4569f756ba47c, type: 3}
+  tiers:
+  - cost: 150
+    weapons:
+    - damage: 45
+      fireRate: 0.6
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
+      projectileSpeed: 22
+      splashRadius: 2.5
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 13
+    minRange: 0
+    damage: 45
+    fireRate: 0.6
+    splashRadius: 2.5
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
+    projectileSpeed: 22
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 1290920140942260628, guid: 770fc6ec5d8efb54f977224ce5a8fc95, type: 3}
+    fireSfx: {fileID: 8300000, guid: b8138f25b128a274d89948a0183dddab, type: 3}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 180
+    weapons:
+    - damage: 80
+      fireRate: 0.7
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
+      projectileSpeed: 22
+      splashRadius: 3
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 14
+    minRange: 0
+    damage: 80
+    fireRate: 0.7
+    splashRadius: 3
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
+    projectileSpeed: 22
+    weaponVisualIndex: 1
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 270
+    weapons:
+    - damage: 140
+      fireRate: 0.8
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
+      projectileSpeed: 22
+      splashRadius: 3.5
+      tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
+    range: 15
+    minRange: 0
+    damage: 140
+    fireRate: 0.8
+    splashRadius: 3.5
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
+    projectileSpeed: 22
+    weaponVisualIndex: 2
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
