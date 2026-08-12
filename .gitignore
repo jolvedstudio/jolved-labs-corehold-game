@@ -47,3 +47,7 @@ crashlytics-build.properties
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---- Python (docs/balance_model.py) ----
+__pycache__/
+*.pyc
