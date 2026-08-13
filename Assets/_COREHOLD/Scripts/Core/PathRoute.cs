@@ -16,6 +16,21 @@ namespace Corehold.Core
     [DisallowMultipleComponent]
     public class PathRoute : MonoBehaviour
     {
+        /// <summary>
+        /// An explicit outgoing tangent forced onto one knot, overriding AutoSmooth
+        /// (roadmap R7). Used at a merge knot so two routes sharing a tail produce
+        /// the identical curve from the merge onward.
+        /// </summary>
+        [System.Serializable]
+        public struct TangentPin
+        {
+            [Tooltip("Index of the waypoint whose outgoing tangent is pinned.")]
+            public int knotIndex;
+
+            [Tooltip("Outgoing tangent as a world-space offset from the knot. Every route sharing this merge MUST carry the identical value — that is what makes the shared tails match.")]
+            public Vector3 tangentOut;
+        }
+
         [Tooltip("Ordered list of waypoints. The route runs from index 0 to the last entry.")]
         [SerializeField] private Transform[] waypoints;
 
@@ -35,6 +50,9 @@ namespace Corehold.Core
 
         [Tooltip("Arc-length table resolution: samples per knot interval. Higher = finer distance→position mapping. Rebuilt only when the waypoints actually move, so this costs nothing per frame.")]
         [SerializeField] private int samplesPerCurve = 16;
+
+        [Tooltip("Merge-knot tangent pins (roadmap R7). Two routes that share a tail but approach it from different directions get DIFFERENT AutoSmooth tangents at the merge knot — because AutoSmooth reads a knot's neighbours — so their shared tails diverge. Pinning the same outgoing tangent at the merge knot on both routes makes the shared geometry identical. Wire with Tools → COREHOLD → Pin Merge Knots.")]
+        [SerializeField] private TangentPin[] tangentPins;
 
         [Header("Gizmo")]
         [SerializeField] private Color lineColor = new Color(0.2f, 1f, 0.6f, 1f);
@@ -290,6 +308,17 @@ namespace Corehold.Core
                 h = h * 31 + count;
                 h = h * 31 + (useSpline ? 1 : 0);
                 h = h * 31 + samplesPerCurve;
+                if (tangentPins != null)
+                {
+                    for (int i = 0; i < tangentPins.Length; i++)
+                    {
+                        h = h * 31 + tangentPins[i].knotIndex;
+                        Vector3 t = tangentPins[i].tangentOut;
+                        h = h * 31 + t.x.GetHashCode();
+                        h = h * 31 + t.y.GetHashCode();
+                        h = h * 31 + t.z.GetHashCode();
+                    }
+                }
                 for (int i = 0; i < count; i++)
                 {
                     Transform wp = waypoints[i];
@@ -362,6 +391,8 @@ namespace Corehold.Core
             }
             spline.Closed = false;
 
+            ApplyTangentPins(spline);
+
             int step = Mathf.Max(2, samplesPerCurve);
             int samples = (count - 1) * step;
 
@@ -408,6 +439,44 @@ namespace Corehold.Core
                     $"spline {nativeLength:0.###} m ({(nativeLength - total) / nativeLength:P2}). " +
                     $"Raise samplesPerCurve (currently {samplesPerCurve}) — Length feeds the balance model.",
                     this);
+            }
+        }
+
+        /// <summary>
+        /// Force the authored outgoing tangents onto their knots (R7), overriding
+        /// what AutoSmooth derived from the neighbours.
+        ///
+        /// Only the OUT tangent is pinned. The curve leaving the merge knot — the
+        /// shared tail — depends on this knot's out tangent and the next knot's in
+        /// tangent; every knot after the merge has identical neighbours on both
+        /// routes, so their AutoSmooth tangents already match. Pinning the out
+        /// tangent to the same value on both routes is therefore sufficient to make
+        /// the entire shared tail identical. The IN tangent keeps its AutoSmooth
+        /// value because the approach leg is NOT shared and should keep its natural
+        /// shape — Broken mode is what lets the two differ.
+        /// </summary>
+        private void ApplyTangentPins(Spline spline)
+        {
+            if (tangentPins == null || tangentPins.Length == 0)
+                return;
+
+            for (int i = 0; i < tangentPins.Length; i++)
+            {
+                int k = tangentPins[i].knotIndex;
+                if (k < 0 || k >= spline.Count)
+                    continue;
+
+                // Read first: AutoSmooth has already written its computed tangents
+                // into the knot, and we want to keep the incoming one.
+                BezierKnot knot = spline[k];
+                Vector3 pin = tangentPins[i].tangentOut;
+
+                spline.SetTangentMode(k, TangentMode.Broken);
+                spline.SetKnot(k, new BezierKnot(
+                    knot.Position,
+                    knot.TangentIn,
+                    new float3(pin.x, pin.y, pin.z),
+                    knot.Rotation));
             }
         }
 
