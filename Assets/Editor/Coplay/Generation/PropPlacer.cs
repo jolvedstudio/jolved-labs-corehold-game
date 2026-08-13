@@ -1,0 +1,265 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Corehold.Core;
+using Corehold.Data;
+using Corehold.Systems;
+using Corehold.Towers;
+using UnityEditor;
+using UnityEngine;
+
+/// <summary>
+/// Themed prop placement (R28): dress a generated level from the drawn theme's
+/// <see cref="EnvPack"/>, then prove the dressing didn't blind a pad.
+///
+/// Every test uses PLACED dimensions — the pack's scale-1 metadata multiplied
+/// by the applied scale — and every placed prop is stamped with a
+/// <see cref="PlacedProp"/> carrying them, so the scene stays verifiable after
+/// the generator is gone.
+///
+/// Placement is a deterministic rejection sampler: candidate positions come
+/// from a seeded xorshift stream (FNV-1a(seed, "dressing")), tested against
+/// route clearance, pad keep-outs, the core, the field margin and previously
+/// placed props. Same seed ⇒ same dressing, prop for prop.
+///
+/// After placing, the OCCLUSION RE-RUN (roadmap stage 9): every pad is
+/// recounted through the gizmo's sight-line-aware walk. If a pad fell below
+/// its class requirement, the prop blocking the most spans is REMOVED and the
+/// recount repeats. Removing dressing is legitimate self-repair — dressing is
+/// decoration; the geometry gates (R29) stay reject-and-reseed.
+/// </summary>
+public static class PropPlacer
+{
+    private const float LaneHalfWidth = 0.9f;
+    private const float MaxBodyRadius = 1.35f;
+
+    /// <summary>Extra breathing room between a prop's edge and anything it must clear.</summary>
+    private const float Margin = 0.5f;
+
+    /// <summary>Pads own their pocket: props keep this far off a pad, plus their radius.</summary>
+    private const float PadKeepOut = 6f;
+    private const float PadKeepOutInFold = 3f;
+
+    private const int MaxAttemptsPerProp = 24;
+    private const int MaxOcclusionRemovals = 10;
+
+    // Placement counts per role: a floor plus an area-scaled component, so a
+    // bigger field gets proportionally more dressing. [TUNE]
+    private const float FieldAreaReference = 130f * 75f;
+
+    private struct Rng
+    {
+        private uint _state;
+        public Rng(uint seed) { _state = seed == 0 ? 2463534242u : seed; }
+        public uint NextU()
+        {
+            _state ^= _state << 13;
+            _state ^= _state >> 17;
+            _state ^= _state << 5;
+            return _state;
+        }
+        public float Range(float min, float max) => min + (NextU() / 4294967296f) * (max - min);
+    }
+
+    private class Placed
+    {
+        public Vector3 pos;
+        public float radius;
+        public float height;
+    }
+
+    /// <summary>
+    /// Dress the level. Returns a summary; occlusion repair happens inside, and
+    /// <paramref name="stillBlocked"/> reports any pad the repair could not
+    /// save — which fails gate 2b and discards the seed.
+    /// </summary>
+    public static string Dress(LevelBlueprint blueprint, EnvPack theme, Transform levelContainer,
+                               List<PathRoute> routes, Vector3 corePos, out List<string> stillBlocked)
+    {
+        var log = new StringBuilder();
+        stillBlocked = new List<string>();
+
+        var rng = new Rng(GenerationPipeline.Fnv1a(blueprint.randomSeed, "dressing"));
+        float halfW = blueprint.playfieldSize.x * 0.5f - 4f;
+        float halfD = blueprint.playfieldSize.y * 0.5f - 4f;
+        float areaScale = (blueprint.playfieldSize.x * blueprint.playfieldSize.y) / FieldAreaReference;
+
+        // Route curve samples once, for clearance tests.
+        var routeSamples = new List<Vector3>();
+        foreach (PathRoute route in routes)
+            for (float d = 0f; d <= route.Length; d += 0.5f)
+            {
+                Vector3 p = route.SamplePosition(d, out _);
+                p.y = 0f;
+                routeSamples.Add(p);
+            }
+
+        var pads = Object.FindObjectsByType<HardpointCoverageGizmo>(FindObjectsSortMode.None)
+            .OrderBy(g => g.name, System.StringComparer.Ordinal).ToArray();
+
+        var dressing = new GameObject("Dressing");
+        dressing.transform.SetParent(levelContainer, false);
+
+        var placed = new List<Placed>();
+        var placedObjects = new List<(GameObject go, Placed data)>();
+
+        // ---- in-field roles, biggest first so landmarks claim space ----------
+        PlaceRole(EnvPack.PropRole.Landmark, Mathf.RoundToInt(2f * areaScale) + 1, true);
+        PlaceRole(EnvPack.PropRole.MidField, Mathf.RoundToInt(5f * areaScale) + 1, true);
+        PlaceRole(EnvPack.PropRole.Clutter, Mathf.RoundToInt(10f * areaScale) + 2, true);
+
+        // ---- silhouettes: the far band beyond the field's north edge ---------
+        PlaceRole(EnvPack.PropRole.Silhouette, Mathf.RoundToInt(5f * areaScale) + 1, false);
+
+        void PlaceRole(EnvPack.PropRole role, int target, bool inField)
+        {
+            var entries = theme.entries?.Where(e => e.prefab != null && e.role == role)
+                .OrderBy(e => e.prefab.name, System.StringComparer.Ordinal).ToList();
+            if (entries == null || entries.Count == 0)
+            {
+                log.AppendLine($"  {role,-10} 0 placed — the theme pack has no entries in this role");
+                return;
+            }
+
+            int placedCount = 0;
+            for (int i = 0; i < target; i++)
+            {
+                EnvPack.Entry entry = entries[(int)(rng.NextU() % (uint)entries.Count)];
+                float scale = Mathf.Lerp(
+                    entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
+                    entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
+                    rng.Range(0f, 1f));
+                float radius = entry.footprintRadius * scale;    // PLACED dimensions —
+                float height = entry.height * scale;             // never the raw fields
+
+                for (int attempt = 0; attempt < MaxAttemptsPerProp; attempt++)
+                {
+                    Vector3 pos = inField
+                        ? new Vector3(rng.Range(-halfW, halfW), 0f, rng.Range(-halfD, halfD))
+                        : new Vector3(rng.Range(-halfW * 1.2f, halfW * 1.2f), 0f,
+                                      blueprint.playfieldSize.y * 0.5f + rng.Range(8f, 22f));
+
+                    if (inField && !ClearOf(pos, radius, entry.allowInFold))
+                        continue;
+                    if (!inField && !ClearOfProps(pos, radius))
+                        continue;
+
+                    var go = (GameObject)PrefabUtility.InstantiatePrefab(entry.prefab);
+                    go.transform.SetParent(dressing.transform, false);
+                    go.transform.position = pos;
+                    go.transform.rotation = Quaternion.Euler(0f, rng.Range(0f, 360f), 0f);
+                    go.transform.localScale = Vector3.one * scale;
+                    go.name = $"Prop_{role}_{placedCount + 1}";
+
+                    var marker = go.AddComponent<PlacedProp>();
+                    marker.placedFootprintRadius = radius;
+                    marker.placedHeight = height;
+                    marker.role = role.ToString();
+
+                    var data = new Placed { pos = pos, radius = radius, height = height };
+                    placed.Add(data);
+                    placedObjects.Add((go, data));
+                    placedCount++;
+                    break;
+                }
+            }
+            log.AppendLine($"  {role,-10} {placedCount}/{target} placed");
+        }
+
+        bool ClearOf(Vector3 pos, float radius, bool allowInFold)
+        {
+            // Route clearance: lane band + widest body + this prop's own edge.
+            float needRoute = LaneHalfWidth + MaxBodyRadius + radius + Margin;
+            foreach (Vector3 s in routeSamples)
+                if (Flat(pos - s).magnitude < needRoute)
+                    return false;
+
+            // Pads own their pockets (this is what allowInFold actually relaxes).
+            float needPad = (allowInFold ? PadKeepOutInFold : PadKeepOut) + radius;
+            foreach (var pad in pads)
+                if (Flat(pos - pad.transform.position).magnitude < needPad)
+                    return false;
+
+            if (Flat(pos - corePos).magnitude < 10f + radius)
+                return false;
+
+            return ClearOfProps(pos, radius);
+        }
+
+        bool ClearOfProps(Vector3 pos, float radius)
+        {
+            foreach (Placed other in placed)
+                if (Flat(pos - other.pos).magnitude < radius + other.radius + 1f)
+                    return false;
+            return true;
+        }
+
+        // ---- occlusion re-run + self-repair (roadmap stage 9) ----------------
+        int removed = 0;
+        for (int pass = 0; pass <= MaxOcclusionRemovals; pass++)
+        {
+            var occluders = placedObjects
+                .Select(p => new HardpointCoverageGizmo.Occluder
+                { position = p.data.pos, radius = p.data.radius, height = p.data.height })
+                .ToList();
+
+            var shortfalls = new List<(HardpointCoverageGizmo pad, int have, int need)>();
+            foreach (var pad in pads)
+            {
+                int need = pad.padClass == HardpointCoverageGizmo.PadClass.Premium ? 4 : 2;
+                int have = pad.CountCoveredSpansOnCurve(occluders);
+                if (have < need)
+                    shortfalls.Add((pad, have, need));
+            }
+
+            if (shortfalls.Count == 0)
+                break;
+
+            if (pass == MaxOcclusionRemovals || placedObjects.Count == 0)
+            {
+                foreach (var (pad, have, need) in shortfalls)
+                    stillBlocked.Add($"{pad.name} at {have}/{need} spans with sight lines applied");
+                break;
+            }
+
+            // Remove the prop whose absence recovers the most spans for the
+            // worst-hit pad — deterministic: first-worst pad, best single prop.
+            var victim = shortfalls[0].pad;
+            (GameObject go, Placed data) bestProp = default;
+            int bestRecovered = -1;
+            foreach (var candidate in placedObjects)
+            {
+                var without = placedObjects.Where(p => p.go != candidate.go)
+                    .Select(p => new HardpointCoverageGizmo.Occluder
+                    { position = p.data.pos, radius = p.data.radius, height = p.data.height })
+                    .ToList();
+                int recovered = victim.CountCoveredSpansOnCurve(without);
+                if (recovered > bestRecovered)
+                {
+                    bestRecovered = recovered;
+                    bestProp = candidate;
+                }
+            }
+
+            log.AppendLine($"  [occlusion] removed '{bestProp.go.name}' — it blocked {victim.name} " +
+                           $"(recovers to {bestRecovered} spans)");
+            placed.Remove(bestProp.data);
+            placedObjects.Remove(bestProp);
+            Object.DestroyImmediate(bestProp.go);
+            removed++;
+        }
+
+        log.AppendLine(removed > 0
+            ? $"  occlusion re-run: {removed} prop(s) removed to keep sight lines; " +
+              (stillBlocked.Count == 0 ? "all pads recovered" : $"{stillBlocked.Count} pad(s) STILL short")
+            : "  occlusion re-run: no pad lost a span to dressing");
+
+        return log.ToString();
+    }
+
+    private static Vector3 Flat(Vector3 v)
+    {
+        v.y = 0f;
+        return v;
+    }
+}

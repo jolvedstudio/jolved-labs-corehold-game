@@ -41,13 +41,29 @@ public static class MergeKnotPinning
             return;
         }
 
+        if (Pin(primary, secondary, out string report))
+            Debug.Log(report);
+        else
+            Debug.LogWarning(report);
+    }
+
+    /// <summary>
+    /// Pin the merge knot's outgoing tangent to the same world-space value on
+    /// both routes, making their shared tails identical (R7). Public because the
+    /// generation pipeline must pin every pair of routes it builds — generated
+    /// routes merge exactly like the shipped map and inherit the AutoSmooth
+    /// divergence wholesale (R27). Returns false (with the reason in
+    /// <paramref name="report"/>) when there is nothing pinnable.
+    /// </summary>
+    public static bool Pin(PathRoute primary, PathRoute secondary, out string report)
+    {
         var log = new StringBuilder();
         log.AppendLine("=== R7 merge-knot pinning ===");
 
         if (!FindSharedTail(primary, secondary, out int primaryMerge, out int secondaryMerge, out int sharedCount))
         {
-            Debug.LogWarning($"[R7] '{primary.name}' and '{secondary.name}' share no tail knots — nothing to pin.");
-            return;
+            report = $"[R7] '{primary.name}' and '{secondary.name}' share no tail knots — nothing to pin.";
+            return false;
         }
 
         log.AppendLine($"Shared tail: {sharedCount} knots, starting at " +
@@ -56,8 +72,8 @@ public static class MergeKnotPinning
 
         if (primaryMerge <= 0 || primaryMerge + 1 >= primary.PointCount)
         {
-            Debug.LogWarning("[R7] The merge knot is at a route end — no neighbours to derive a tangent from.");
-            return;
+            report = "[R7] The merge knot is at a route end — no neighbours to derive a tangent from.";
+            return false;
         }
 
         // Take the pin from the PRIMARY route's OWN AutoSmooth tangent, read back out
@@ -94,8 +110,10 @@ public static class MergeKnotPinning
         UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(primary.gameObject.scene);
 
         log.AppendLine();
-        log.AppendLine(Measure(primary, secondary, primaryMerge, secondaryMerge));
-        Debug.Log(log.ToString());
+        string divergence = Measure(primary, secondary, primaryMerge, secondaryMerge);
+        log.AppendLine(divergence);
+        report = log.ToString();
+        return !divergence.Contains("FAIL");
     }
 
     [MenuItem("Tools/COREHOLD/Validate/Check Route Divergence", false, 22)]

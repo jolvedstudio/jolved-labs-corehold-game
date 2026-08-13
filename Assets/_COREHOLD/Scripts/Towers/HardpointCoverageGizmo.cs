@@ -103,12 +103,41 @@ namespace Corehold.Towers
         }
 
         /// <summary>
+        /// One sight-line occluder for the occlusion-aware count (roadmap R28): a
+        /// vertical cylinder at a placed prop's position, using its PLACED footprint
+        /// radius and height (stored metadata × applied scale — reading the raw
+        /// asset fields under-measures every prop the placer scaled up).
+        /// </summary>
+        public struct Occluder
+        {
+            public Vector3 position;
+            public float radius;
+            public float height;
+        }
+
+        /// <summary>Height above the pad the turret muzzle fires from, for sight-line tests (R28). [TUNE]</summary>
+        public const float MuzzleHeight = 1.5f;
+
+        /// <summary>Height above the route a shot must reach — enemy centre mass. [TUNE]</summary>
+        public const float TargetHeight = 1.0f;
+
+        /// <summary>
         /// Count covered knot-interval spans by walking each interval along its arc
         /// length. A span counts when any part of it falls inside the range ring —
         /// tested per sub-segment between samples, so a span that only clips the
         /// ring between two samples is still caught.
         /// </summary>
-        public int CountCoveredSpansOnCurve()
+        public int CountCoveredSpansOnCurve() => CountCoveredSpansOnCurve(null);
+
+        /// <summary>
+        /// The same walk, with SIGHT LINES (R28): a sub-segment only counts when it
+        /// is inside the ring AND the muzzle→target line is not blocked by an
+        /// occluder cylinder. This lives HERE, on the same walk the plain count
+        /// uses, precisely so there is no second implementation to drift — the
+        /// distance test and the occlusion test disagree only by the occluders.
+        /// Passing null (or empty) reproduces the plain count exactly.
+        /// </summary>
+        public int CountCoveredSpansOnCurve(IReadOnlyList<Occluder> occluders)
         {
             if (routes == null)
                 return 0;
@@ -135,11 +164,50 @@ namespace Corehold.Towers
                     if (!seen.Add(key))
                         continue;
 
-                    if (SpanCovered(route, i, padXZ, range, minRange))
+                    if (SpanCovered(route, i, padXZ, range, minRange, occluders))
                         covered++;
                 }
             }
             return covered;
+        }
+
+        /// <summary>
+        /// True when the muzzle→target sight line passes through an occluder: the
+        /// 3D segment from the pad at <see cref="MuzzleHeight"/> to the sample at
+        /// <see cref="TargetHeight"/>, tested against each cylinder — the XZ ray
+        /// must cross the circle AND sit at or below the cylinder's height where
+        /// it crosses. The Mortar is EXEMPT: it fires an arcing shell over
+        /// obstacles by design (GDD §7.3), which is much of why Overwatch pads
+        /// tolerate set-back positions.
+        /// </summary>
+        private bool SightBlocked(Vector3 padXZ, Vector3 targetXZ, IReadOnlyList<Occluder> occluders)
+        {
+            if (occluders == null || occluders.Count == 0)
+                return false;
+            if (intendedTurret == TurretKind.Mortar)
+                return false;
+
+            Vector3 ab = targetXZ - padXZ;
+            float len2 = ab.sqrMagnitude;
+            if (len2 < 1e-6f)
+                return false;
+
+            for (int i = 0; i < occluders.Count; i++)
+            {
+                Occluder oc = occluders[i];
+                Vector3 c = Flat(oc.position);
+
+                float t = Mathf.Clamp01(Vector3.Dot(c - padXZ, ab) / len2);
+                Vector3 closest = padXZ + ab * t;
+                if ((closest - c).sqrMagnitude > oc.radius * oc.radius)
+                    continue;
+
+                // Height of the sight line where it crosses the cylinder.
+                float y = Mathf.Lerp(MuzzleHeight, TargetHeight, t);
+                if (y <= oc.height)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -190,8 +258,12 @@ namespace Corehold.Towers
         /// Walk one knot interval along the route and test each sub-segment against
         /// the ring. The Mortar dead-zone rule is the original one applied at finer
         /// granularity: a piece lying entirely inside the dead zone does not count.
+        /// With occluders, an in-ring sub-segment must ALSO have a clear sight line
+        /// to its midpoint (R28) — a span survives if ANY of its pieces is both in
+        /// range and visible.
         /// </summary>
-        private bool SpanCovered(PathRoute route, int knotIndex, Vector3 padXZ, float range, float minRange)
+        private bool SpanCovered(PathRoute route, int knotIndex, Vector3 padXZ, float range, float minRange,
+                                 IReadOnlyList<Occluder> occluders = null)
         {
             float d0 = route.DistanceAlongAt(knotIndex);
             float d1 = route.DistanceAlongAt(knotIndex + 1);
@@ -211,7 +283,8 @@ namespace Corehold.Towers
                 {
                     float da = Vector3.Distance(padXZ, prev);
                     float db = Vector3.Distance(padXZ, cur);
-                    if (Mathf.Max(da, db) >= minRange)
+                    if (Mathf.Max(da, db) >= minRange &&
+                        !SightBlocked(padXZ, (prev + cur) * 0.5f, occluders))
                         return true;
                 }
                 prev = cur;

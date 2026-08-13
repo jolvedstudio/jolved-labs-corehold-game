@@ -60,16 +60,17 @@ namespace CoreholdEditor
         static void GameplayExtents(out float minX, out float maxX, out float minZ, out float maxZ, out int count)
         {
             var pts = new List<Vector3>();
-            void Collect(string rootPath)
-            {
-                var go = SceneLookup.Find(rootPath);
-                if (go == null) return;
-                foreach (var t in go.GetComponentsInChildren<Transform>(true))
-                    pts.Add(t.position);
-            }
-            Collect("RefineryLevel/Routes");
-            Collect("RefineryLevel/Hardpoints");
-            var core = SceneLookup.Find("RefineryLevel/Core_Blockout/Core_Target");
+
+            // Collect by COMPONENT TYPE, not by container path: a generated level's
+            // container is named after its blueprint, not "RefineryLevel" (R26), and
+            // a path miss here would silently fall back to the design box — wrong
+            // framing with no error, on every generated map.
+            foreach (var route in Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None))
+                for (int i = 0; i < route.PointCount; i++)
+                    pts.Add(route.GetPoint(i));
+            foreach (var pad in Object.FindObjectsByType<Corehold.Towers.TowerHardpoint>(FindObjectsSortMode.None))
+                pts.Add(pad.transform.position);
+            var core = SceneLookup.Find("Core_Target");
             if (core != null) pts.Add(core.transform.position);
             foreach (var s in new[] { "Spawner_West", "Spawner_North", "Spawner_Air" })
             {

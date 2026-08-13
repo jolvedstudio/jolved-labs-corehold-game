@@ -91,6 +91,7 @@ public static class GenerateLevel
         }
 
         // Values measured off the live map earlier in this project, not guessed.
+        bp.parityLayout = true;   // this blueprint IS the parity target — no seed variation
         bp.randomSeed = 1;
         bp.playfieldSize = new Vector2(130f, 75f);
         bp.protectedNormalizedPos = new Vector2(0.765f, 0.413f);  // Core at (34.5, -6.5)
@@ -163,6 +164,11 @@ public static class GenerateLevel
 
         if (b.rulesTemplate == null)
             errors.Add("rulesTemplate is unassigned — R30 clones it to emit the LevelDefinition.");
+
+        if (b.groundSpawnLegs == 1)
+            warnings.Add("groundSpawnLegs is 1 but the shipped wave tables send groups to spawner 1 (north). " +
+                         "The balance model reroutes those to the primary route; verify the wave table's " +
+                         "spawner indices before shipping a 1-leg map (wave regeneration is R33).");
 
         if (b.envPackPool == null || b.envPackPool.Length == 0)
         {

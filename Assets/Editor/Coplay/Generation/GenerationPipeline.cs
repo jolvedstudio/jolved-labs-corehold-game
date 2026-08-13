@@ -10,18 +10,16 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// The generation pipeline as CODE — an ordered list of stages that both the
-/// Level Generator window and the headless menu item drive. This is the R26
-/// architecture decision: the pipeline must not live in menu items, because menu
-/// items cannot be sequenced, reported on, or partially re-run, and "run these
-/// nine in the right order" does not scale past the person who wrote them.
+/// The generation pipeline as CODE — the ordered stage list both the Level
+/// Generator window and the headless menu item drive (R26). The stage order is
+/// the P6 preamble's twelve-stage order, and it is LOAD-BEARING: floor after
+/// camera, coverage re-run after dressing, model solve after geometry is final.
 ///
-/// v1 scope — parity path (R26). Stages that R27–R30 will replace are marked:
-/// today "content" delegates to <see cref="RefineryDeltaBlockout.Build"/> (the
-/// shipped map's builder), so only the parity blueprint truly generates. The
-/// stage list is the contract: R27 swaps the content stage for route synthesis,
-/// R28 adds selection + dressing, R29 inserts the gates, R30 replaces the model
-/// stub — the window updates by itself because it renders whatever is here.
+/// Layout comes from one seam (<see cref="LevelLayout"/>): the parity path
+/// returns the shipped map, R27's synthesizer returns a seeded one, and every
+/// stage after that seam treats the two identically — same gates, same
+/// grouping, same emission. Failure anywhere DISCARDS the run: no scene saved,
+/// created assets deleted (R29's "nothing emitted").
 /// </summary>
 public static class GenerationPipeline
 {
@@ -43,8 +41,16 @@ public static class GenerationPipeline
         public LevelBlueprint blueprint;
         public EnvPack theme;              // drawn in the theme stage; null = undressed
         public WeatherPreset weather;      // drawn preset; null = authored look (R13 null preset)
+        public LevelLayout layout;
+        public Transform levelContainer;
+        public Transform coreTarget;
+        public List<Corehold.Core.PathRoute> routes = new List<Corehold.Core.PathRoute>();
         public string scenePath;
-        public string levelAssetPath;
+        public string levelAssetPath;      // set once the asset EXISTS (cleanup deletes it on failure)
+        public bool sceneCreated;
+        public bool sceneSaved;
+        public List<string> dressingStillBlocked;   // pads the occlusion self-repair could not save
+        public BalanceModelRunner.Result model;     // the emission stage's model run; gate 3 judges it
     }
 
     public struct Stage
@@ -61,23 +67,29 @@ public static class GenerationPipeline
     {
         new Stage { title = "Validate blueprint",        ticket = "R25/R29", run = StValidate },
         new Stage { title = "Draw theme & weather",      ticket = "P6",      run = StDraw },
-        new Stage { title = "New scene",                 ticket = "R26",     run = StNewScene },
-        new Stage { title = "Content (parity blockout)", ticket = "R26→R27/R28", run = StParityContent },
-        new Stage { title = "Playable bootstrap",        ticket = "R26",     run = StBootstrap },
-        new Stage { title = "Directors + UI",            ticket = "R26",     run = StDirectorsUi },
+        new Stage { title = "New scene + containers",    ticket = "R26",     run = StNewScene },
+        new Stage { title = "Scene skeleton",            ticket = "R26",     run = StSkeleton },
+        new Stage { title = "Protected structure",       ticket = "R26",     run = StProtected },
+        new Stage { title = "Routes + spawners",         ticket = "R26/R27", run = StRoutes },
+        new Stage { title = "GATE 1 — clearance",        ticket = "R29",     run = StGate1 },
+        new Stage { title = "Hardpoints",                ticket = "R26/R28", run = StPads },
+        new Stage { title = "GATE 2 — coverage",         ticket = "R28/R29", run = StGate2 },
         new Stage { title = "Camera framing",            ticket = "R26",     run = StCamera },
         new Stage { title = "Floor fit + theme ground",  ticket = "R11/R26", run = StGround },
+        new Stage { title = "Dressing",                  ticket = "R26/R28", run = StDressing },
+        new Stage { title = "GATE 2b — occlusion re-run", ticket = "R28",    run = StOcclusion },
         new Stage { title = "Weather",                   ticket = "R13",     run = StWeather },
-        new Stage { title = "Organize hierarchy",        ticket = "R26",     run = StOrganize },
+        new Stage { title = "Group & verify hierarchy",  ticket = "R26",     run = StHierarchy },
         new Stage { title = "Emit LevelDefinition",      ticket = "R30",     run = StEmitLevel },
-        new Stage { title = "GATE model margins",        ticket = "R29/R30", run = StModelGate },
+        new Stage { title = "GATE 3 — model margins",    ticket = "R29/R30", run = StModelGate },
         new Stage { title = "Save scene",                ticket = "R29",     run = StSave },
     };
 
     /// <summary>
-    /// Run every stage in order, stopping at the first failure. Results arrive
-    /// through <paramref name="onStage"/> as they happen so a window can paint
-    /// progress; the return value is the full transcript.
+    /// Run every stage in order. A failure stops the run AND discards it (R29:
+    /// a blueprint that fails any stage emits no scene) — the half-built scene
+    /// is closed unsaved and any created LevelDefinition asset is deleted, so
+    /// the only artifacts a failed run leaves are its report lines.
     /// </summary>
     public static List<(Stage stage, StageResult result)> RunAll(
         LevelBlueprint blueprint, Action<Stage, StageResult> onStage = null)
@@ -94,9 +106,38 @@ public static class GenerationPipeline
             results.Add((stage, r));
             onStage?.Invoke(stage, r);
             if (!r.ok)
+            {
+                var discard = Discard(ctx);
+                results.Add((new Stage { title = "Discard", ticket = "R29", run = null }, discard));
+                onStage?.Invoke(results[results.Count - 1].Item1, discard);
                 break;
+            }
         }
         return results;
+    }
+
+    /// <summary>Failure cleanup: nothing emitted means NOTHING — not a half-scene, not a stray asset.</summary>
+    private static StageResult Discard(Context ctx)
+    {
+        var notes = new List<string>();
+
+        if (!string.IsNullOrEmpty(ctx.levelAssetPath) &&
+            AssetDatabase.LoadAssetAtPath<LevelDefinition>(ctx.levelAssetPath) != null)
+        {
+            AssetDatabase.DeleteAsset(ctx.levelAssetPath);
+            notes.Add($"deleted {ctx.levelAssetPath}");
+        }
+
+        if (ctx.sceneCreated && !ctx.sceneSaved)
+        {
+            // Replacing the unsaved scene with an empty one is the discard —
+            // there is no file to delete because none was ever written.
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            notes.Add("half-built scene closed unsaved");
+        }
+
+        notes.Add("re-seed rather than repair (R29) — try Seed +1");
+        return StageResult.Ok(string.Join("; ", notes));
     }
 
     // ---------------------------------------------------------- deterministic draw
@@ -106,7 +147,7 @@ public static class GenerationPipeline
     /// identical on every device — System.Random's algorithm is not contractually
     /// stable, and R37 (daily seed) needs draws to agree across platforms.
     /// </summary>
-    private static uint Fnv1a(int seed, string purpose)
+    internal static uint Fnv1a(int seed, string purpose)
     {
         unchecked
         {
@@ -190,44 +231,174 @@ public static class GenerationPipeline
             return StageResult.Fail("cancelled — the open scene has unsaved changes");
 
         EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
-        return StageResult.Ok("fresh scene (Main Camera + Directional Light)");
+        ctx.sceneCreated = true;
+
+        // Containers FIRST, so everything the pipeline itself builds is parented
+        // at creation — emitted grouped, not organised after the fact (R26).
+        SceneContainers.AdoptAll();
+        return StageResult.Ok("fresh scene; containers created, camera + light adopted");
     }
 
-    private static StageResult StParityContent(Context ctx)
+    private static StageResult StSkeleton(Context ctx)
     {
-        // INTERIM: the shipped map's builder supplies routes, Core, hardpoints and
-        // structures, so today only the parity blueprint truly generates. R27
-        // replaces this with seeded route synthesis, R28 with hardpoint selection
-        // + themed dressing; the fixed geometry is the fallback until then.
-        RefineryDeltaBlockout.Build();
-        return StageResult.Ok("routes + Core + hardpoints + structures from the parity builder " +
-                              "(seeded synthesis lands with R27/R28)");
-    }
-
-    private static StageResult StBootstrap(Context ctx)
-    {
-        string log = PlayableBootstrapSetup.Run();
-        return StageResult.Ok(Summarise(log, "gameplay singletons wired"));
-    }
-
-    private static StageResult StDirectorsUi(Context ctx)
-    {
+        string boot = PlayableBootstrapSetup.Run();
         SetupAudioDirector.Setup();
         SetupVFXDirector.Setup();
         string ui = BuildRealUI.Run();
-        return StageResult.Ok(Summarise(ui, "AudioDirector, VFXDirector, UI canvases"));
+
+        // These tools emit at the scene root (they predate the containers), so
+        // adopt their output immediately — the scene is grouped at every stage
+        // boundary, and the final verify pass proves nothing was missed.
+        int swept = SceneContainers.AdoptAll();
+        return StageResult.Ok($"singletons, directors, UI ({swept} root(s) adopted into containers)");
+    }
+
+    private static StageResult StProtected(Context ctx)
+    {
+        LevelBlueprint b = ctx.blueprint;
+        string synthReport = null;
+        ctx.layout = b.parityLayout
+            ? ShippedLayout.Get(b)
+            : RouteSynthesizer.Synthesize(b, out synthReport);
+
+        // A null layout is a blueprint problem, not a seed problem — the
+        // synthesizer says which field/foldWidth/target constraint is violated.
+        if (ctx.layout == null)
+            return StageResult.Fail("route synthesis refused this blueprint:\n" + synthReport);
+        if (synthReport != null)
+            Debug.Log("[R27] " + synthReport);
+
+        // The level container lives under _Level, named for the blueprint —
+        // "RefineryLevel" only for the parity map, which must mirror the scene.
+        Transform levelRoot = SceneContainers.Ensure("_Level");
+        string containerName = b.parityLayout ? "RefineryLevel" : $"Level_{Sanitise(b.name)}";
+        var container = new GameObject(containerName);
+        container.transform.SetParent(levelRoot, false);
+        ctx.levelContainer = container.transform;
+
+        Vector3 corePos = ctx.layout != null
+            ? ctx.layout.corePos
+            : LevelLayout.FromNormalized(b.protectedNormalizedPos, b.playfieldSize);
+
+        ctx.coreTarget = RefineryDeltaBlockout.BuildCore(ctx.levelContainer, corePos, b.protectedPrefab);
+        return StageResult.Ok($"'{containerName}' under _Level; Core at ({corePos.x:0.##}, {corePos.z:0.##})" +
+                              (b.protectedPrefab != null ? $" using prefab '{b.protectedPrefab.name}'" : " (shipped stack)"));
+    }
+
+    private static StageResult StRoutes(Context ctx)
+    {
+        var log = new StringBuilder();
+        var routesRoot = new GameObject("Routes");
+        routesRoot.transform.SetParent(ctx.levelContainer, false);
+
+        var colors = new[] { new Color(0.2f, 1f, 0.6f, 1f), new Color(0.2f, 0.6f, 1f, 1f) };
+        for (int i = 0; i < ctx.layout.groundRoutes.Length; i++)
+        {
+            var route = RefineryDeltaBlockout.BuildRoute(
+                routesRoot.transform, ctx.layout.routeNames[i], ctx.layout.groundRoutes[i],
+                colors[i % colors.Length]);
+            ctx.routes.Add(route);
+        }
+
+        // Two legs sharing a tail REQUIRE the R7 world-space tangent pin — the
+        // AutoSmooth divergence is inherited wholesale by any merged pair (R27).
+        string pinNote = "single route, no merge to pin";
+        if (ctx.routes.Count == 2)
+        {
+            if (!MergeKnotPinning.Pin(ctx.routes[0], ctx.routes[1], out string pinReport))
+                return StageResult.Fail("merge-knot pin failed:\n" + pinReport);
+            pinNote = "merge pinned, shared tails identical (divergence gate PASS)";
+        }
+
+        // Spawners: created fresh (a generated scene has none to find), wired
+        // by the same WireOne the shipped map used, parented under _Level.
+        Transform levelRoot = SceneContainers.Ensure("_Level");
+        Corehold.Core.PathRoute west = ctx.routes[0];
+        Corehold.Core.PathRoute north = ctx.routes.Count > 1 ? ctx.routes[1] : null;
+        RefineryDeltaBlockout.WireOne("Spawner_West", 0, west, ctx.coreTarget,
+            ctx.layout.groundRoutes[0][0], log, levelRoot);
+        if (north != null)
+            RefineryDeltaBlockout.WireOne("Spawner_North", 1, north, ctx.coreTarget,
+                ctx.layout.groundRoutes[1][0], log, levelRoot);
+        if (ctx.blueprint.airCorridor)
+            RefineryDeltaBlockout.WireOne("Spawner_Air", 2, null, ctx.coreTarget,
+                ctx.layout.airSpawn, log, levelRoot);
+
+        string lengths = string.Join(", ", ctx.routes.Select(r => $"{r.name} {r.Length:0.###} m"));
+        return StageResult.Ok($"{lengths}; {pinNote}; spawners wired");
+    }
+
+    private static StageResult StGate1(Context ctx)
+    {
+        // Parity geometry is measured as-is — adjusting it would un-parity the
+        // rebuild. Synthesized geometry gets the R29 loop: margin clamps only,
+        // logged, ≤3 passes, full re-check between passes.
+        string failure;
+        string summary;
+        if (ctx.blueprint.parityLayout)
+        {
+            failure = GenerationGates.CheckClearance(ctx.routes, ctx.blueprint, out summary);
+        }
+        else
+        {
+            failure = GenerationGates.AdjustAndRecheck(ctx.routes, ctx.blueprint,
+                                                       out summary, out List<string> adjustments);
+            if (adjustments.Count > 0)
+                Debug.Log("[R29] Gate 1 knot adjustments:\n  " + string.Join("\n  ", adjustments));
+            if (failure == null && adjustments.Count > 0)
+                summary += $"; {adjustments.Count} knot(s) margin-clamped (logged)";
+        }
+
+        if (failure != null)
+            return StageResult.Fail(failure);
+        return StageResult.Ok(summary);
+    }
+
+    private static StageResult StPads(Context ctx)
+    {
+        RefineryDeltaBlockout.HP[] pads = ctx.layout.pads;
+        string how = "parity set";
+
+        if (pads == null)
+        {
+            // R28: clearance-filtered candidates, scored by the real validator,
+            // classified from measurement, picked deterministically.
+            pads = HardpointSelector.Select(ctx.blueprint, ctx.routes,
+                                            ctx.layout.corePos, out string selReport);
+            if (pads == null)
+                return StageResult.Fail(selReport);
+            Debug.Log("[R28] Hardpoint selection:\n" + selReport);
+            how = "selected from measured coverage";
+        }
+
+        var log = new StringBuilder();
+        // The gizmo de-duplicates shared spans, and both routes share the snake,
+        // so pads are checked against the primary route — the shipped convention.
+        bool satisfied = RefineryDeltaBlockout.BuildHardpoints(
+            ctx.levelContainer, ctx.routes[0], pads, log);
+
+        // The rule verdict belongs to GATE 2; this stage only reports placement.
+        return StageResult.Ok($"{pads.Length} pads placed ({how})" +
+                              (satisfied ? "" : " — coverage shortfalls, gate 2 will judge"));
+    }
+
+    private static StageResult StGate2(Context ctx)
+    {
+        string failure = GenerationGates.CheckCoverage(ctx.blueprint, out string summary);
+        if (failure != null)
+            return StageResult.Fail(failure);
+        return StageResult.Ok(summary);
     }
 
     private static StageResult StCamera(Context ctx)
     {
         string log = CameraFramingSetup.Run();
-        return StageResult.Ok(Summarise(log, "camera framed against scene content"));
+        return StageResult.Ok(Summarise(log, "camera framed against generated content"));
     }
 
     private static StageResult StGround(Context ctx)
     {
         GroundAndSkirt.FitGroundAndFog();      // frustum-sized, never the design box (R11)
-        GroundAndSkirt.BuildSilhouetteBand();
 
         if (ctx.theme == null)
             return StageResult.Ok("floor fit to frustum; no theme, shipped ground kept");
@@ -260,9 +431,78 @@ public static class GenerationPipeline
         }
 
         if (ctx.theme.groundPrefab != null)
-            notes.Add("groundPrefab set but not yet honoured — lands with R26 proper");
+            notes.Add("groundPrefab NOT honoured yet — the frustum fit sizes the primitive plane, and an " +
+                      "arbitrary ground mesh needs its own fit rule; the material + tiling channels are live");
 
         return StageResult.Ok(string.Join(", ", notes));
+    }
+
+    private static StageResult StDressing(Context ctx)
+    {
+        GroundAndSkirt.BuildSilhouetteBand();  // far-band silhouettes (R11)
+
+        if (ctx.blueprint.parityLayout)
+        {
+            // Parity dressing is the shipped set, placed by the same builders.
+            RefineryDeltaBlockout.BuildStructures(ctx.levelContainer);
+            RefineryDeltaBlockout.BuildWreckAndRadar(ctx.levelContainer);
+            return StageResult.Ok("silhouette band + shipped structures/narrative (parity set)");
+        }
+
+        if (ctx.theme == null)
+            return StageResult.Skip("no theme drawn — undressed beyond the silhouette band");
+
+        string dressLog = PropPlacer.Dress(ctx.blueprint, ctx.theme, ctx.levelContainer,
+                                           ctx.routes, ctx.layout.corePos, out ctx.dressingStillBlocked);
+        Debug.Log("[R28] Dressing:\n" + dressLog);
+
+        int lines = 0;
+        foreach (char c in dressLog)
+            if (c == '\n') lines++;
+        return StageResult.Ok($"themed dressing from '{ctx.theme.themeName}' placed " +
+                              $"(occlusion self-repair ran; details in the console, {lines} line(s))");
+    }
+
+    private static StageResult StOcclusion(Context ctx)
+    {
+        // GATE 2b (R28): coverage re-run THROUGH the sight-line test. The
+        // distance count cannot see occluders — a 12 m tank between a pad and
+        // its route still "covers" by distance — so every pad is recounted
+        // with the placed props as occluder cylinders. The placer already
+        // self-repaired by removing offenders; anything still short here means
+        // the dressing and the pads cannot coexist on this seed.
+        if (ctx.dressingStillBlocked != null && ctx.dressingStillBlocked.Count > 0)
+            return StageResult.Fail("pads still sight-blocked after dressing repair:\n  • " +
+                                    string.Join("\n  • ", ctx.dressingStillBlocked));
+
+        var props = UnityEngine.Object.FindObjectsByType<Corehold.Systems.PlacedProp>(FindObjectsSortMode.None);
+        var occluders = new List<Corehold.Towers.HardpointCoverageGizmo.Occluder>();
+        foreach (var p in props)
+            occluders.Add(new Corehold.Towers.HardpointCoverageGizmo.Occluder
+            {
+                position = p.transform.position,
+                radius = p.placedFootprintRadius,
+                height = p.placedHeight,
+            });
+
+        var shortfalls = new List<string>();
+        foreach (var pad in UnityEngine.Object.FindObjectsByType<Corehold.Towers.HardpointCoverageGizmo>(FindObjectsSortMode.None))
+        {
+            int need = pad.padClass == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium ? 4 : 2;
+            int have = pad.CountCoveredSpansOnCurve(occluders);
+            if (have < need)
+                shortfalls.Add($"{pad.name}: {have}/{need} spans with sight lines applied");
+        }
+
+        if (shortfalls.Count > 0)
+            return StageResult.Fail("occlusion re-run failed:\n  • " + string.Join("\n  • ", shortfalls));
+
+        if (occluders.Count == 0)
+            return StageResult.Ok(ctx.blueprint.parityLayout
+                ? "0 measured occluders (parity structures carry no PlacedProp markers — the validated shipped set)"
+                : "0 occluders placed — plain recount holds");
+
+        return StageResult.Ok($"all pads keep their class through {occluders.Count} occluder(s)");
     }
 
     private static StageResult StWeather(Context ctx)
@@ -285,14 +525,22 @@ public static class GenerationPipeline
             : "applier wired to the null preset — authored look, pixel-identical (R13)");
     }
 
-    private static StageResult StOrganize(Context ctx)
+    private static StageResult StHierarchy(Context ctx)
     {
-        // INTERIM: the parity builder emits flat roots, so organizing is a stage
-        // here. R26 proper emits grouped from a shared container table, at which
-        // point this stage becomes a VERIFY — it must report 0 moved.
-        OrganizeHierarchy.Organize();
-        return StageResult.Ok("grouped into _Systems/_Directors/_Level/_UI/_Rendering " +
-                              "(R26 proper emits grouped; this becomes a no-op check)");
+        // Pass 1 sweeps anything the sub-tools left at the root; pass 2 is the
+        // R26 verify — it must find NOTHING to do. A non-zero verify means a
+        // tool emitted a root the shared table does not know, and the fix is
+        // one line in SceneContainers.Groups, not a hand-tidied scene.
+        var sweep = OrganizeHierarchy.Organize();
+        var verify = OrganizeHierarchy.Organize();
+
+        if (verify.moved > 0)
+            return StageResult.Fail($"verify pass still moved {verify.moved} object(s) — grouping is not stable");
+        if (verify.unclaimed.Count > 0)
+            return StageResult.Fail("unrecognised root(s): " + string.Join(", ", verify.unclaimed) +
+                                    " — add them to SceneContainers.Groups");
+
+        return StageResult.Ok($"grouped ({sweep.moved} swept); verify pass moved 0, nothing unclaimed");
     }
 
     private static StageResult StEmitLevel(Context ctx)
@@ -305,10 +553,11 @@ public static class GenerationPipeline
         if (!AssetDatabase.IsValidFolder(dir))
             AssetDatabase.CreateFolder("Assets/_COREHOLD/Data/Levels", "Generated");
 
-        ctx.levelAssetPath = $"{dir}/Level_{Sanitise(b.name)}_s{b.randomSeed}.asset";
+        string assetPath = $"{dir}/Level_{Sanitise(b.name)}_s{b.randomSeed}.asset";
         var clone = UnityEngine.Object.Instantiate(b.rulesTemplate);
-        clone.name = System.IO.Path.GetFileNameWithoutExtension(ctx.levelAssetPath);
-        AssetDatabase.CreateAsset(clone, ctx.levelAssetPath);
+        clone.name = System.IO.Path.GetFileNameWithoutExtension(assetPath);
+        AssetDatabase.CreateAsset(clone, assetPath);
+        ctx.levelAssetPath = assetPath;
 
         var wave = UnityEngine.Object.FindFirstObjectByType<Corehold.Core.WaveManager>();
         if (wave == null)
@@ -321,17 +570,67 @@ public static class GenerationPipeline
         levelProp.objectReferenceValue = clone;
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {ctx.levelAssetPath}, wired into WaveManager " +
-                              "(hpGrowthPerWave solve + derived maxLiveEnemies land with R30)");
+        // ---- the R30 model run: solve for generated maps, verify for parity --
+        Vector3 airSpawn = ctx.layout.airSpawn;
+        Vector3 coreXZ = ctx.coreTarget.position;
+
+        if (b.parityLayout)
+        {
+            // Parity keeps the shipped rules VERBATIM — solving would
+            // un-parity them. The model still runs, as a verification.
+            ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
+                solveGrowth: false, hpGrowth: clone.hpGrowthPerWave,
+                maxLive: clone.maxLiveEnemies, out string verifyError);
+            if (ctx.model == null)
+                return StageResult.Fail(verifyError);
+
+            return StageResult.Ok($"'{b.rulesTemplate.name}' cloned VERBATIM → {assetPath}; model verified " +
+                                  $"at growth {clone.hpGrowthPerWave:0.###} (gate 3 judges the margins)");
+        }
+
+        int derivedMaxLive = BalanceModelRunner.DeriveMaxLive(ctx.routes, b.airCorridor);
+        ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
+            solveGrowth: true, hpGrowth: 0f, maxLive: derivedMaxLive, out string error);
+        if (ctx.model == null)
+            return StageResult.Fail(error);
+        if (!ctx.model.solved || ctx.model.solved_hp_growth <= 0f)
+            return StageResult.Fail("model ran but did not report a solved hpGrowthPerWave — contract drift?");
+
+        clone.hpGrowthPerWave = ctx.model.solved_hp_growth;
+        clone.maxLiveEnemies = derivedMaxLive;
+        EditorUtility.SetDirty(clone);
+        AssetDatabase.SaveAssets();
+
+        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; SOLVED hpGrowthPerWave = " +
+                              $"{ctx.model.solved_hp_growth:0.####} (close targeted mid-band), " +
+                              $"maxLiveEnemies = {derivedMaxLive} (derived from route capacity)");
     }
 
     private static StageResult StModelGate(Context ctx)
     {
-        // R30 shells out to docs/balance_model.py and reads --json. Deliberately
-        // NOT approximated here: a second implementation of the margin math is
-        // exactly the drift R1 exists to prevent, and a fake PASS would teach the
-        // team to trust a gate that is not there.
-        return StageResult.Skip("pending R30 — balance model runs as a subprocess; margins unverified until then");
+        // GATE 3 (R29/R30): the per-wave margins, judged from the SAME model
+        // run the emission stage performed — one subprocess, one verdict. The
+        // margin math lives only in docs/balance_model.py; a second
+        // implementation here is exactly the drift R1 exists to prevent.
+        if (ctx.model == null)
+            return StageResult.Fail("the model never ran — emission should have invoked it");
+
+        if (!ctx.model.in_band)
+        {
+            var flagged = new List<string>();
+            foreach (var row in ctx.model.rows)
+                if (row.flags != null && row.flags.Length > 0)
+                    flagged.Add($"wave {row.wave}: margin {row.margin:0.00} [{string.Join(",", row.flags)}]" +
+                                (string.IsNullOrEmpty(row.worst_group) ? "" : $" worst={row.worst_group}"));
+            return StageResult.Fail("margins out of band at the solved/verified growth — this geometry " +
+                                    "cannot be balanced by growth alone; reseed (R29):\n  • " +
+                                    string.Join("\n  • ", flagged));
+        }
+
+        float open = ctx.model.rows[0].margin;
+        float close = ctx.model.rows[ctx.model.rows.Length - 1].margin;
+        return StageResult.Ok($"all {ctx.model.rows.Length} waves in band at growth " +
+                              $"{ctx.model.hp_growth_used:0.####} — opens {open:0.00}, closes {close:0.00}");
     }
 
     private static StageResult StSave(Context ctx)
@@ -347,6 +646,7 @@ public static class GenerationPipeline
         if (!EditorSceneManager.SaveScene(scene, ctx.scenePath))
             return StageResult.Fail($"SaveScene refused {ctx.scenePath}");
 
+        ctx.sceneSaved = true;
         AssetDatabase.SaveAssets();
         return StageResult.Ok($"{ctx.scenePath} — press Play to run it");
     }
@@ -362,7 +662,7 @@ public static class GenerationPipeline
         return nl < 0 ? toolLog : toolLog.Substring(0, nl);
     }
 
-    private static string Sanitise(string name)
+    internal static string Sanitise(string name)
     {
         var sb = new StringBuilder(name.Length);
         foreach (char c in name)
