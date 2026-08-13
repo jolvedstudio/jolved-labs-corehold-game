@@ -17,9 +17,9 @@ using UnityEngine;
 /// So all three entry points here MEASURE rather than ask:
 ///
 ///   • <see cref="BuildFromFolders"/> — the everyday one. Drop prefabs into
-///     <c>Assets/Authoring/EnvPack/&lt;Category&gt;/</c>, run it, get a measured pack.
-///     Re-running preserves every edit you made, so the folders seed a pack without
-///     owning it.
+///     <c>Assets/Authoring/EnvPack/&lt;Theme&gt;/&lt;Category&gt;/</c>, run it, get one
+///     measured pack per theme. Re-running preserves every edit you made, so the folders
+///     seed a pack without owning it.
 ///   • <see cref="CreateRefineryPack"/> builds the pack the shipped map already
 ///     implies, from the nine prefab paths <c>RefineryDeltaBlockout.BuildStructures</c>
 ///     places, so R26 has a dressing pack to hit parity against.
@@ -34,7 +34,8 @@ using UnityEngine;
 ///
 ///   1. The asset's LABEL (<c>Landmark</c>, <c>MidField</c>, <c>Clutter</c>,
 ///      <c>Silhouette</c>) — deliberate, per-asset, and the only option for a prefab
-///      that must stay where it is.
+///      that must stay where it is. A second label naming a THEME scopes it to that
+///      theme; without one it joins every theme, like <c>_Shared/</c> does for filed props.
 ///   2. The CATEGORY FOLDER it sits in — the default, and the one that scales, because
 ///      filing a prefab is a decision the human is making anyway.
 ///   3. <see cref="SuggestRole"/>'s size heuristic, for entries that have neither.
@@ -116,7 +117,13 @@ public static class EnvPackTools
         ("Silhouettes", EnvPack.PropRole.Silhouette),
     };
 
-    private const string DefaultPackPath = PackDir + "/EnvPack_Default.asset";
+    /// <summary>
+    /// Props every theme can use, folded into each pack. Without it, adding a fifth theme
+    /// means copying every neutral crate a fifth time — which is the duplication the theme
+    /// split is supposed to remove, not create. The leading '_' is what marks it as not a
+    /// theme, so any other `_Name` folder is likewise ignored by the theme scan.
+    /// </summary>
+    private const string SharedFolder = "_Shared";
 
     // ------------------------------------------------------------------- create
 
@@ -173,6 +180,7 @@ public static class EnvPackTools
             entries.Add(entry);
         }
 
+        pack.themeName = "RefineryDelta";
         pack.entries = entries.ToArray();
         EditorUtility.SetDirty(pack);
 
@@ -200,9 +208,21 @@ public static class EnvPackTools
     // ------------------------------------------------------------ build from folders
 
     /// <summary>
-    /// Build (or refresh) a pack from <c>Prefabs/EnvPack/&lt;Category&gt;/</c>, measuring
-    /// every prefab it finds. Targets the EnvPack selected in the Project window, or
-    /// <c>EnvPack_Default</c> when nothing is selected.
+    /// Build (or refresh) one pack per THEME from the authoring tree, measuring every
+    /// prefab it finds.
+    ///
+    /// <code>
+    /// Assets/Authoring/EnvPack/
+    ///   _Shared/    Landmarks/ MidField/ Clutter/ Silhouettes/   → folded into every theme
+    ///   Refinery/   Landmarks/ MidField/ Clutter/ Silhouettes/   → EnvPack_Refinery
+    ///   Ice/        …                                            → EnvPack_Ice
+    /// </code>
+    ///
+    /// A folder starting with '_' is not a theme; everything else is, and each produces
+    /// <c>Data/EnvPacks/EnvPack_&lt;Theme&gt;.asset</c> holding <c>_Shared</c> plus its own
+    /// props. Filing a generic crate once instead of copying it into every theme is the
+    /// entire reason the level exists — without <c>_Shared</c>, adding a fifth theme means
+    /// duplicating every neutral prop a fifth time.
     ///
     /// **Re-running never clobbers your edits.** Entries are matched by prefab identity,
     /// and anything you authored — a widened radius, a changed role, allowInFold, a scale
@@ -210,35 +230,51 @@ public static class EnvPackTools
     /// measures numbers that are still zero, and reports what it saw. That is what makes
     /// the folders a starting point rather than a source of truth that overwrites you.
     /// </summary>
-    [MenuItem("Tools/COREHOLD/Level/Build Env Pack From Folders", false, 4)]
+    [MenuItem("Tools/COREHOLD/Level/Build Env Packs From Folders", false, 4)]
     public static void BuildFromFolders()
     {
         var log = new StringBuilder();
-        log.AppendLine("=== Build Env Pack From Folders (R25) ===");
+        log.AppendLine("=== Build Env Packs From Folders (R25) ===");
 
-        EnsureCategoryFolders(log);
+        EnsureFolderSkeleton(log);
 
-        var pack = Selection.activeObject as EnvPack;
-        if (pack == null)
+        List<string> themes = DiscoverThemes();
+        if (themes.Count == 0)
         {
-            if (!AssetDatabase.IsValidFolder(PackDir))
-                AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "EnvPacks");
-            pack = AssetDatabase.LoadAssetAtPath<EnvPack>(DefaultPackPath);
-            if (pack == null)
-            {
-                pack = ScriptableObject.CreateInstance<EnvPack>();
-                AssetDatabase.CreateAsset(pack, DefaultPackPath);
-                log.AppendLine($"Created {DefaultPackPath} (no EnvPack was selected).");
-            }
-            else
-            {
-                log.AppendLine($"Refreshing {DefaultPackPath} (no EnvPack was selected).");
-            }
+            log.AppendLine($"No theme folders under {PrefabRoot}. Add one per theme (Refinery, " +
+                           "Ice, Desert…), each with the four category folders inside. Props that " +
+                           "suit every theme go in _Shared/ instead.");
+            Debug.Log(log.ToString());
+            return;
         }
-        else
+
+        if (!AssetDatabase.IsValidFolder(PackDir))
+            AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "EnvPacks");
+
+        log.AppendLine($"Themes: {string.Join(", ", themes)}");
+        foreach (string theme in themes)
         {
-            log.AppendLine($"Refreshing the selected pack '{pack.name}'.");
+            log.AppendLine();
+            BuildTheme(theme, themes, log);
         }
+
+        AssetDatabase.SaveAssets();
+        Debug.Log(log.ToString());
+    }
+
+    /// <summary>Build one theme's pack from <c>_Shared</c> + its own folders + labels.</summary>
+    private static void BuildTheme(string theme, List<string> themes, StringBuilder log)
+    {
+        string packPath = $"{PackDir}/EnvPack_{theme}.asset";
+        var pack = AssetDatabase.LoadAssetAtPath<EnvPack>(packPath);
+        bool created = pack == null;
+        if (created)
+        {
+            pack = ScriptableObject.CreateInstance<EnvPack>();
+            AssetDatabase.CreateAsset(pack, packPath);
+        }
+
+        log.AppendLine($"--- {theme}  →  {packPath}  {(created ? "(created)" : "(refreshed)")}");
 
         // Index what the pack already holds, so authored values survive the rescan.
         var existing = new Dictionary<GameObject, EnvPack.Entry>();
@@ -249,78 +285,121 @@ public static class EnvPackTools
 
         var result = new List<EnvPack.Entry>();
         var claimed = new HashSet<GameObject>();
-        int added = 0, refreshed = 0, relabelled = 0, editorFolder = 0;
+        int added = 0, refreshed = 0, relabelled = 0, editorFolder = 0, byLabel = 0, fromShared = 0;
 
+        // Shared by both discovery passes, so a prefab found by folder and one found by
+        // label are measured, merged and reported identically. False when refused.
+        bool Adopt(GameObject prefab, string prefabPath, EnvPack.PropRole proposed, bool allowLabelOverride)
+        {
+            // Editor-folder assets are stripped from player builds. A prop placed from
+            // one looks perfect in the editor and is a null reference in the build — the
+            // worst kind of failure, because nothing surfaces it until someone plays a
+            // build. Refuse it here instead.
+            if (IsUnderEditorFolder(prefabPath))
+            {
+                editorFolder++;
+                log.AppendLine($"      ! {prefab.name} lives under an Editor/ folder ({prefabPath}) — " +
+                               "SKIPPED. Unity strips those from player builds, so any level dressed " +
+                               "with it would load with missing props. Move it out.");
+                return false;
+            }
+
+            // A role label beats the folder: it is applied to that asset deliberately,
+            // whereas the folder is a bulk decision.
+            EnvPack.PropRole role = proposed;
+            if (allowLabelOverride &&
+                TryRoleFromLabels(prefab, out EnvPack.PropRole labelled) && labelled != proposed)
+            {
+                role = labelled;
+                relabelled++;
+                log.AppendLine($"      · {prefab.name}: label '{labelled}' overrides folder '{proposed}'.");
+            }
+
+            if (existing.TryGetValue(prefab, out EnvPack.Entry entry))
+            {
+                refreshed++;
+                FillMissing(ref entry, prefab, log);            // authored values survive
+            }
+            else
+            {
+                added++;
+                entry = new EnvPack.Entry
+                {
+                    prefab = prefab,
+                    role = role,
+                    scaleRange = new Vector2(1f, 1f),
+                    allowInFold = false                          // pockets are where pads live
+                };
+                FillMissing(ref entry, prefab, log);
+                log.AppendLine($"      + {prefab.name,-28} {role,-10} r={entry.footprintRadius,6:0.00}  h={entry.height,6:0.00}");
+            }
+
+            result.Add(entry);
+            return true;
+        }
+
+        // Pass 1 — _Shared first, then this theme's own folders.
         foreach (var (folder, folderRole) in CategoryFolders)
         {
-            string path = PrefabRoot + "/" + folder;
-            if (!AssetDatabase.IsValidFolder(path))
-                continue;
-
-            string[] guids = AssetDatabase.FindAssets("t:Prefab", new[] { path });
-            log.AppendLine($"  {folder,-12} {guids.Length} prefab(s)");
-
-            foreach (string guid in guids)
+            foreach (string root in new[] { SharedFolder, theme })
             {
-                string prefabPath = AssetDatabase.GUIDToAssetPath(guid);
-                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-                if (prefab == null || !claimed.Add(prefab))
+                string path = $"{PrefabRoot}/{root}/{folder}";
+                if (!AssetDatabase.IsValidFolder(path))
+                    continue;
+
+                string[] guids = AssetDatabase.FindAssets("t:Prefab", new[] { path });
+                if (guids.Length == 0)
+                    continue;
+                log.AppendLine($"  {root}/{folder,-14} {guids.Length} prefab(s)");
+
+                foreach (string guid in guids)
                 {
-                    if (prefab != null)
+                    string prefabPath = AssetDatabase.GUIDToAssetPath(guid);
+                    var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                    if (prefab == null)
+                        continue;
+                    if (!claimed.Add(prefab))
+                    {
                         log.AppendLine($"      ! {prefab.name} appears in more than one category folder — " +
                                        "kept the first. Move it so there is one answer.");
-                    continue;
-                }
+                        continue;
+                    }
 
-                // Editor-folder assets are stripped from player builds. A prop placed
-                // from one looks perfect in the editor and is a null reference in the
-                // build — the worst kind of failure, because nothing surfaces it until
-                // someone plays a build. Refuse it here instead.
-                if (IsUnderEditorFolder(prefabPath))
-                {
-                    editorFolder++;
-                    log.AppendLine($"      ! {prefab.name} lives under an Editor/ folder ({prefabPath}) — " +
-                                   "SKIPPED. Unity strips those from player builds, so any level dressed " +
-                                   "with it would load with missing props. Move it out.");
-                    continue;
+                    if (Adopt(prefab, prefabPath, folderRole, allowLabelOverride: true) && root == SharedFolder)
+                        fromShared++;
                 }
-
-                // A label wins over the folder: it is applied to the asset deliberately,
-                // and it is the only way to categorise a prefab that has to live
-                // elsewhere (a vendor prefab you do not want to copy, for instance).
-                EnvPack.PropRole role = folderRole;
-                if (TryRoleFromLabels(prefab, out EnvPack.PropRole labelled) && labelled != folderRole)
-                {
-                    role = labelled;
-                    relabelled++;
-                    log.AppendLine($"      · {prefab.name}: label '{labelled}' overrides folder '{folderRole}'.");
-                }
-
-                if (existing.TryGetValue(prefab, out EnvPack.Entry entry))
-                {
-                    refreshed++;
-                    FillMissing(ref entry, prefab, log);        // authored values survive
-                }
-                else
-                {
-                    added++;
-                    entry = new EnvPack.Entry
-                    {
-                        prefab = prefab,
-                        role = role,
-                        scaleRange = new Vector2(1f, 1f),
-                        allowInFold = false                      // pockets are where pads live
-                    };
-                    FillMissing(ref entry, prefab, log);
-                    log.AppendLine($"      + {prefab.name,-28} {role,-10} r={entry.footprintRadius,6:0.00}  h={entry.height,6:0.00}");
-                }
-
-                result.Add(entry);
             }
         }
 
-        // Entries pointing outside the scanned tree are the user's, not ours — a
-        // vendor prefab categorised by label, or a hand-added one. Keep them.
+        // Pass 2 — labelled prefabs ANYWHERE in the project. This is what makes a label a
+        // real alternative to filing rather than just an override: a prop that has to stay
+        // where it is — a vendor prefab you will not copy out of its package — still
+        // reaches a pack. A THEME label scopes it to one theme; no theme label means every
+        // theme, exactly as _Shared/ behaves for filed props.
+        foreach (var (_, labelRole) in CategoryFolders)
+        {
+            foreach (string guid in AssetDatabase.FindAssets($"t:Prefab l:{labelRole}"))
+            {
+                string prefabPath = AssetDatabase.GUIDToAssetPath(guid);
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                if (prefab == null)
+                    continue;
+                if (TryThemeFromLabels(prefab, themes, out string labelledTheme) && labelledTheme != theme)
+                    continue;
+                if (!claimed.Add(prefab))
+                    continue;
+
+                if (Adopt(prefab, prefabPath, labelRole, allowLabelOverride: false))
+                {
+                    byLabel++;
+                    log.AppendLine($"      (by label '{labelRole}'" +
+                                   (labelledTheme != null ? $" + theme '{labelledTheme}'" : ", every theme") +
+                                   $", left in place at {prefabPath})");
+                }
+            }
+        }
+
+        // Entries pointing outside everything scanned are the user's, not ours — keep them.
         int outside = 0;
         if (pack.entries != null)
         {
@@ -335,53 +414,54 @@ public static class EnvPackTools
 
         int dropped = (pack.entries?.Length ?? 0) - refreshed - outside;
 
+        pack.themeName = theme;
         pack.entries = result.ToArray();
         EditorUtility.SetDirty(pack);
-        AssetDatabase.SaveAssets();
-        Selection.activeObject = pack;
 
-        log.AppendLine();
-        log.AppendLine($"{result.Count} entr(ies): {added} added, {refreshed} refreshed (edits preserved), " +
-                       $"{outside} kept from outside {PrefabRoot}, {relabelled} relabelled by asset label.");
+        log.AppendLine($"  {result.Count} entr(ies): {added} added, {refreshed} refreshed (edits preserved), " +
+                       $"{fromShared} from _Shared, {byLabel} by label, {outside} carried over, " +
+                       $"{relabelled} relabelled.");
         if (dropped > 0)
-            log.AppendLine($"{dropped} entr(ies) dropped — a missing prefab, or a duplicate of one already listed.");
+            log.AppendLine($"  {dropped} entr(ies) dropped — a missing prefab, a duplicate of one already " +
+                           "listed, or one refused above.");
         if (editorFolder > 0)
-            log.AppendLine($"{editorFolder} prefab(s) SKIPPED for living under an Editor/ folder — those are " +
+            log.AppendLine($"  {editorFolder} prefab(s) SKIPPED for living under an Editor/ folder — those are " +
                            "stripped from player builds and would dress a level with props that vanish in one.");
-        log.AppendLine($"{pack.CountInvalid()} entr(ies) invalid. " +
+        log.AppendLine($"  {pack.CountInvalid()} invalid. " +
                        $"Landmark {pack.CountInRole(EnvPack.PropRole.Landmark)}, " +
                        $"MidField {pack.CountInRole(EnvPack.PropRole.MidField)}, " +
                        $"Clutter {pack.CountInRole(EnvPack.PropRole.Clutter)}, " +
                        $"Silhouette {pack.CountInRole(EnvPack.PropRole.Silhouette)}.");
 
         if (pack.groundMaterial == null && pack.groundPrefab == null)
-            log.AppendLine("No ground assigned — generated levels will keep whatever ground the scene has. " +
-                           "Set groundPrefab/groundMaterial on the pack to give a map its own.");
+            log.AppendLine("  No ground assigned — this theme will keep whatever ground the scene has. " +
+                           "A theme that shares the shipped ground is not really a different theme.");
+        if (pack.weatherPool == null || pack.weatherPool.Length == 0)
+            log.AppendLine("  No weatherPool — this theme generates on the null preset. Set it on the PACK " +
+                           "rather than the blueprint, so an ice map cannot draw desert dust.");
 
         AppendCommitWarning(pack, log);
-        Debug.Log(log.ToString());
     }
 
-    /// <summary>Create the category folders so the convention is discoverable, not documented-only.</summary>
-    private static void EnsureCategoryFolders(StringBuilder log)
+    /// <summary>
+    /// Theme folders: every direct subfolder of the pool root that does not start with '_'.
+    /// Sorted, because pack contents must not depend on filesystem enumeration order —
+    /// generation is seed-deterministic and that has to survive a different machine.
+    /// </summary>
+    private static List<string> DiscoverThemes()
     {
-        if (!AssetDatabase.IsValidFolder("Assets/Authoring"))
-            AssetDatabase.CreateFolder("Assets", "Authoring");
+        var themes = new List<string>();
         if (!AssetDatabase.IsValidFolder(PrefabRoot))
-            AssetDatabase.CreateFolder("Assets/Authoring", "EnvPack");
+            return themes;
 
-        var created = new List<string>();
-        foreach (var (folder, _) in CategoryFolders)
+        foreach (string sub in AssetDatabase.GetSubFolders(PrefabRoot))
         {
-            if (AssetDatabase.IsValidFolder(PrefabRoot + "/" + folder))
-                continue;
-            AssetDatabase.CreateFolder(PrefabRoot, folder);
-            created.Add(folder);
+            string name = sub.Substring(sub.LastIndexOf('/') + 1);
+            if (!name.StartsWith("_"))
+                themes.Add(name);
         }
-
-        if (created.Count > 0)
-            log.AppendLine($"Created {PrefabRoot}/{{{string.Join(", ", created)}}} — drop prefabs in " +
-                           "and re-run. The folder is the category.");
+        themes.Sort(System.StringComparer.Ordinal);
+        return themes;
     }
 
     /// <summary>
@@ -391,8 +471,9 @@ public static class EnvPackTools
     /// Labels rather than Unity tags, deliberately: a GameObject carries exactly one tag
     /// from a project-global list shared with gameplay code, and tagging a vendor prefab
     /// means editing a file under the git-ignored Assets/Vendor/, so the tag would never
-    /// reach anyone else. Labels are per-asset editor metadata, allow several at once,
-    /// and are searchable in the Project window as <c>l:Landmark</c>.
+    /// reach anyone else. Labels are per-asset editor metadata, allow several at once
+    /// (which is what lets one asset carry both a role and a theme), and are searchable in
+    /// the Project window as <c>l:Landmark</c>.
     /// </summary>
     private static bool TryRoleFromLabels(GameObject prefab, out EnvPack.PropRole role)
     {
@@ -412,6 +493,63 @@ public static class EnvPackTools
             }
         }
         return false;
+    }
+
+    /// <summary>Read a theme name from the asset's labels, matched against the known themes.</summary>
+    private static bool TryThemeFromLabels(GameObject prefab, List<string> themes, out string theme)
+    {
+        theme = null;
+        string[] labels = AssetDatabase.GetLabels(prefab);
+        if (labels == null)
+            return false;
+
+        foreach (string label in labels)
+        {
+            foreach (string candidate in themes)
+            {
+                if (!string.Equals(label, candidate, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                theme = candidate;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Create the folder skeleton so the two-level shape is discoverable rather than
+    /// documented-only: _Shared plus one starter theme, each with the four categories.
+    /// </summary>
+    private static void EnsureFolderSkeleton(StringBuilder log)
+    {
+        if (!AssetDatabase.IsValidFolder("Assets/Authoring"))
+            AssetDatabase.CreateFolder("Assets", "Authoring");
+        if (!AssetDatabase.IsValidFolder(PrefabRoot))
+            AssetDatabase.CreateFolder("Assets/Authoring", "EnvPack");
+
+        var created = new List<string>();
+        foreach (string root in new[] { SharedFolder, "Refinery" })
+        {
+            string rootPath = PrefabRoot + "/" + root;
+            if (!AssetDatabase.IsValidFolder(rootPath))
+            {
+                AssetDatabase.CreateFolder(PrefabRoot, root);
+                created.Add(root);
+            }
+
+            foreach (var (folder, _) in CategoryFolders)
+            {
+                if (AssetDatabase.IsValidFolder(rootPath + "/" + folder))
+                    continue;
+                AssetDatabase.CreateFolder(rootPath, folder);
+                created.Add(root + "/" + folder);
+            }
+        }
+
+        if (created.Count > 0)
+            log.AppendLine($"Created under {PrefabRoot}: {string.Join(", ", created)}. " +
+                           "One folder per theme with the four categories inside; _Shared holds props " +
+                           "every theme can use. Copy the Refinery folder to add a theme.");
     }
 
     /// <summary>
@@ -446,7 +584,6 @@ public static class EnvPackTools
         float scale = entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f;
         AppendMeasurementWarnings(prefab.name, m, scale, log);
     }
-
     // ------------------------------------------------------------------ measure
 
     [MenuItem("Tools/COREHOLD/Level/Measure Env Pack Metadata", false, 5)]
@@ -695,12 +832,15 @@ public static class EnvPackTools
             return "Blueprint_RefineryDelta not found — run Create Refinery Delta Blueprint, then re-run this " +
                    "to wire the pack into it.";
 
-        if (bp.envPack == pack)
-            return $"{bpPath} already points at this pack.";
+        // Parity is a single pinned theme, so a one-entry pool — not a variety pool. The
+        // shipped map must rebuild identically every time (R26), which is exactly what a
+        // seed-picked theme would break.
+        if (bp.envPackPool != null && bp.envPackPool.Length == 1 && bp.envPackPool[0] == pack)
+            return $"{bpPath} already pins this pack.";
 
-        bp.envPack = pack;
+        bp.envPackPool = new[] { pack };
         EditorUtility.SetDirty(bp);
-        return $"Wired into {bpPath} (envPack).";
+        return $"Pinned into {bpPath} (envPackPool, one entry — parity must not vary by seed).";
     }
 
     /// <summary>

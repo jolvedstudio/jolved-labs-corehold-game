@@ -27,7 +27,13 @@ public static class GenerateLevel
     /// <summary>The coverage rule needs at least this many pads covering 4+ spans.</summary>
     private const int MinPremiumPads = 3;
 
-    [MenuItem("Tools/COREHOLD/Level/Generate Level", false, 20)]
+    /// <summary>
+    /// Headless one-shot: run the SAME pipeline the Level Generator window drives
+    /// and print the transcript. The window is the everyday surface; this exists
+    /// for scripted use and for the R31 contact sheet, which will call the
+    /// pipeline once per seed.
+    /// </summary>
+    [MenuItem("Tools/COREHOLD/Level/Generate Level (headless)", false, 20)]
     public static void Generate()
     {
         LevelBlueprint blueprint = ResolveBlueprint(out string how);
@@ -40,30 +46,28 @@ public static class GenerateLevel
 
         var log = new StringBuilder();
         log.AppendLine($"=== COREHOLD level generation — blueprint '{blueprint.name}' ({how}) ===");
-
-        var errors = new List<string>();
-        var warnings = new List<string>();
-        Validate(blueprint, errors, warnings);
-
         AppendPlan(blueprint, log);
+        log.AppendLine();
 
-        foreach (string w in warnings)
-            log.AppendLine($"  [warn] {w}");
-
-        if (errors.Count > 0)
+        bool failed = false;
+        foreach (var (stage, result) in GenerationPipeline.RunAll(blueprint))
         {
-            log.AppendLine();
-            log.AppendLine($"BLUEPRINT REJECTED — {errors.Count} problem(s), nothing emitted:");
-            foreach (string e in errors)
-                log.AppendLine($"  • {e}");
-            Debug.LogWarning(log.ToString());
-            return;
+            string icon = !result.ok ? "✗" : result.skipped ? "–" : "✓";
+            log.AppendLine($"  {icon} {stage.title,-26} {result.message}");
+            failed |= !result.ok;
         }
 
         log.AppendLine();
-        log.AppendLine("Blueprint VALID. Generation itself is stubbed until R26–R30 land — no scene emitted.");
-        Debug.Log(log.ToString());
+        log.AppendLine(failed
+            ? "FAILED — stopped at the first ✗ above; nothing after it ran."
+            : "Done. Open the saved scene and press Play.");
+
+        if (failed) Debug.LogWarning(log.ToString());
+        else Debug.Log(log.ToString());
     }
+
+    /// <summary>Blueprint resolution for tools that must not log (the window's OnEnable).</summary>
+    internal static LevelBlueprint ResolveBlueprintQuiet() => ResolveBlueprint(out _);
 
     /// <summary>
     /// Author a blueprint describing the SHIPPED map, which is what R26's parity
@@ -107,12 +111,17 @@ public static class GenerateLevel
         Selection.activeObject = bp;
 
         Debug.Log($"[R25] {path} authored to the shipped map's values — this is R26's parity target. " +
-                  "envPack and weatherPool are left empty; assign them when the pack exists.");
+                  "envPackPool and weatherPool are left empty; Create Refinery Env Pack pins the parity " +
+                  "theme into envPackPool once the pack exists.");
     }
 
     // ------------------------------------------------------------- validation
 
-    private static void Validate(LevelBlueprint b, List<string> errors, List<string> warnings)
+    /// <summary>
+    /// Blueprint admission — shared by the pipeline's first stage and the window's
+    /// live panel, so the window can never disagree with what generation enforces.
+    /// </summary>
+    internal static void ValidateBlueprint(LevelBlueprint b, List<string> errors, List<string> warnings)
     {
         if (b.playfieldSize.x <= 0f || b.playfieldSize.y <= 0f)
             errors.Add($"playfieldSize must be positive (is {b.playfieldSize}).");
@@ -155,23 +164,42 @@ public static class GenerateLevel
         if (b.rulesTemplate == null)
             errors.Add("rulesTemplate is unassigned — R30 clones it to emit the LevelDefinition.");
 
-        if (b.envPack == null)
+        if (b.envPackPool == null || b.envPackPool.Length == 0)
         {
-            warnings.Add("envPack is unassigned — the level will generate undressed.");
+            warnings.Add("envPackPool is empty — the level will generate undressed.");
         }
         else
         {
-            int invalid = b.envPack.CountInvalid();
-            if (invalid > 0)
-                errors.Add($"envPack '{b.envPack.name}' has {invalid} entr(ies) with no prefab, a zero " +
-                           "footprint/height, or an Unassigned role — the clearance and occlusion tests would " +
-                           "silently pass them. Run Tools → COREHOLD → Level → Measure Env Pack Metadata.");
-            if (b.envPack.CountInRole(EnvPack.PropRole.Silhouette) == 0)
-                warnings.Add($"envPack '{b.envPack.name}' has no Silhouette entries — the far band (R11) will be bare.");
+            // Every theme in the pool must be shippable, not just the one this seed picks.
+            // A pool validated only on the drawn theme fails on a different seed, which is
+            // the worst time to find out.
+            for (int i = 0; i < b.envPackPool.Length; i++)
+            {
+                EnvPack pack = b.envPackPool[i];
+                if (pack == null)
+                {
+                    errors.Add($"envPackPool[{i}] is null — remove the slot or assign a pack.");
+                    continue;
+                }
+
+                int invalid = pack.CountInvalid();
+                if (invalid > 0)
+                    errors.Add($"envPack '{pack.name}' has {invalid} entr(ies) with no prefab, a zero " +
+                               "footprint/height, or an Unassigned role — the clearance and occlusion tests " +
+                               "would silently pass them. Run Tools → COREHOLD → Level → Measure Env Pack Metadata.");
+                if (pack.CountInRole(EnvPack.PropRole.Silhouette) == 0)
+                    warnings.Add($"envPack '{pack.name}' has no Silhouette entries — the far band (R11) will be bare.");
+                if ((b.weatherPool == null || b.weatherPool.Length == 0) &&
+                    (pack.weatherPool == null || pack.weatherPool.Length == 0))
+                    warnings.Add($"envPack '{pack.name}' has no weatherPool and the blueprint sets no override — " +
+                                 "this theme generates on the null preset.");
+            }
         }
 
-        if (b.weatherPool == null || b.weatherPool.Length == 0)
-            warnings.Add("weatherPool is empty — the level generates on the null preset, which keeps the authored look.");
+        // No warning for an empty blueprint weatherPool: empty is the CORRECT state now.
+        // It means "the chosen theme decides", which is what keeps an ice map off desert
+        // dust. Setting it forces one weather across every theme, so it is the override,
+        // not the default. The per-pack check above covers the case where neither is set.
     }
 
     // ------------------------------------------------------------------ plan
