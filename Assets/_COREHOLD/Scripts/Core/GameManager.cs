@@ -112,6 +112,19 @@ namespace Corehold.Core
 
         private float _lastKillTime = -999f; // scaled game time, like kill pacing
 
+        // ----- Run stats (R4) — reset in ConfigureRun, read by ResultScreen -----
+
+        /// <summary>Total salvage income this run (bounties, streak bonuses, clear/chain bonuses).</summary>
+        public int RunSalvageEarned { get; private set; }
+
+        /// <summary>Longest kill streak reached this run (R2/R4).</summary>
+        public int RunLongestStreak { get; private set; }
+
+        private float _runStartUnscaled;
+
+        /// <summary>Wall-clock seconds since the run was configured (unscaled — the 2× toggle does not shorten it).</summary>
+        public float RunSeconds => Time.unscaledTime - _runStartUnscaled;
+
         private float StreakPerStep => streakConfig != null ? streakConfig.perStepBonus : 0.05f;
         private float StreakCap => streakConfig != null ? streakConfig.bonusCap : 0.5f;
         private float StreakWindow => streakConfig != null ? streakConfig.windowSeconds : 2f;
@@ -185,9 +198,12 @@ namespace Corehold.Core
             Salvage = Mathf.RoundToInt(startingSalvage * ecoMul);
             Integrity = StartingIntegrityFor(tier);
 
-            // Fresh run — clear the kill streak (R2).
+            // Fresh run — clear the kill streak (R2) and the run stats (R4).
             CurrentStreak = 0;
             _lastKillTime = -999f;
+            RunSalvageEarned = 0;
+            RunLongestStreak = 0;
+            _runStartUnscaled = Time.unscaledTime;
 
             OnSalvageChanged?.Invoke(Salvage);
             OnIntegrityChanged?.Invoke(Integrity);
@@ -214,6 +230,7 @@ namespace Corehold.Core
                 return;
 
             Salvage += amount;
+            RunSalvageEarned += amount; // run stat (R4)
             OnSalvageChanged?.Invoke(Salvage);
         }
 
@@ -235,6 +252,8 @@ namespace Corehold.Core
             float now = Time.time;
             CurrentStreak = (now - _lastKillTime) <= StreakWindow ? CurrentStreak + 1 : 1;
             _lastKillTime = now;
+            if (CurrentStreak > RunLongestStreak)
+                RunLongestStreak = CurrentStreak; // run stat (R4)
 
             float bonusFraction = Mathf.Min(StreakPerStep * (CurrentStreak - 1), StreakCap);
             int bonus = Mathf.RoundToInt(bounty * bonusFraction);

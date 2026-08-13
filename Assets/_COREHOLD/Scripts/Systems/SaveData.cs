@@ -90,5 +90,51 @@ namespace Corehold.Systems
             get => PlayerPrefs.GetInt(MuteKey, 0) != 0;
             set { PlayerPrefs.SetInt(MuteKey, value ? 1 : 0); PlayerPrefs.Save(); }
         }
+
+        // ----- Per-map + per-difficulty personal records (R4) -----
+        //
+        // Same store, new keys: corehold.record.<map>.<difficulty>.<stat>. The
+        // map id is the LevelDefinition asset name (one map today; the generator
+        // makes this plural — roadmap P6). This is the sink R34's leaderboard and
+        // R35's medals extend.
+
+        private const string RecordPrefix = "corehold.record.";
+
+        private static string RecordKey(string map, Difficulty difficulty, string stat)
+            => $"{RecordPrefix}{map}.{difficulty}.{stat}";
+
+        /// <summary>Stored personal best for a stat on a map+difficulty (0 if none).</summary>
+        public static int GetRecord(string map, Difficulty difficulty, string stat)
+            => PlayerPrefs.GetInt(RecordKey(map, difficulty, stat), 0);
+
+        /// <summary>
+        /// Record a higher-is-better stat (waves, integrity, salvage, streak).
+        /// Returns true only when the value strictly beats the stored best.
+        /// </summary>
+        public static bool SubmitRecordMax(string map, Difficulty difficulty, string stat, int value)
+        {
+            if (value <= GetRecord(map, difficulty, stat))
+                return false;
+            PlayerPrefs.SetInt(RecordKey(map, difficulty, stat), value);
+            PlayerPrefs.Save();
+            return true;
+        }
+
+        /// <summary>
+        /// Record a lower-is-better stat (clear time in seconds). 0 means "no
+        /// record yet", so non-positive values are rejected. Returns true only
+        /// when the value strictly beats the stored best.
+        /// </summary>
+        public static bool SubmitRecordMin(string map, Difficulty difficulty, string stat, int value)
+        {
+            if (value <= 0)
+                return false;
+            int current = GetRecord(map, difficulty, stat);
+            if (current > 0 && value >= current)
+                return false;
+            PlayerPrefs.SetInt(RecordKey(map, difficulty, stat), value);
+            PlayerPrefs.Save();
+            return true;
+        }
     }
 }

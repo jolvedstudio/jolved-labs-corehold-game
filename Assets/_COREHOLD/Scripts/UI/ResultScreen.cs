@@ -113,12 +113,42 @@ namespace Corehold.UI
                     : (theme != null ? theme.danger : Color.red);
             }
 
+            // ----- Run stats + personal records (R4) -----
+            // Per-map + per-difficulty bests live in SaveData (PlayerPrefs keys);
+            // a stat that strictly beats its stored best gets a NEW RECORD badge.
+            string map = waveManager != null ? waveManager.LevelId : "default";
+            int salvageEarned = _gm != null ? _gm.RunSalvageEarned : 0;
+            int longestStreak = _gm != null ? _gm.RunLongestStreak : 0;
+            int runSeconds = _gm != null ? Mathf.Max(1, Mathf.RoundToInt(_gm.RunSeconds)) : 0;
+
+            bool recWaves = SaveData.SubmitRecordMax(map, diff, "waves", wavesSurvived);
+            bool recIntegrity = victory && SaveData.SubmitRecordMax(map, diff, "integrity", integrity);
+            bool recSalvage = SaveData.SubmitRecordMax(map, diff, "salvage", salvageEarned);
+            bool recStreak = SaveData.SubmitRecordMax(map, diff, "streak", longestStreak);
+            bool recTime = victory && SaveData.SubmitRecordMin(map, diff, "time", runSeconds);
+
+            string Badge(bool isRecord) => isRecord ? "  <color=#FF9919>NEW RECORD</color>" : "";
+            string timeText = $"{runSeconds / 60}:{runSeconds % 60:00}";
+
             if (bodyLabel != null)
             {
                 if (victory)
-                    bodyLabel.text = $"Waves survived {wavesSurvived}/{waveCount}\nIntegrity {integrity}/{maxIntegrity}";
+                {
+                    bodyLabel.text =
+                        $"Waves survived {wavesSurvived}/{waveCount}{Badge(recWaves)}\n" +
+                        $"Integrity {integrity}/{maxIntegrity}{Badge(recIntegrity)}\n" +
+                        $"Salvage earned {salvageEarned}{Badge(recSalvage)}\n" +
+                        $"Longest streak ×{longestStreak}{Badge(recStreak)}\n" +
+                        $"Time {timeText}{Badge(recTime)}";
+                }
                 else
-                    bodyLabel.text = $"Reached wave {wavesSurvived + 1}\nDifficulty {diff}";
+                {
+                    bodyLabel.text =
+                        $"Reached wave {wavesSurvived + 1}   Difficulty {diff}\n" +
+                        $"Salvage earned {salvageEarned}{Badge(recSalvage)}\n" +
+                        $"Longest streak ×{longestStreak}{Badge(recStreak)}\n" +
+                        $"Time {timeText}";
+                }
             }
 
             if (scoreLabel != null)

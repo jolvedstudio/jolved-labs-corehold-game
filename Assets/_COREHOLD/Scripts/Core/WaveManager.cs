@@ -96,6 +96,9 @@ namespace Corehold.Core
         /// <summary>Number of enemies alive on the field right now.</summary>
         public int LiveCount => _live.Count;
 
+        /// <summary>Stable id of the level driving this manager — the LevelDefinition asset name (R4 records are keyed per map).</summary>
+        public string LevelId => level != null ? level.name : "default";
+
         /// <summary>Number of enemies waiting for a free slot under the 14-cap.</summary>
         public int PendingCount => _pending.Count;
 
