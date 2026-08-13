@@ -1,4 +1,5 @@
 using System;
+using Corehold.Data;
 using Corehold.Enemies;
 using UnityEngine;
 
@@ -57,6 +58,13 @@ namespace Corehold.Core
         [Header("Difficulty")]
         [SerializeField] private Difficulty difficulty = Difficulty.Normal;
 
+        [Header("Kill streak (R2)")]
+        [Tooltip("Streak tuning SO. When unset, the code defaults below apply (+5%/step, +50% cap, 2 s window).")]
+        [SerializeField] private StreakConfig streakConfig;
+
+        [Tooltip("[TUNE] Pitch scale added per streak step to the StreakStep one-shot (0.06 = +6% pitch per step).")]
+        [SerializeField] private float streakPitchStep = 0.06f;
+
         // ----- Runtime state -----
 
         /// <summary>Current game state. Setting it raises OnStateChanged.</summary>
@@ -92,6 +100,15 @@ namespace Corehold.Core
         /// <summary>When true, DamageCore does nothing (debug console, GDD §12.4).</summary>
         public bool CoreInvulnerable { get; set; }
 
+        /// <summary>Current kill-streak count (R2). 1 = a lone kill; resets when the window lapses.</summary>
+        public int CurrentStreak { get; private set; }
+
+        private float _lastKillTime = -999f; // scaled game time, like kill pacing
+
+        private float StreakPerStep => streakConfig != null ? streakConfig.perStepBonus : 0.05f;
+        private float StreakCap => streakConfig != null ? streakConfig.bonusCap : 0.5f;
+        private float StreakWindow => streakConfig != null ? streakConfig.windowSeconds : 2f;
+
         // ----- Events (UI subscribes to these) -----
 
         /// <summary>Raised whenever the salvage balance changes. Argument is the new balance.</summary>
@@ -102,6 +119,13 @@ namespace Corehold.Core
 
         /// <summary>Raised whenever the game state changes. Argument is the new state.</summary>
         public event Action<GameState> OnStateChanged;
+
+        /// <summary>
+        /// Raised on every kill while a streak is running (R2). Arguments: streak
+        /// count, bonus salvage paid on this kill, world position of the kill.
+        /// OverlayManager listens to place the world-space combo count.
+        /// </summary>
+        public event Action<int, int, Vector3> OnStreakChanged;
 
         private void Awake()
         {
@@ -154,6 +178,10 @@ namespace Corehold.Core
             Salvage = Mathf.RoundToInt(startingSalvage * ecoMul);
             Integrity = StartingIntegrityFor(tier);
 
+            // Fresh run — clear the kill streak (R2).
+            CurrentStreak = 0;
+            _lastKillTime = -999f;
+
             OnSalvageChanged?.Invoke(Salvage);
             OnIntegrityChanged?.Invoke(Integrity);
         }
@@ -180,6 +208,41 @@ namespace Corehold.Core
 
             Salvage += amount;
             OnSalvageChanged?.Invoke(Salvage);
+        }
+
+        /// <summary>
+        /// Award a kill's bounty through the streak system (R2): rapid consecutive
+        /// kills escalate a bonus (+perStepBonus of the bounty per step, capped at
+        /// bonusCap) and the payout routes through <see cref="AddSalvage"/> so
+        /// <see cref="OnSalvageChanged"/> fires normally. The window is measured in
+        /// scaled game time so the 2× toggle does not break streaks that kill
+        /// pacing itself still supports. Feedback stays in the existing directors:
+        /// a rising-pitch StreakStep one-shot here, the world-space combo count via
+        /// OverlayManager listening to <see cref="OnStreakChanged"/>.
+        /// </summary>
+        public void AddKillSalvage(int bounty, Vector3 worldPos)
+        {
+            if (bounty <= 0)
+                return;
+
+            float now = Time.time;
+            CurrentStreak = (now - _lastKillTime) <= StreakWindow ? CurrentStreak + 1 : 1;
+            _lastKillTime = now;
+
+            float bonusFraction = Mathf.Min(StreakPerStep * (CurrentStreak - 1), StreakCap);
+            int bonus = Mathf.RoundToInt(bounty * bonusFraction);
+            AddSalvage(bounty + bonus);
+
+            if (CurrentStreak >= 2)
+            {
+                if (Corehold.Systems.AudioDirector.Instance != null)
+                {
+                    float pitch = 1f + streakPitchStep * (CurrentStreak - 2);
+                    Corehold.Systems.AudioDirector.Instance.Play(
+                        Corehold.Systems.AudioDirector.Sfx.StreakStep, 1f, pitch);
+                }
+                OnStreakChanged?.Invoke(CurrentStreak, bonus, worldPos);
+            }
         }
 
         /// <summary>
