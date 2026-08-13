@@ -206,6 +206,12 @@ namespace Corehold.UI
             for (int i = _comboActive.Count - 1; i >= 0; i--)
             {
                 ComboLabel label = _comboActive[i];
+                if (label.go == null)
+                {
+                    // Destroyed externally mid-flight — drop it, never pool it.
+                    _comboActive.RemoveAt(i);
+                    continue;
+                }
                 label.age += Time.unscaledDeltaTime;
                 if (label.age >= comboLifetime)
                 {
@@ -316,7 +322,26 @@ namespace Corehold.UI
 
         private void HandleStreakChanged(int streak, int bonus, Vector3 worldPos)
         {
-            ComboLabel label = _comboPool.Count > 0 ? _comboPool.Pop() : BuildComboLabel();
+            // Guard against the destroyed-but-event-subscribed edge (scene
+            // teardown frame) — same discipline as Release() above.
+            if (this == null || _root == null)
+                return;
+
+            // Pooled labels can be destroyed out from under us (scene reloads,
+            // hierarchy edits during play). A destroyed GameObject compares ==
+            // null while the C# wrapper survives in the pool — discard those and
+            // rebuild instead of touching a dead Transform.
+            ComboLabel label = null;
+            while (_comboPool.Count > 0)
+            {
+                label = _comboPool.Pop();
+                if (label.go != null)
+                    break;
+                label = null;
+            }
+            if (label == null)
+                label = BuildComboLabel();
+
             label.age = 0f;
             label.go.SetActive(true);
             label.tr.position = worldPos + Vector3.up * (heightAboveHit + pipGap + 0.6f);
