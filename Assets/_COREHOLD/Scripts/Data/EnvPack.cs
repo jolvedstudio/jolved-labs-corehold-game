@@ -68,8 +68,14 @@ namespace Corehold.Data
             public bool allowInFold;
         }
 
+        [Tooltip("Theme this pack represents, set from its folder under Assets/Authoring/EnvPack/. Identifies the pack in generation reports and contact sheets (R31).")]
+        public string themeName;
+
         [Tooltip("Every prop this pack can place, with the metadata the placer needs.")]
         public Entry[] entries;
+
+        [Tooltip("Weather this theme can have. The seed picks one, so an ice map cannot draw desert dust. The blueprint may override this; empty here and empty there means the null preset, which R13 guarantees is pixel-identical to the authored look.")]
+        public WeatherPreset[] weatherPool;
 
         [Header("Ground")]
 

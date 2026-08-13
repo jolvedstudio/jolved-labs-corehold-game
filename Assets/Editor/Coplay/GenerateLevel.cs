@@ -107,7 +107,8 @@ public static class GenerateLevel
         Selection.activeObject = bp;
 
         Debug.Log($"[R25] {path} authored to the shipped map's values — this is R26's parity target. " +
-                  "envPack and weatherPool are left empty; assign them when the pack exists.");
+                  "envPackPool and weatherPool are left empty; Create Refinery Env Pack pins the parity " +
+                  "theme into envPackPool once the pack exists.");
     }
 
     // ------------------------------------------------------------- validation
@@ -155,23 +156,42 @@ public static class GenerateLevel
         if (b.rulesTemplate == null)
             errors.Add("rulesTemplate is unassigned — R30 clones it to emit the LevelDefinition.");
 
-        if (b.envPack == null)
+        if (b.envPackPool == null || b.envPackPool.Length == 0)
         {
-            warnings.Add("envPack is unassigned — the level will generate undressed.");
+            warnings.Add("envPackPool is empty — the level will generate undressed.");
         }
         else
         {
-            int invalid = b.envPack.CountInvalid();
-            if (invalid > 0)
-                errors.Add($"envPack '{b.envPack.name}' has {invalid} entr(ies) with no prefab, a zero " +
-                           "footprint/height, or an Unassigned role — the clearance and occlusion tests would " +
-                           "silently pass them. Run Tools → COREHOLD → Level → Measure Env Pack Metadata.");
-            if (b.envPack.CountInRole(EnvPack.PropRole.Silhouette) == 0)
-                warnings.Add($"envPack '{b.envPack.name}' has no Silhouette entries — the far band (R11) will be bare.");
+            // Every theme in the pool must be shippable, not just the one this seed picks.
+            // A pool validated only on the drawn theme fails on a different seed, which is
+            // the worst time to find out.
+            for (int i = 0; i < b.envPackPool.Length; i++)
+            {
+                EnvPack pack = b.envPackPool[i];
+                if (pack == null)
+                {
+                    errors.Add($"envPackPool[{i}] is null — remove the slot or assign a pack.");
+                    continue;
+                }
+
+                int invalid = pack.CountInvalid();
+                if (invalid > 0)
+                    errors.Add($"envPack '{pack.name}' has {invalid} entr(ies) with no prefab, a zero " +
+                               "footprint/height, or an Unassigned role — the clearance and occlusion tests " +
+                               "would silently pass them. Run Tools → COREHOLD → Level → Measure Env Pack Metadata.");
+                if (pack.CountInRole(EnvPack.PropRole.Silhouette) == 0)
+                    warnings.Add($"envPack '{pack.name}' has no Silhouette entries — the far band (R11) will be bare.");
+                if ((b.weatherPool == null || b.weatherPool.Length == 0) &&
+                    (pack.weatherPool == null || pack.weatherPool.Length == 0))
+                    warnings.Add($"envPack '{pack.name}' has no weatherPool and the blueprint sets no override — " +
+                                 "this theme generates on the null preset.");
+            }
         }
 
-        if (b.weatherPool == null || b.weatherPool.Length == 0)
-            warnings.Add("weatherPool is empty — the level generates on the null preset, which keeps the authored look.");
+        // No warning for an empty blueprint weatherPool: empty is the CORRECT state now.
+        // It means "the chosen theme decides", which is what keeps an ice map off desert
+        // dust. Setting it forces one weather across every theme, so it is the override,
+        // not the default. The per-pack check above covers the case where neither is set.
     }
 
     // ------------------------------------------------------------------ plan

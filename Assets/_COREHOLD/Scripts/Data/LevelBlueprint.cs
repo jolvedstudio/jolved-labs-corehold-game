@@ -81,10 +81,10 @@ namespace Corehold.Data
         public PadClassMix classMix = new PadClassMix { premium = 3, standard = 2, rear = 2, overwatch = 1 };
 
         [Header("Dressing & atmosphere")]
-        [Tooltip("Prop pool this level dresses itself from (R28's placer). Entries carry the footprint radius and height the clearance and occlusion tests need.")]
-        public EnvPack envPack;
+        [Tooltip("Themes this level may be dressed in. The seed picks one, so a single blueprint yields visually distinct maps. ONE entry pins the theme. Entries carry the footprint radius and height the clearance and occlusion tests need.")]
+        public EnvPack[] envPackPool;
 
-        [Tooltip("Weather candidates. The seed picks one, so weather varies per map without a human choosing. EMPTY means the null preset — the scene keeps its authored look, which R13 guarantees is pixel-identical.")]
+        [Tooltip("OVERRIDE for the chosen theme's own weather. Leave EMPTY and the theme decides, which is what keeps an ice map off desert dust. Set it only to force weather regardless of theme. Empty in both places means the null preset — the scene keeps its authored look, which R13 guarantees is pixel-identical.")]
         public WeatherPreset[] weatherPool;
 
         [Header("Rules")]
