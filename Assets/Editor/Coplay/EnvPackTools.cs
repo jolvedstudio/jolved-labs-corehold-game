@@ -17,8 +17,9 @@ using UnityEngine;
 /// So all three entry points here MEASURE rather than ask:
 ///
 ///   • <see cref="BuildFromFolders"/> — the everyday one. Drop prefabs into
-///     <c>Prefabs/EnvPack/&lt;Category&gt;/</c>, run it, get a measured pack. Re-running
-///     preserves every edit you made, so the folders seed a pack without owning it.
+///     <c>Assets/Authoring/EnvPack/&lt;Category&gt;/</c>, run it, get a measured pack.
+///     Re-running preserves every edit you made, so the folders seed a pack without
+///     owning it.
 ///   • <see cref="CreateRefineryPack"/> builds the pack the shipped map already
 ///     implies, from the nine prefab paths <c>RefineryDeltaBlockout.BuildStructures</c>
 ///     places, so R26 has a dressing pack to hit parity against.
@@ -90,12 +91,22 @@ public static class EnvPackTools
     private const float ClearanceEnvelope = 3.75f;
 
     /// <summary>
-    /// Category-by-folder: drop a prefab in <c>Prefabs/EnvPack/Landmarks/</c> and it is a
-    /// Landmark. The answer to "which role is this?" is given by where you put the file,
+    /// Category-by-folder: drop a prefab in <c>Authoring/EnvPack/Landmarks/</c> and it is
+    /// a Landmark. The answer to "which role is this?" is given by where you put the file,
     /// which is the one place a human is already making that decision. Scanning is
     /// recursive, so organise inside a category however you like.
+    ///
+    /// This sits OUTSIDE <c>_COREHOLD/</c> because the tree is generation-time input, not
+    /// shipped game content — <c>_COREHOLD/</c> holds what the game is, this holds what
+    /// levels can be built from.
+    ///
+    /// It must NOT sit under an <c>Editor/</c> folder, though, and that is not a style
+    /// preference. Unity strips <c>Editor/</c> assets from player builds, so a generated
+    /// scene that placed props from there would load with null references in the build and
+    /// look correct in the editor the whole time. The pool is authoring-only; the prefabs
+    /// themselves ship, inside whatever scene the generator placed them in.
     /// </summary>
-    private const string PrefabRoot = "Assets/_COREHOLD/Prefabs/EnvPack";
+    private const string PrefabRoot = "Assets/Authoring/EnvPack";
 
     private static readonly (string folder, EnvPack.PropRole role)[] CategoryFolders =
     {
@@ -238,7 +249,7 @@ public static class EnvPackTools
 
         var result = new List<EnvPack.Entry>();
         var claimed = new HashSet<GameObject>();
-        int added = 0, refreshed = 0, relabelled = 0;
+        int added = 0, refreshed = 0, relabelled = 0, editorFolder = 0;
 
         foreach (var (folder, folderRole) in CategoryFolders)
         {
@@ -258,6 +269,19 @@ public static class EnvPackTools
                     if (prefab != null)
                         log.AppendLine($"      ! {prefab.name} appears in more than one category folder — " +
                                        "kept the first. Move it so there is one answer.");
+                    continue;
+                }
+
+                // Editor-folder assets are stripped from player builds. A prop placed
+                // from one looks perfect in the editor and is a null reference in the
+                // build — the worst kind of failure, because nothing surfaces it until
+                // someone plays a build. Refuse it here instead.
+                if (IsUnderEditorFolder(prefabPath))
+                {
+                    editorFolder++;
+                    log.AppendLine($"      ! {prefab.name} lives under an Editor/ folder ({prefabPath}) — " +
+                                   "SKIPPED. Unity strips those from player builds, so any level dressed " +
+                                   "with it would load with missing props. Move it out.");
                     continue;
                 }
 
@@ -321,6 +345,9 @@ public static class EnvPackTools
                        $"{outside} kept from outside {PrefabRoot}, {relabelled} relabelled by asset label.");
         if (dropped > 0)
             log.AppendLine($"{dropped} entr(ies) dropped — a missing prefab, or a duplicate of one already listed.");
+        if (editorFolder > 0)
+            log.AppendLine($"{editorFolder} prefab(s) SKIPPED for living under an Editor/ folder — those are " +
+                           "stripped from player builds and would dress a level with props that vanish in one.");
         log.AppendLine($"{pack.CountInvalid()} entr(ies) invalid. " +
                        $"Landmark {pack.CountInRole(EnvPack.PropRole.Landmark)}, " +
                        $"MidField {pack.CountInRole(EnvPack.PropRole.MidField)}, " +
@@ -338,8 +365,10 @@ public static class EnvPackTools
     /// <summary>Create the category folders so the convention is discoverable, not documented-only.</summary>
     private static void EnsureCategoryFolders(StringBuilder log)
     {
+        if (!AssetDatabase.IsValidFolder("Assets/Authoring"))
+            AssetDatabase.CreateFolder("Assets", "Authoring");
         if (!AssetDatabase.IsValidFolder(PrefabRoot))
-            AssetDatabase.CreateFolder("Assets/_COREHOLD/Prefabs", "EnvPack");
+            AssetDatabase.CreateFolder("Assets/Authoring", "EnvPack");
 
         var created = new List<string>();
         foreach (var (folder, _) in CategoryFolders)
@@ -382,6 +411,19 @@ public static class EnvPackTools
                 return true;
             }
         }
+        return false;
+    }
+
+    /// <summary>
+    /// True when any path segment is exactly "Editor". Unity's special-folder rule is
+    /// segment-based and depth-independent, so a substring test would both miss
+    /// <c>Props/Editor/x.prefab</c> and wrongly flag <c>EditorProps/x.prefab</c>.
+    /// </summary>
+    private static bool IsUnderEditorFolder(string assetPath)
+    {
+        foreach (string segment in assetPath.Split('/'))
+            if (segment == "Editor")
+                return true;
         return false;
     }
 
