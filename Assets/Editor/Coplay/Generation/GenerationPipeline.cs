@@ -49,6 +49,7 @@ public static class GenerationPipeline
         public string levelAssetPath;      // set once the asset EXISTS (cleanup deletes it on failure)
         public bool sceneCreated;
         public bool sceneSaved;
+        public List<string> dressingStillBlocked;   // pads the occlusion self-repair could not save
     }
 
     public struct Stage
@@ -336,18 +337,30 @@ public static class GenerationPipeline
 
     private static StageResult StPads(Context ctx)
     {
-        if (ctx.layout?.pads == null)
-            return StageResult.Fail("hardpoint selection is R28 — only parity blueprints place pads until it lands.");
+        RefineryDeltaBlockout.HP[] pads = ctx.layout.pads;
+        string how = "parity set";
+
+        if (pads == null)
+        {
+            // R28: clearance-filtered candidates, scored by the real validator,
+            // classified from measurement, picked deterministically.
+            pads = HardpointSelector.Select(ctx.blueprint, ctx.routes,
+                                            ctx.layout.corePos, out string selReport);
+            if (pads == null)
+                return StageResult.Fail(selReport);
+            Debug.Log("[R28] Hardpoint selection:\n" + selReport);
+            how = "selected from measured coverage";
+        }
 
         var log = new StringBuilder();
         // The gizmo de-duplicates shared spans, and both routes share the snake,
         // so pads are checked against the primary route — the shipped convention.
         bool satisfied = RefineryDeltaBlockout.BuildHardpoints(
-            ctx.levelContainer, ctx.routes[0], ctx.layout.pads, log);
+            ctx.levelContainer, ctx.routes[0], pads, log);
 
         // The rule verdict belongs to GATE 2; this stage only reports placement.
-        return StageResult.Ok($"{ctx.layout.pads.Length} pads placed" +
-                              (satisfied ? "" : " (coverage shortfalls — gate 2 will judge)"));
+        return StageResult.Ok($"{pads.Length} pads placed ({how})" +
+                              (satisfied ? "" : " — coverage shortfalls, gate 2 will judge"));
     }
 
     private static StageResult StGate2(Context ctx)
@@ -399,7 +412,8 @@ public static class GenerationPipeline
         }
 
         if (ctx.theme.groundPrefab != null)
-            notes.Add("groundPrefab present — swapped in by the R28 dressing pass when it lands");
+            notes.Add("groundPrefab NOT honoured yet — the frustum fit sizes the primitive plane, and an " +
+                      "arbitrary ground mesh needs its own fit rule; the material + tiling channels are live");
 
         return StageResult.Ok(string.Join(", ", notes));
     }
@@ -419,19 +433,57 @@ public static class GenerationPipeline
         if (ctx.theme == null)
             return StageResult.Skip("no theme drawn — undressed beyond the silhouette band");
 
-        return StageResult.Fail("themed prop placement is R28 — it lands with the occlusion test, " +
-                                "because placing props without one can silently blind a pad.");
+        string dressLog = PropPlacer.Dress(ctx.blueprint, ctx.theme, ctx.levelContainer,
+                                           ctx.routes, ctx.layout.corePos, out ctx.dressingStillBlocked);
+        Debug.Log("[R28] Dressing:\n" + dressLog);
+
+        int lines = 0;
+        foreach (char c in dressLog)
+            if (c == '\n') lines++;
+        return StageResult.Ok($"themed dressing from '{ctx.theme.themeName}' placed " +
+                              $"(occlusion self-repair ran; details in the console, {lines} line(s))");
     }
 
     private static StageResult StOcclusion(Context ctx)
     {
-        // The distance-based coverage count cannot see occluders (R28). Until
-        // the sight-line test lands, this stage is honest about what it can
-        // verify: the PARITY dressing is the exact set the live map was
-        // validated with, so parity passes on provenance, not on measurement.
-        if (ctx.blueprint.parityLayout)
-            return StageResult.Skip("parity dressing = the validated shipped set; measured occlusion lands with R28");
-        return StageResult.Skip("pending R28 — no themed props were placed, nothing to occlude");
+        // GATE 2b (R28): coverage re-run THROUGH the sight-line test. The
+        // distance count cannot see occluders — a 12 m tank between a pad and
+        // its route still "covers" by distance — so every pad is recounted
+        // with the placed props as occluder cylinders. The placer already
+        // self-repaired by removing offenders; anything still short here means
+        // the dressing and the pads cannot coexist on this seed.
+        if (ctx.dressingStillBlocked != null && ctx.dressingStillBlocked.Count > 0)
+            return StageResult.Fail("pads still sight-blocked after dressing repair:\n  • " +
+                                    string.Join("\n  • ", ctx.dressingStillBlocked));
+
+        var props = UnityEngine.Object.FindObjectsByType<Corehold.Systems.PlacedProp>(FindObjectsSortMode.None);
+        var occluders = new List<Corehold.Towers.HardpointCoverageGizmo.Occluder>();
+        foreach (var p in props)
+            occluders.Add(new Corehold.Towers.HardpointCoverageGizmo.Occluder
+            {
+                position = p.transform.position,
+                radius = p.placedFootprintRadius,
+                height = p.placedHeight,
+            });
+
+        var shortfalls = new List<string>();
+        foreach (var pad in UnityEngine.Object.FindObjectsByType<Corehold.Towers.HardpointCoverageGizmo>(FindObjectsSortMode.None))
+        {
+            int need = pad.padClass == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium ? 4 : 2;
+            int have = pad.CountCoveredSpansOnCurve(occluders);
+            if (have < need)
+                shortfalls.Add($"{pad.name}: {have}/{need} spans with sight lines applied");
+        }
+
+        if (shortfalls.Count > 0)
+            return StageResult.Fail("occlusion re-run failed:\n  • " + string.Join("\n  • ", shortfalls));
+
+        if (occluders.Count == 0)
+            return StageResult.Ok(ctx.blueprint.parityLayout
+                ? "0 measured occluders (parity structures carry no PlacedProp markers — the validated shipped set)"
+                : "0 occluders placed — plain recount holds");
+
+        return StageResult.Ok($"all pads keep their class through {occluders.Count} occluder(s)");
     }
 
     private static StageResult StWeather(Context ctx)
