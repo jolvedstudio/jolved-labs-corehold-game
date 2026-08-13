@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Corehold.Data
 {
@@ -68,6 +69,16 @@ namespace Corehold.Data
 
         [Tooltip("[TUNE] Particle colour and alpha. Low alpha is what keeps overdraw cheap and the field readable through the effect.")]
         public Color particleColor = new Color(0.75f, 0.82f, 0.95f, 0.35f);
+
+        [Header("Post-processing grade")]
+        [Tooltip("[TUNE] Layer a graded VolumeProfile over the scene. This is ADDITIVE — the applier drives its own higher-priority global Volume rather than replacing the scene's, so the base profile's Bloom and Tonemapping survive (swapping it wholesale would kill the HDR tracer glow). Author only the overrides weather should change.")]
+        public bool overridePostProfile;
+
+        [Tooltip("Grading profile layered over the base post FX. Declare only weather-relevant overrides — colour adjustments, white balance, vignette.")]
+        public VolumeProfile postProfile;
+
+        [Tooltip("[TUNE] Blend weight of the grade. 0 contributes nothing, 1 applies it fully.")]
+        [Range(0f, 1f)] public float postWeight = 1f;
 
         [Header("Wind")]
         [Tooltip("[TUNE] Horizontal wind direction; normalized on use.")]

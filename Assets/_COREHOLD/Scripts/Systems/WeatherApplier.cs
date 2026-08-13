@@ -65,6 +65,17 @@ namespace Corehold.Systems
         /// <summary>Alpha layers a preset may spend (R14). An authored prefab exceeding this is warned about, not silently accepted.</summary>
         private const int MaxAlphaLayers = 3;
 
+        // The applier drives its OWN global Volume rather than editing the scene's.
+        // URP blends volumes by priority and a higher-priority profile overrides only
+        // the properties it declares, so the base profile's Bloom and Tonemapping
+        // survive — replacing the scene profile outright would kill the HDR tracer
+        // glow that VFXDirector's bolts depend on. Weight 0 means no contribution at
+        // all, which is what keeps the null preset pixel-identical.
+        private UnityEngine.Rendering.Volume _gradeVolume;
+
+        /// <summary>Priority headroom placed above the scene's existing volumes.</summary>
+        private const int GradePriorityOffset = 10;
+
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int ColorId = Shader.PropertyToID("_Color");
 
@@ -102,7 +113,35 @@ namespace Corehold.Systems
             _baseFogMode = RenderSettings.fogMode;
             _baseFogColor = RenderSettings.fogColor;
             _baseFogDensity = RenderSettings.fogDensity;
+
+            EnsureGradeVolume();
             _baselineCaptured = true;
+        }
+
+        /// <summary>
+        /// Create the applier's own global Volume, sitting above every existing
+        /// volume in priority so its overrides win, but starting at weight 0 so it
+        /// contributes nothing until a preset asks for a grade.
+        /// </summary>
+        private void EnsureGradeVolume()
+        {
+            if (_gradeVolume != null)
+                return;
+
+            int highest = int.MinValue;
+            foreach (var v in FindObjectsByType<UnityEngine.Rendering.Volume>(FindObjectsSortMode.None))
+            {
+                if (v != null && v.priority > highest)
+                    highest = (int)v.priority;
+            }
+            if (highest == int.MinValue)
+                highest = 0;
+
+            _gradeVolume = gameObject.AddComponent<UnityEngine.Rendering.Volume>();
+            _gradeVolume.isGlobal = true;
+            _gradeVolume.priority = highest + GradePriorityOffset;
+            _gradeVolume.weight = 0f;
+            _gradeVolume.sharedProfile = null;
         }
 
         private void RestoreBaseline()
@@ -114,6 +153,14 @@ namespace Corehold.Systems
             RenderSettings.fogColor = _baseFogColor;
             RenderSettings.fogDensity = _baseFogDensity;
             TintTargets(Color.white);
+
+            // Stand the grade down entirely — weight 0 contributes nothing, so the
+            // scene falls back to its own volumes exactly.
+            if (_gradeVolume != null)
+            {
+                _gradeVolume.weight = 0f;
+                _gradeVolume.sharedProfile = null;
+            }
         }
 
         /// <summary>
@@ -150,6 +197,15 @@ namespace Corehold.Systems
 
             if (next.overrideGroundTint)
                 TintTargets(next.groundTint);
+
+            // sharedProfile, not profile: assigning the asset directly avoids
+            // instantiating a runtime copy per apply (the same reason ground tinting
+            // goes through a property block rather than renderer.material).
+            if (next.overridePostProfile && next.postProfile != null && _gradeVolume != null)
+            {
+                _gradeVolume.sharedProfile = next.postProfile;
+                _gradeVolume.weight = Mathf.Clamp01(next.postWeight);
+            }
 
             BuildOrUpdatePrecipitation(next);
         }
