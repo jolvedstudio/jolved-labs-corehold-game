@@ -18,13 +18,13 @@ namespace CoreholdEditor
     {
         const string IconPath = "Assets/_COREHOLD/Art/Textures/RotateDeviceIcon.png";
 
-        [MenuItem("Tools/COREHOLD/Build Rotate-Device Overlay")]
+        [MenuItem("Tools/COREHOLD/Scene Setup/Build Rotate-Device Overlay", false, 48)]
         public static string Run()
         {
             var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
 
             // Remove any prior overlay so this is idempotent.
-            var prior = GameObject.Find("Canvas_RotatePrompt");
+            var prior = SceneLookup.Find("Canvas_RotatePrompt");
             if (prior != null) Object.DestroyImmediate(prior);
 
             var iconSprite = CreateIconSprite();

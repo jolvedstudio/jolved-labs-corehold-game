@@ -8,7 +8,7 @@ namespace CoreholdEditor
     {
         public static string Run()
         {
-            var menu = GameObject.Find("Canvas_Menus/BuildMenu");
+            var menu = SceneLookup.Find("Canvas_Menus/BuildMenu");
             if (menu == null) return "BuildMenu not found";
             menu.SetActive(true);
 

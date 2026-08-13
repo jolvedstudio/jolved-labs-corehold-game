@@ -17,8 +17,8 @@ using UnityEngine;
 /// sufficient to make the whole shared tail identical.
 ///
 /// Two menu items, both report-only unless you run the pinning one:
-///   • Tools/COREHOLD/Pin Merge Knots      — writes identical pins to both routes.
-///   • Tools/COREHOLD/Check Route Divergence — samples both curves every 0.5 m
+///   • Tools/COREHOLD/Level/Pin Merge Knots      — writes identical pins to both routes.
+///   • Tools/COREHOLD/Validate/Check Route Divergence — samples both curves every 0.5 m
 ///     over the shared tail and reports the maximum separation (gate: ≤ 0.05 m).
 /// </summary>
 public static class MergeKnotPinning
@@ -32,7 +32,7 @@ public static class MergeKnotPinning
     /// <summary>Two knots count as the same position within this many metres.</summary>
     private const float SamePointEpsilon = 0.01f;
 
-    [MenuItem("Tools/COREHOLD/Pin Merge Knots")]
+    [MenuItem("Tools/COREHOLD/Level/Pin Merge Knots", false, 4)]
     public static void PinMergeKnots()
     {
         if (!ResolveRoutes(out PathRoute primary, out PathRoute secondary, out string error))
@@ -98,7 +98,7 @@ public static class MergeKnotPinning
         Debug.Log(log.ToString());
     }
 
-    [MenuItem("Tools/COREHOLD/Check Route Divergence")]
+    [MenuItem("Tools/COREHOLD/Validate/Check Route Divergence", false, 22)]
     public static void CheckDivergence()
     {
         string report = DivergenceReport();

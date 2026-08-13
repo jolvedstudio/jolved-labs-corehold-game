@@ -10,7 +10,7 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Authors the Rain and Dust presets and wires the applier (roadmap R13, R14).
-/// Run: Tools/COREHOLD/Setup Weather.
+/// Run: Tools/COREHOLD/Scene Setup/Weather.
 ///
 /// Both presets are deliberately restrained. R14's bar is that enemies and turret
 /// states stay readable THROUGH the effect at 907×510, and the overdraw budget is
@@ -29,7 +29,7 @@ public static class SetupWeather
     private const string RainPath = WeatherDir + "/Weather_Rain.asset";
     private const string DustPath = WeatherDir + "/Weather_Dust.asset";
 
-    [MenuItem("Tools/COREHOLD/Setup Weather")]
+    [MenuItem("Tools/COREHOLD/Scene Setup/Weather", false, 43)]
     public static void Setup()
     {
         var log = new StringBuilder();
@@ -79,7 +79,8 @@ public static class SetupWeather
         p.precipitation = WeatherPreset.Precipitation.Rain;
         p.precipitationRate = 260f;
         p.fallSpeed = 18f;
-        p.particleSize = 0.05f;
+        p.particleSize = 0.018f;   // ~1.2 px wide at 907x510
+        p.streakLength = 18f;      // -> ~21 px long: a streak, not a dash
         p.particleColor = new Color(0.78f, 0.85f, 0.98f, 0.30f);
 
         p.windDirection = new Vector3(0.35f, 0f, -1f);
@@ -118,7 +119,7 @@ public static class SetupWeather
         p.precipitation = WeatherPreset.Precipitation.Dust;
         p.precipitationRate = 90f;
         p.fallSpeed = 1.6f;
-        p.particleSize = 0.12f;
+        p.particleSize = 0.05f;    // ~3.4 px motes (was 0.12 x a hidden 3 = 24 px)
         p.particleColor = new Color(0.85f, 0.76f, 0.60f, 0.16f);
 
         p.windDirection = new Vector3(1f, 0.05f, -0.35f);

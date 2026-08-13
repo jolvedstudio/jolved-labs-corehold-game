@@ -17,7 +17,7 @@ namespace CoreholdEditor
     /// </summary>
     public static class FixEventSystemInputModule
     {
-        [MenuItem("Tools/COREHOLD/Fix EventSystem Input Module")]
+        [MenuItem("Tools/COREHOLD/Scene Setup/Fix EventSystem Input Module", false, 49)]
         public static string Run()
         {
             var sb = new StringBuilder();

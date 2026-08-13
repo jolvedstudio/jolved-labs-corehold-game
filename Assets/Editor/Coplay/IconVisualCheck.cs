@@ -48,7 +48,7 @@ namespace CoreholdEditor
 
         public static string Cleanup()
         {
-            var go = GameObject.Find(ContainerName);
+            var go = SceneLookup.Find(ContainerName);
             if (go != null) Object.DestroyImmediate(go);
             return "Cleaned up.";
         }

@@ -10,7 +10,7 @@ namespace CoreholdEditor
     /// </summary>
     public static class CameraPreviewRender
     {
-        [MenuItem("Tools/COREHOLD/Render Camera Preview")]
+        [MenuItem("Tools/COREHOLD/Look/Render Camera Preview", false, 66)]
         public static string Run()
         {
             var cam = Object.FindFirstObjectByType<Camera>();

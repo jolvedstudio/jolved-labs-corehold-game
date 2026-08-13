@@ -20,7 +20,7 @@ namespace CoreholdEditor
     /// sprite state). Wires every controller to the game's events.
     ///
     /// Idempotent: deletes any UI it previously built (by name) and rebuilds.
-    /// Menu: Tools/COREHOLD/Build Real UI.
+    /// Menu: Tools/COREHOLD/Scene Setup/Build Real UI.
     /// </summary>
     public static class BuildRealUI
     {
@@ -47,7 +47,7 @@ namespace CoreholdEditor
         static TMP_FontAsset _font;
         static float _large = 34f, _small = 22f;
 
-        [MenuItem("Tools/COREHOLD/Build Real UI")]
+        [MenuItem("Tools/COREHOLD/Scene Setup/Build Real UI", false, 47)]
         public static string Run()
         {
             var sb = new StringBuilder();
@@ -88,7 +88,7 @@ namespace CoreholdEditor
 
         static UITheme BuildTheme(StringBuilder sb)
         {
-            var go = GameObject.Find("UITheme");
+            var go = SceneLookup.Find("UITheme");
             if (go == null) go = new GameObject("UITheme");
             var theme = go.GetComponent<UITheme>() ?? go.AddComponent<UITheme>();
 
@@ -278,7 +278,7 @@ namespace CoreholdEditor
                 SetRef(so, "pauseScreen", pauseScreen);
                 so.ApplyModifiedPropertiesWithoutUndo();
             }
-            return GameObject.Find("Canvas_Menus").GetComponent<Canvas>();
+            return SceneLookup.Find("Canvas_Menus").GetComponent<Canvas>();
         }
 
         static BuildMenu BuildBuildMenu(Canvas canvas, UITheme theme, RangeRing ring)
@@ -588,7 +588,7 @@ namespace CoreholdEditor
 
         static void EnsureGameFlow(HUDController hud, Canvas menus, StringBuilder sb)
         {
-            var gmGo = GameObject.Find("GameManager");
+            var gmGo = SceneLookup.Find("GameManager");
             if (gmGo == null) gmGo = new GameObject("GameManager", typeof(GameManager));
 
             // Remove any leftover missing-script GameBootstrap component.
@@ -608,7 +608,7 @@ namespace CoreholdEditor
             // now-recompiled ResultScreen (empty refs); it is harmless but redundant
             // because the real ResultScreen lives on Canvas_Menus. Remove the stray
             // component if the object has no other purpose.
-            var stray = GameObject.Find("ResultScreen");
+            var stray = SceneLookup.Find("ResultScreen");
             if (stray != null)
             {
                 var comps = stray.GetComponents<Component>();
@@ -623,7 +623,7 @@ namespace CoreholdEditor
             }
 
             // GameManager may hold a missing GameBootstrap script component.
-            var gm = GameObject.Find("GameManager");
+            var gm = SceneLookup.Find("GameManager");
             if (gm != null)
                 RemoveMissingScripts(gm, sb);
         }
@@ -645,7 +645,7 @@ namespace CoreholdEditor
 
         static void DestroyIfExists(string name)
         {
-            var go = GameObject.Find(name);
+            var go = SceneLookup.Find(name);
             if (go != null) Object.DestroyImmediate(go);
         }
 

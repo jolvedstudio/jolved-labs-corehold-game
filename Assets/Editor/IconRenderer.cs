@@ -23,7 +23,7 @@ namespace Corehold.EditorTools
         // 3/4 view direction the camera looks *from* (normalized in code).
         private static readonly Vector3 ViewDir = new Vector3(1f, 0.6f, -1f);
 
-        [MenuItem("Tools/COREHOLD/Render Icons")]
+        [MenuItem("Tools/COREHOLD/Art/Render Icons", false, 81)]
         public static void RenderIcons()
         {
             Directory.CreateDirectory(IconDir);

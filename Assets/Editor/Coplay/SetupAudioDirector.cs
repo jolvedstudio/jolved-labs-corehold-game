@@ -38,7 +38,7 @@ public static class SetupAudioDirector
     private const string RotationLoopPath = TurretSfx + "Turret/rotate_loop.wav";
     private const string MusicPath = CreepySound + "Ambiant/FreeMusic_By_CreepyCat_01.wav";
 
-    [MenuItem("Tools/COREHOLD/Setup Audio Director")]
+    [MenuItem("Tools/COREHOLD/Scene Setup/Audio Director", false, 41)]
     public static void Setup()
     {
         Scene scene = SceneManager.GetActiveScene();

@@ -10,7 +10,7 @@ public static class FrameBattlefield
 
         // Overlook the whole battlefield: pivot near the Core, pull the camera back
         // and up so both turret pads and the incoming west/north routes are visible.
-        var core = GameObject.Find("RefineryLevel/Core_Blockout/Core_Target");
+        var core = SceneLookup.Find("RefineryLevel/Core_Blockout/Core_Target");
         Vector3 pivot = core != null ? core.transform.position : Vector3.zero;
 
         sv.pivot = pivot;

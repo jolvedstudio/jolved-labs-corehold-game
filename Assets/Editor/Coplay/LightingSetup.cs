@@ -30,7 +30,7 @@ namespace CoreholdEditor
             "RefineryLevel/Narrative",
         };
 
-        [MenuItem("Tools/COREHOLD/Setup Lighting (no realtime shadows)")]
+        [MenuItem("Tools/COREHOLD/Look/Setup Lighting (no realtime shadows)", false, 64)]
         public static string Run()
         {
             var sb = new StringBuilder();
@@ -62,12 +62,12 @@ namespace CoreholdEditor
             var toMark = new HashSet<Transform>();
 
             // Explicit Floor object.
-            var floor = GameObject.Find("Floor");
+            var floor = SceneLookup.Find("Floor");
             if (floor != null) toMark.Add(floor.transform);
 
             foreach (var rootPath in StaticRoots)
             {
-                var root = GameObject.Find(rootPath);
+                var root = SceneLookup.Find(rootPath);
                 if (root == null) continue;
                 foreach (var t in root.GetComponentsInChildren<Transform>(true))
                     toMark.Add(t);
@@ -206,7 +206,7 @@ namespace CoreholdEditor
             sb.AppendLine("  LightingSettings: Baked GI on, Realtime GI off, Auto off, non-directional, 1024 maps.");
         }
 
-        [MenuItem("Tools/COREHOLD/Bake Lighting")]
+        [MenuItem("Tools/COREHOLD/Look/Bake Lighting", false, 65)]
         public static string BakeLighting()
         {
             Lightmapping.Bake();

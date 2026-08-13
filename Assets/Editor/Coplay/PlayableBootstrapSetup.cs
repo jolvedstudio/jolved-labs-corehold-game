@@ -14,12 +14,12 @@ namespace CoreholdEditor
     /// </summary>
     public static class PlayableBootstrapSetup
     {
-        [MenuItem("Tools/COREHOLD/Setup Playable Bootstrap")]
+        [MenuItem("Tools/COREHOLD/Scene Setup/Playable Bootstrap", false, 46)]
         public static string Run()
         {
             var sb = new StringBuilder();
 
-            var gmGo = GameObject.Find("GameManager");
+            var gmGo = SceneLookup.Find("GameManager");
             if (gmGo == null)
             {
                 gmGo = new GameObject("GameManager");

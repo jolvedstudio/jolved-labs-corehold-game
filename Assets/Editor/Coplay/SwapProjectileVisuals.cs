@@ -22,7 +22,7 @@ public static class SwapProjectileVisuals
     private const string RocketVendor = "Assets/Vendor/Mech_Constructor_Turrets/Prefabs/Weapons/Projectile_Rocket_Lvl1.prefab";
     private const string ShellVendor = "Assets/Vendor/Mech_Constructor_Turrets/Prefabs/Weapons/Projectile_Shell_Mortar.prefab";
 
-    [MenuItem("Tools/COREHOLD/Swap Projectile Visuals")]
+    [MenuItem("Tools/COREHOLD/Art/Swap Projectile Visuals", false, 83)]
     public static void Run()
     {
         // Missile: rocket points +Z, so no extra rotation. Scale it down so a

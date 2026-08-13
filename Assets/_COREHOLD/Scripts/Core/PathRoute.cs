@@ -51,7 +51,7 @@ namespace Corehold.Core
         [Tooltip("Arc-length table resolution: samples per knot interval. Higher = finer distance→position mapping. Rebuilt only when the waypoints actually move, so this costs nothing per frame.")]
         [SerializeField] private int samplesPerCurve = 16;
 
-        [Tooltip("Merge-knot tangent pins (roadmap R7). Two routes that share a tail but approach it from different directions get DIFFERENT AutoSmooth tangents at the merge knot — because AutoSmooth reads a knot's neighbours — so their shared tails diverge. Pinning the same outgoing tangent at the merge knot on both routes makes the shared geometry identical. Wire with Tools → COREHOLD → Pin Merge Knots.")]
+        [Tooltip("Merge-knot tangent pins (roadmap R7). Two routes that share a tail but approach it from different directions get DIFFERENT AutoSmooth tangents at the merge knot — because AutoSmooth reads a knot's neighbours — so their shared tails diverge. Pinning the same outgoing tangent at the merge knot on both routes makes the shared geometry identical. Wire with Tools → COREHOLD → Level → Pin Merge Knots.")]
         [SerializeField] private TangentPin[] tangentPins;
 
         [Header("Gizmo")]

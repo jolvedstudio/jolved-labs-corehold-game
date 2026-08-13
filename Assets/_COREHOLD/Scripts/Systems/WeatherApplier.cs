@@ -354,7 +354,11 @@ namespace Corehold.Systems
             main.playOnAwake = true;
             main.simulationSpace = ParticleSystemSimulationSpace.Local; // camera-attached
             main.startSpeed = 0f;
-            main.startSize = p.particleSize * (rain ? 1f : 3f);
+            // The preset's size is literal — no hidden multiplier. Apparent size is
+            // driven by the layer distance (12 m), where one pixel at 907×510 is
+            // roughly 0.015 m, so these numbers are far smaller than world-scale
+            // intuition suggests.
+            main.startSize = p.particleSize;
             main.startColor = p.particleColor;
             main.startLifetime = height / Mathf.Max(0.1f, p.fallSpeed);
             main.maxParticles = Mathf.CeilToInt(p.precipitationRate * main.startLifetime.constant) + 32;
@@ -401,8 +405,13 @@ namespace Corehold.Systems
                 : ParticleSystemRenderMode.Billboard;
             if (rain)
             {
-                renderer.velocityScale = 0.12f;
-                renderer.lengthScale = 2.5f;
+                // Stretched-billboard length is width × lengthScale. velocityScale
+                // would add length proportional to particle SPEED — but all motion
+                // here lives in velocityOverLifetime while startSpeed stays 0, so it
+                // contributes nothing and relying on it just produced a stubby dash.
+                // Drive the streak from lengthScale alone, which is predictable.
+                renderer.velocityScale = 0f;
+                renderer.lengthScale = Mathf.Max(1f, p.streakLength);
             }
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;

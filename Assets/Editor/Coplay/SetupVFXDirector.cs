@@ -28,7 +28,7 @@ public static class SetupVFXDirector
         (VFXDirector.Effect.BuildPuff,       "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Misc/CFXR Magic Poof.prefab", 2),
     };
 
-    [MenuItem("Tools/COREHOLD/Setup VFX Director")]
+    [MenuItem("Tools/COREHOLD/Scene Setup/VFX Director", false, 42)]
     public static void Setup()
     {
         Scene scene = SceneManager.GetActiveScene();

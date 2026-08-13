@@ -21,7 +21,7 @@ namespace CoreholdEditor
         const string TowerDir = "Assets/_COREHOLD/Prefabs/Towers";
         const string BlobMatPath = "Assets/_COREHOLD/Art/Materials/Mat_BlobShadow.mat";
 
-        [MenuItem("Tools/COREHOLD/Verify Ticket 32")]
+        [MenuItem("Tools/COREHOLD/Validate/Verify Ticket 32", false, 26)]
         public static string Run()
         {
             var sb = new StringBuilder();
@@ -56,16 +56,16 @@ namespace CoreholdEditor
             var pts = new System.Collections.Generic.List<Vector3>();
             void Collect(string root)
             {
-                var go = GameObject.Find(root);
+                var go = SceneLookup.Find(root);
                 if (go == null) return;
                 foreach (var t in go.GetComponentsInChildren<Transform>(true)) pts.Add(t.position);
             }
             Collect("RefineryLevel/Routes");
             Collect("RefineryLevel/Hardpoints");
-            var core = GameObject.Find("RefineryLevel/Core_Blockout/Core_Target");
+            var core = SceneLookup.Find("RefineryLevel/Core_Blockout/Core_Target");
             if (core != null) pts.Add(core.transform.position);
             foreach (var s in new[] { "Spawner_West", "Spawner_North", "Spawner_Air" })
-            { var g = GameObject.Find(s); if (g != null) pts.Add(g.transform.position); }
+            { var g = SceneLookup.Find(s); if (g != null) pts.Add(g.transform.position); }
 
             if (pts.Count == 0) { minX = -65; maxX = 65; minZ = -37.5f; maxZ = 37.5f; return; }
             minX = pts.Min(p => p.x); maxX = pts.Max(p => p.x);
@@ -152,7 +152,7 @@ namespace CoreholdEditor
             int staticCount = 0, envRenderers = 0;
             foreach (var root in new[] { "RefineryLevel/Structures", "RefineryLevel/Core_Blockout", "RefineryLevel/Narrative" })
             {
-                var go = GameObject.Find(root);
+                var go = SceneLookup.Find(root);
                 if (go == null) continue;
                 foreach (var r in go.GetComponentsInChildren<Renderer>(true))
                 {
@@ -208,7 +208,7 @@ namespace CoreholdEditor
         static void VerifyOverlay(StringBuilder sb)
         {
             sb.AppendLine("--- ROTATE OVERLAY ---");
-            var canvas = GameObject.Find("Canvas_RotatePrompt");
+            var canvas = SceneLookup.Find("Canvas_RotatePrompt");
             if (canvas == null) { sb.AppendLine("  MISSING Canvas_RotatePrompt\n"); return; }
             var c = canvas.GetComponent<Canvas>();
             var overlay = canvas.GetComponent<Corehold.UI.RotateDeviceOverlay>();

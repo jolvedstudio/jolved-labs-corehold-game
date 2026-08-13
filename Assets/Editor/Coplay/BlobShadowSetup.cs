@@ -21,7 +21,7 @@ namespace CoreholdEditor
         const string EnemyDir = "Assets/_COREHOLD/Prefabs/Enemies";
         const string TowerDir = "Assets/_COREHOLD/Prefabs/Towers";
 
-        [MenuItem("Tools/COREHOLD/Setup Blob Shadows")]
+        [MenuItem("Tools/COREHOLD/Scene Setup/Blob Shadows", false, 45)]
         public static string Run()
         {
             var log = new System.Text.StringBuilder();
