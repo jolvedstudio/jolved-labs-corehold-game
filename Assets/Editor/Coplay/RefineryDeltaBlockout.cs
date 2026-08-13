@@ -166,7 +166,19 @@ public static class RefineryDeltaBlockout
             floor.name = "Floor";
         }
         floor.transform.position = Vector3.zero;
-        floor.transform.localScale = new Vector3(FieldW / 10f, 1f, FieldD / 10f);
+
+        // The ground must cover what the CAMERA sees, not the design box (R11).
+        // Sizing it from FieldW/FieldD leaves void everywhere the frustum reaches
+        // past 130×75 — which at the shipped framing is most of the upper screen —
+        // and it is what silently reverted the hand-widened floor on every rebuild.
+        // Fall back to the design box only when there is no camera to fit to.
+        //
+        // NOTE (R26): this runs before CameraFramingSetup, so on a freshly framed
+        // map the authoritative pass is Tools → COREHOLD → Fit Ground + Fog, run
+        // AFTER framing. Generation must order it that way.
+        floor.transform.localScale = GroundAndSkirt.FloorScaleForCamera(
+            Object.FindFirstObjectByType<Camera>(),
+            new Vector3(FieldW / 10f, 1f, FieldD / 10f));
     }
 
     const string CreepyRoot = "Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Prefabs/";
