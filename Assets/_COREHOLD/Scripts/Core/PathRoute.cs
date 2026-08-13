@@ -75,6 +75,9 @@ namespace Corehold.Core
         private int _geometryHash;
         private bool _built;
 
+        /// <summary>Relative gap between the chord-summed table length and the spline's own arc length that is tolerated before warning (R6).</summary>
+        private const float ArcTableTolerance = 0.001f;
+
         /// <summary>Number of waypoints in the route.</summary>
         public int PointCount => waypoints != null ? waypoints.Length : 0;
 
@@ -370,8 +373,10 @@ namespace Corehold.Core
 
             // NativeSpline gives allocation-free evaluation while the table is filled,
             // and is disposed in the same scope — nothing native outlives this call.
+            float nativeLength;
             using (var native = new NativeSpline(spline, Allocator.Temp))
             {
+                nativeLength = native.GetLength();
                 for (int j = 0; j <= samples; j++)
                 {
                     float3 p = native.EvaluatePosition(j / (float)samples);
@@ -389,6 +394,21 @@ namespace Corehold.Core
 
             _length = total;
             _splineReady = true;
+
+            // Cross-check the chord-summed table against the package's own arc length.
+            // Chord sums always UNDER-read a curve, and Length feeds the balance model
+            // (roadmap R10), so a table too coarse to measure the route honestly must
+            // surface as a warning rather than a quiet bias. Raise samplesPerCurve if
+            // this fires.
+            if (nativeLength > 0.001f &&
+                Mathf.Abs(total - nativeLength) / nativeLength > ArcTableTolerance)
+            {
+                Debug.LogWarning(
+                    $"[PathRoute] '{name}' arc table under-reads the curve: table {total:0.###} m vs " +
+                    $"spline {nativeLength:0.###} m ({(nativeLength - total) / nativeLength:P2}). " +
+                    $"Raise samplesPerCurve (currently {samplesPerCurve}) — Length feeds the balance model.",
+                    this);
+            }
         }
 
         /// <summary>
