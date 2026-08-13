@@ -64,8 +64,11 @@ namespace Corehold.Data
         [Tooltip("[TUNE] Fall speed in metres/second.")]
         [Range(0f, 40f)] public float fallSpeed = 14f;
 
-        [Tooltip("[TUNE] Particle size in metres.")]
-        [Range(0.01f, 2f)] public float particleSize = 0.06f;
+        [Tooltip("[TUNE] Particle WIDTH in metres — this is the literal size, no hidden multiplier. Read it in pixels, not world scale: the layer sits 12 m from the camera, so at 907×510 one pixel is roughly 0.015 m. A 0.05 m drop is ~3.4 px wide, which is already fat for rain.")]
+        [Range(0.005f, 1f)] public float particleSize = 0.02f;
+
+        [Tooltip("[TUNE] Rain only: streak length as a multiple of the particle WIDTH (Unity's stretched-billboard Length Scale). ~15-20 reads as rain; 2-3 reads as a fat dash. Ignored by Dust, which billboards.")]
+        [Range(1f, 40f)] public float streakLength = 18f;
 
         [Tooltip("[TUNE] Particle colour and alpha. Low alpha is what keeps overdraw cheap and the field readable through the effect.")]
         public Color particleColor = new Color(0.75f, 0.82f, 0.95f, 0.35f);

@@ -79,7 +79,8 @@ public static class SetupWeather
         p.precipitation = WeatherPreset.Precipitation.Rain;
         p.precipitationRate = 260f;
         p.fallSpeed = 18f;
-        p.particleSize = 0.05f;
+        p.particleSize = 0.018f;   // ~1.2 px wide at 907x510
+        p.streakLength = 18f;      // -> ~21 px long: a streak, not a dash
         p.particleColor = new Color(0.78f, 0.85f, 0.98f, 0.30f);
 
         p.windDirection = new Vector3(0.35f, 0f, -1f);
@@ -118,7 +119,7 @@ public static class SetupWeather
         p.precipitation = WeatherPreset.Precipitation.Dust;
         p.precipitationRate = 90f;
         p.fallSpeed = 1.6f;
-        p.particleSize = 0.12f;
+        p.particleSize = 0.05f;    // ~3.4 px motes (was 0.12 x a hidden 3 = 24 px)
         p.particleColor = new Color(0.85f, 0.76f, 0.60f, 0.16f);
 
         p.windDirection = new Vector3(1f, 0.05f, -0.35f);
