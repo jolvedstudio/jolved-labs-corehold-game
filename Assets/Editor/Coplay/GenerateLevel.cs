@@ -27,7 +27,13 @@ public static class GenerateLevel
     /// <summary>The coverage rule needs at least this many pads covering 4+ spans.</summary>
     private const int MinPremiumPads = 3;
 
-    [MenuItem("Tools/COREHOLD/Level/Generate Level", false, 20)]
+    /// <summary>
+    /// Headless one-shot: run the SAME pipeline the Level Generator window drives
+    /// and print the transcript. The window is the everyday surface; this exists
+    /// for scripted use and for the R31 contact sheet, which will call the
+    /// pipeline once per seed.
+    /// </summary>
+    [MenuItem("Tools/COREHOLD/Level/Generate Level (headless)", false, 20)]
     public static void Generate()
     {
         LevelBlueprint blueprint = ResolveBlueprint(out string how);
@@ -40,30 +46,28 @@ public static class GenerateLevel
 
         var log = new StringBuilder();
         log.AppendLine($"=== COREHOLD level generation — blueprint '{blueprint.name}' ({how}) ===");
-
-        var errors = new List<string>();
-        var warnings = new List<string>();
-        Validate(blueprint, errors, warnings);
-
         AppendPlan(blueprint, log);
+        log.AppendLine();
 
-        foreach (string w in warnings)
-            log.AppendLine($"  [warn] {w}");
-
-        if (errors.Count > 0)
+        bool failed = false;
+        foreach (var (stage, result) in GenerationPipeline.RunAll(blueprint))
         {
-            log.AppendLine();
-            log.AppendLine($"BLUEPRINT REJECTED — {errors.Count} problem(s), nothing emitted:");
-            foreach (string e in errors)
-                log.AppendLine($"  • {e}");
-            Debug.LogWarning(log.ToString());
-            return;
+            string icon = !result.ok ? "✗" : result.skipped ? "–" : "✓";
+            log.AppendLine($"  {icon} {stage.title,-26} {result.message}");
+            failed |= !result.ok;
         }
 
         log.AppendLine();
-        log.AppendLine("Blueprint VALID. Generation itself is stubbed until R26–R30 land — no scene emitted.");
-        Debug.Log(log.ToString());
+        log.AppendLine(failed
+            ? "FAILED — stopped at the first ✗ above; nothing after it ran."
+            : "Done. Open the saved scene and press Play.");
+
+        if (failed) Debug.LogWarning(log.ToString());
+        else Debug.Log(log.ToString());
     }
+
+    /// <summary>Blueprint resolution for tools that must not log (the window's OnEnable).</summary>
+    internal static LevelBlueprint ResolveBlueprintQuiet() => ResolveBlueprint(out _);
 
     /// <summary>
     /// Author a blueprint describing the SHIPPED map, which is what R26's parity
@@ -113,7 +117,11 @@ public static class GenerateLevel
 
     // ------------------------------------------------------------- validation
 
-    private static void Validate(LevelBlueprint b, List<string> errors, List<string> warnings)
+    /// <summary>
+    /// Blueprint admission — shared by the pipeline's first stage and the window's
+    /// live panel, so the window can never disagree with what generation enforces.
+    /// </summary>
+    internal static void ValidateBlueprint(LevelBlueprint b, List<string> errors, List<string> warnings)
     {
         if (b.playfieldSize.x <= 0f || b.playfieldSize.y <= 0f)
             errors.Add($"playfieldSize must be positive (is {b.playfieldSize}).");
