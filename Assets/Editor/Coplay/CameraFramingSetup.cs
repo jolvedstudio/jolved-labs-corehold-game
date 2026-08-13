@@ -65,10 +65,10 @@ namespace CoreholdEditor
             // container is named after its blueprint, not "RefineryLevel" (R26), and
             // a path miss here would silently fall back to the design box — wrong
             // framing with no error, on every generated map.
-            foreach (var route in Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None))
+            foreach (var route in SceneQuery.InActiveScene<Corehold.Core.PathRoute>())
                 for (int i = 0; i < route.PointCount; i++)
                     pts.Add(route.GetPoint(i));
-            foreach (var pad in Object.FindObjectsByType<Corehold.Towers.TowerHardpoint>(FindObjectsSortMode.None))
+            foreach (var pad in SceneQuery.InActiveScene<Corehold.Towers.TowerHardpoint>())
                 pts.Add(pad.transform.position);
             var core = SceneLookup.Find("Core_Target");
             if (core != null) pts.Add(core.transform.position);

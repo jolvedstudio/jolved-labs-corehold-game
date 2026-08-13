@@ -284,18 +284,25 @@ public static class GenerationGates
     public static string CheckCoverage(LevelBlueprint blueprint, out string summary)
     {
         summary = null;
-        var gizmos = Object.FindObjectsByType<HardpointCoverageGizmo>(FindObjectsSortMode.None);
+
+        // ACTIVE SCENE ONLY. A gate must judge the map the pipeline just built —
+        // FindObjectsByType would also census pads in any other loaded scene.
+        var gizmos = SceneQuery.InActiveScene<HardpointCoverageGizmo>(out int ignored);
         if (gizmos.Length == 0)
             return "no hardpoints in the scene — the pad stage emitted nothing";
 
         var problems = new StringBuilder();
         var census = new Dictionary<HardpointCoverageGizmo.PadClass, int>();
+        var byClass = new Dictionary<HardpointCoverageGizmo.PadClass, List<string>>();
         int premiumAtFour = 0;
 
         foreach (var gz in gizmos)
         {
             census.TryGetValue(gz.padClass, out int c);
             census[gz.padClass] = c + 1;
+            if (!byClass.TryGetValue(gz.padClass, out List<string> names))
+                byClass[gz.padClass] = names = new List<string>();
+            names.Add(gz.name);
 
             int covered = gz.CountCoveredSegments();
             bool premium = gz.padClass == HardpointCoverageGizmo.PadClass.Premium;
@@ -312,23 +319,41 @@ public static class GenerationGates
             problems.AppendLine($"  • only {premiumAtFour} Premium pad(s) at ≥4 spans — the rule needs 3");
 
         var mix = blueprint.classMix;
-        CheckCensus(census, HardpointCoverageGizmo.PadClass.Premium, mix.premium, problems);
-        CheckCensus(census, HardpointCoverageGizmo.PadClass.Standard, mix.standard, problems);
-        CheckCensus(census, HardpointCoverageGizmo.PadClass.Rear, mix.rear, problems);
-        CheckCensus(census, HardpointCoverageGizmo.PadClass.Overwatch, mix.overwatch, problems);
+        CheckCensus(census, byClass, HardpointCoverageGizmo.PadClass.Premium, mix.premium, problems);
+        CheckCensus(census, byClass, HardpointCoverageGizmo.PadClass.Standard, mix.standard, problems);
+        CheckCensus(census, byClass, HardpointCoverageGizmo.PadClass.Rear, mix.rear, problems);
+        CheckCensus(census, byClass, HardpointCoverageGizmo.PadClass.Overwatch, mix.overwatch, problems);
 
         if (problems.Length > 0)
-            return "coverage violations:\n" + problems.ToString().TrimEnd();
+        {
+            string report = "coverage violations:\n" + problems.ToString().TrimEnd();
+            if (ignored > 0)
+                report += $"\n  (note: {ignored} pad(s) in OTHER loaded scenes were correctly excluded)";
+            return report;
+        }
 
-        summary = $"{gizmos.Length} pads all ≥2 spans, {premiumAtFour} Premium at ≥4, mix matches blueprint";
+        summary = $"{gizmos.Length} pads all ≥2 spans, {premiumAtFour} Premium at ≥4, mix matches blueprint" +
+                  (ignored > 0 ? $" ({ignored} pad(s) in other loaded scenes ignored)" : "");
         return null;
     }
 
+    /// <summary>
+    /// Census check that NAMES the pads it counted. A bare count ("6 Premium
+    /// placed, asks for 3") tells you the number is wrong but not which objects
+    /// made it wrong — and R29 requires a report that names offenders.
+    /// </summary>
     private static void CheckCensus(Dictionary<HardpointCoverageGizmo.PadClass, int> census,
+                                    Dictionary<HardpointCoverageGizmo.PadClass, List<string>> byClass,
                                     HardpointCoverageGizmo.PadClass cls, int expected, StringBuilder problems)
     {
         census.TryGetValue(cls, out int actual);
-        if (actual != expected)
-            problems.AppendLine($"  • {actual} {cls} pad(s) placed, blueprint asks for {expected}");
+        if (actual == expected)
+            return;
+
+        byClass.TryGetValue(cls, out List<string> names);
+        string listed = names != null && names.Count > 0
+            ? " — " + string.Join(", ", names)
+            : "";
+        problems.AppendLine($"  • {actual} {cls} pad(s) placed, blueprint asks for {expected}{listed}");
     }
 }

@@ -282,6 +282,27 @@ public static class GenerationPipeline
         // Containers FIRST, so everything the pipeline itself builds is parented
         // at creation — emitted grouped, not organised after the fact (R26).
         SceneContainers.AdoptAll();
+
+        // Single-mode NewScene should leave exactly one scene loaded. If it did
+        // not, say so LOUDLY rather than generating quietly alongside a
+        // stranger: every query in this pipeline is scoped to the active scene,
+        // but a second loaded scene still means the Hierarchy, the Game view and
+        // anything the human eyeballs are showing two maps at once.
+        int loaded = SceneManager.sceneCount;
+        if (loaded > 1)
+        {
+            var others = new List<string>();
+            for (int i = 0; i < loaded; i++)
+            {
+                Scene s = SceneManager.GetSceneAt(i);
+                if (s != SceneManager.GetActiveScene())
+                    others.Add(string.IsNullOrEmpty(s.name) ? "<untitled>" : s.name);
+            }
+            return StageResult.Ok($"fresh scene; containers created — NOTE: {loaded} scenes are loaded " +
+                                  $"({string.Join(", ", others)} alongside it). Generation is scoped to the " +
+                                  "active scene, but close the others to keep the Hierarchy honest.");
+        }
+
         return StageResult.Ok("fresh scene; containers created, camera + light adopted");
     }
 
@@ -521,7 +542,7 @@ public static class GenerationPipeline
             return StageResult.Fail("pads still sight-blocked after dressing repair:\n  • " +
                                     string.Join("\n  • ", ctx.dressingStillBlocked));
 
-        var props = UnityEngine.Object.FindObjectsByType<Corehold.Systems.PlacedProp>(FindObjectsSortMode.None);
+        var props = SceneQuery.InActiveScene<Corehold.Systems.PlacedProp>();
         var occluders = new List<Corehold.Towers.HardpointCoverageGizmo.Occluder>();
         foreach (var p in props)
             occluders.Add(new Corehold.Towers.HardpointCoverageGizmo.Occluder
@@ -532,7 +553,7 @@ public static class GenerationPipeline
             });
 
         var shortfalls = new List<string>();
-        foreach (var pad in UnityEngine.Object.FindObjectsByType<Corehold.Towers.HardpointCoverageGizmo>(FindObjectsSortMode.None))
+        foreach (var pad in SceneQuery.InActiveScene<Corehold.Towers.HardpointCoverageGizmo>())
         {
             int need = pad.padClass == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium ? 4 : 2;
             int have = pad.CountCoveredSpansOnCurve(occluders);
@@ -555,7 +576,7 @@ public static class GenerationPipeline
     {
         SetupWeather.Setup();
 
-        var applier = UnityEngine.Object.FindFirstObjectByType<Corehold.Systems.WeatherApplier>();
+        var applier = SceneQuery.FirstInActiveScene<Corehold.Systems.WeatherApplier>();
         if (applier == null)
             return StageResult.Fail("SetupWeather ran but no WeatherApplier found in the scene");
 
@@ -605,7 +626,7 @@ public static class GenerationPipeline
         AssetDatabase.CreateAsset(clone, assetPath);
         ctx.levelAssetPath = assetPath;
 
-        var wave = UnityEngine.Object.FindFirstObjectByType<Corehold.Core.WaveManager>();
+        var wave = SceneQuery.FirstInActiveScene<Corehold.Core.WaveManager>();
         if (wave == null)
             return StageResult.Fail("no WaveManager in the scene to wire the LevelDefinition into");
 

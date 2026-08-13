@@ -94,7 +94,7 @@ public static class PropPlacer
                 routeSamples.Add(p);
             }
 
-        var pads = Object.FindObjectsByType<HardpointCoverageGizmo>(FindObjectsSortMode.None)
+        var pads = SceneQuery.InActiveScene<HardpointCoverageGizmo>()
             .OrderBy(g => g.name, System.StringComparer.Ordinal).ToArray();
 
         var dressing = new GameObject("Dressing");

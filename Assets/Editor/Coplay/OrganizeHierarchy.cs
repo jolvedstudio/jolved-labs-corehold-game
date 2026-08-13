@@ -91,7 +91,7 @@ public static class OrganizeHierarchy
     /// </summary>
     private static int PromoteStrays(StringBuilder log)
     {
-        var overlay = Object.FindFirstObjectByType<Corehold.UI.OverlayManager>();
+        var overlay = SceneQuery.FirstInActiveScene<Corehold.UI.OverlayManager>();
         if (overlay == null)
             return 0;
 
