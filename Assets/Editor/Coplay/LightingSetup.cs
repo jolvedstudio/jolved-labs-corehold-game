@@ -30,7 +30,7 @@ namespace CoreholdEditor
             "RefineryLevel/Narrative",
         };
 
-        [MenuItem("Tools/COREHOLD/Setup Lighting (no realtime shadows)")]
+        [MenuItem("Tools/COREHOLD/Look/Setup Lighting (no realtime shadows)", false, 64)]
         public static string Run()
         {
             var sb = new StringBuilder();
@@ -206,7 +206,7 @@ namespace CoreholdEditor
             sb.AppendLine("  LightingSettings: Baked GI on, Realtime GI off, Auto off, non-directional, 1024 maps.");
         }
 
-        [MenuItem("Tools/COREHOLD/Bake Lighting")]
+        [MenuItem("Tools/COREHOLD/Look/Bake Lighting", false, 65)]
         public static string BakeLighting()
         {
             Lightmapping.Bake();

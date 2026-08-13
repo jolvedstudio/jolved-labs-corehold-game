@@ -8,7 +8,7 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Ticket 30/31 — Refinery Delta blockout builder.
-/// Run: Tools/COREHOLD/Build Refinery Delta.
+/// Run: Tools/COREHOLD/Level/Build Refinery Delta.
 ///
 /// Rebuilds the "RefineryLevel" container, route waypoints, hardpoints and set
 /// dressing, and removes the old placeholder Core / Route_* objects. Coordinate
@@ -58,7 +58,7 @@ public static class RefineryDeltaBlockout
         CorePos,                      // arrive at the Core (34.5,-6.5)
     };
 
-    [MenuItem("Tools/COREHOLD/Build Refinery Delta")]
+    [MenuItem("Tools/COREHOLD/Level/Build Refinery Delta", false, 1)]
     public static void Build()
     {
         var log = new StringBuilder();

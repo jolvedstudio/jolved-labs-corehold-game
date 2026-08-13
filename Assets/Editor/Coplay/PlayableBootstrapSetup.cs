@@ -14,7 +14,7 @@ namespace CoreholdEditor
     /// </summary>
     public static class PlayableBootstrapSetup
     {
-        [MenuItem("Tools/COREHOLD/Setup Playable Bootstrap")]
+        [MenuItem("Tools/COREHOLD/Scene Setup/Playable Bootstrap", false, 46)]
         public static string Run()
         {
             var sb = new StringBuilder();

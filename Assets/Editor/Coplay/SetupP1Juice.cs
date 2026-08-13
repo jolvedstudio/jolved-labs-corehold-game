@@ -9,7 +9,7 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// P1 juice wiring (roadmap R2+). Run once after pulling the P1 code:
-/// Tools/COREHOLD/Setup P1 Juice.
+/// Tools/COREHOLD/Scene Setup/P1 Juice.
 ///
 ///   • Creates Assets/_COREHOLD/Data/StreakConfig.asset (R2) if missing and
 ///     assigns it to the scene GameManager.
@@ -50,7 +50,7 @@ public static class SetupP1Juice
         }),
     };
 
-    [MenuItem("Tools/COREHOLD/Setup P1 Juice")]
+    [MenuItem("Tools/COREHOLD/Scene Setup/P1 Juice", false, 44)]
     public static void Setup()
     {
         var log = new StringBuilder();
@@ -107,7 +107,7 @@ public static class SetupP1Juice
         var director = Object.FindFirstObjectByType<AudioDirector>();
         if (director == null)
         {
-            log.AppendLine("[warn] no AudioDirector in scene — run Tools/COREHOLD/Setup Audio Director first.");
+            log.AppendLine("[warn] no AudioDirector in scene — run Tools/COREHOLD/Scene Setup/Audio Director first.");
             return;
         }
 

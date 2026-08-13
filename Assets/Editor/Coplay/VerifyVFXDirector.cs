@@ -12,7 +12,7 @@ using UnityEngine;
 /// </summary>
 public static class VerifyVFXDirector
 {
-    [MenuItem("Tools/COREHOLD/Verify VFX Director (Play)")]
+    [MenuItem("Tools/COREHOLD/Validate/Verify VFX Director (Play)", false, 27)]
     public static void Verify()
     {
         if (!EditorApplication.isPlaying)

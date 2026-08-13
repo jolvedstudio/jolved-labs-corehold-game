@@ -34,7 +34,7 @@ public static class SplineGateReport
 {
     private const string ReportPath = "docs/spline_gate_report.txt";
 
-    [MenuItem("Tools/COREHOLD/Run Spline Gate (R9)")]
+    [MenuItem("Tools/COREHOLD/Validate/Run Spline Gate (R9)", false, 21)]
     public static void Run()
     {
         var sb = new StringBuilder();

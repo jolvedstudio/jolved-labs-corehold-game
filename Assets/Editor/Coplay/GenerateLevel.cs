@@ -27,7 +27,7 @@ public static class GenerateLevel
     /// <summary>The coverage rule needs at least this many pads covering 4+ spans.</summary>
     private const int MinPremiumPads = 3;
 
-    [MenuItem("Tools/COREHOLD/Generate Level")]
+    [MenuItem("Tools/COREHOLD/Level/Generate Level", false, 3)]
     public static void Generate()
     {
         LevelBlueprint blueprint = ResolveBlueprint(out string how);
@@ -70,7 +70,7 @@ public static class GenerateLevel
     /// rebuild is measured against ("a blueprint configured to the shipped values
     /// rebuilds a scene with the full live root set").
     /// </summary>
-    [MenuItem("Tools/COREHOLD/Create Refinery Delta Blueprint")]
+    [MenuItem("Tools/COREHOLD/Level/Create Refinery Delta Blueprint", false, 2)]
     public static void CreateShippedBlueprint()
     {
         const string dir = "Assets/_COREHOLD/Data/Blueprints";

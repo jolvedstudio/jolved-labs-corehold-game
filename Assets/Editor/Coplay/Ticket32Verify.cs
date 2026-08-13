@@ -21,7 +21,7 @@ namespace CoreholdEditor
         const string TowerDir = "Assets/_COREHOLD/Prefabs/Towers";
         const string BlobMatPath = "Assets/_COREHOLD/Art/Materials/Mat_BlobShadow.mat";
 
-        [MenuItem("Tools/COREHOLD/Verify Ticket 32")]
+        [MenuItem("Tools/COREHOLD/Validate/Verify Ticket 32", false, 26)]
         public static string Run()
         {
             var sb = new StringBuilder();

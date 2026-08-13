@@ -41,7 +41,7 @@ public static class GroundAndSkirt
     /// <summary>Dark blue-slate: fog should read as the field receding, not as grey haze.</summary>
     private static readonly Color FogTint = new Color(0.10f, 0.12f, 0.16f, 1f);
 
-    [MenuItem("Tools/COREHOLD/Fit Ground + Fog (R11)")]
+    [MenuItem("Tools/COREHOLD/Look/Fit Ground + Fog (R11)", false, 62)]
     public static void FitGroundAndFog()
     {
         var log = new StringBuilder();
@@ -222,7 +222,7 @@ public static class GroundAndSkirt
         (new[] { CreepyRoot + "Props/Machine/P_Pumping_Station_01.prefab" },          0.60f, 0.94f, 1.2f),
     };
 
-    [MenuItem("Tools/COREHOLD/Build Silhouette Band (R11)")]
+    [MenuItem("Tools/COREHOLD/Look/Build Silhouette Band (R11)", false, 63)]
     public static void BuildSilhouetteBand()
     {
         Camera cam = Object.FindFirstObjectByType<Camera>();

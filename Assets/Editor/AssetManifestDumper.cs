@@ -10,7 +10,7 @@ public static class AssetManifestDumper
     const string Root = "Assets/Vendor";
     static int _processed;
 
-    [MenuItem("Tools/COREHOLD/Dump Asset Manifest")]
+    [MenuItem("Tools/COREHOLD/Utilities/Dump Asset Manifest", false, 101)]
     public static void Dump()
     {
         if (!AssetDatabase.IsValidFolder(Root))

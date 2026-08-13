@@ -10,7 +10,7 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Authors the Rain and Dust presets and wires the applier (roadmap R13, R14).
-/// Run: Tools/COREHOLD/Setup Weather.
+/// Run: Tools/COREHOLD/Scene Setup/Weather.
 ///
 /// Both presets are deliberately restrained. R14's bar is that enemies and turret
 /// states stay readable THROUGH the effect at 907×510, and the overdraw budget is
@@ -29,7 +29,7 @@ public static class SetupWeather
     private const string RainPath = WeatherDir + "/Weather_Rain.asset";
     private const string DustPath = WeatherDir + "/Weather_Dust.asset";
 
-    [MenuItem("Tools/COREHOLD/Setup Weather")]
+    [MenuItem("Tools/COREHOLD/Scene Setup/Weather", false, 43)]
     public static void Setup()
     {
         var log = new StringBuilder();

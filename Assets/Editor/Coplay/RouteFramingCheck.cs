@@ -16,7 +16,7 @@ namespace CoreholdEditor
     {
         const float VFov = 35f;
 
-        [MenuItem("Tools/COREHOLD/Check Route Framing")]
+        [MenuItem("Tools/COREHOLD/Validate/Check Waypoints In Frustum", false, 24)]
         public static string Run()
         {
             var cam = Object.FindFirstObjectByType<Camera>();

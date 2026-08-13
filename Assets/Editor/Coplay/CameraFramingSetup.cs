@@ -28,7 +28,7 @@ namespace CoreholdEditor
         const float TopMargin = 0.12f;     // fraction of screen height empty at top
         const float BottomMargin = 0.18f;  // fraction of screen height empty at bottom
 
-        [MenuItem("Tools/COREHOLD/Fix Camera Framing")]
+        [MenuItem("Tools/COREHOLD/Look/Fix Camera Framing", false, 61)]
         public static string Run()
         {
             var cam = Object.FindFirstObjectByType<Camera>();

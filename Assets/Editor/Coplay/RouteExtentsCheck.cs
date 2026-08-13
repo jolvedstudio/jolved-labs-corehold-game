@@ -15,7 +15,7 @@ namespace CoreholdEditor
     /// </summary>
     public static class RouteExtentsCheck
     {
-        [MenuItem("Tools/COREHOLD/Check Route Framing")]
+        [MenuItem("Tools/COREHOLD/Validate/Check Content Extents vs Camera", false, 23)]
         public static string Run()
         {
             var sb = new StringBuilder();

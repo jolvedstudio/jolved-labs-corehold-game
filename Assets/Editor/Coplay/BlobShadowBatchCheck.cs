@@ -24,7 +24,7 @@ namespace CoreholdEditor
         const string TowerDir = "Assets/_COREHOLD/Prefabs/Towers";
         const string BlobMatPath = "Assets/_COREHOLD/Art/Materials/Mat_BlobShadow.mat";
 
-        [MenuItem("Tools/COREHOLD/Check Blob Shadow Batching")]
+        [MenuItem("Tools/COREHOLD/Validate/Check Blob Shadow Batching", false, 25)]
         public static string Run()
         {
             var sb = new StringBuilder();

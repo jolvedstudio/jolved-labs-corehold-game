@@ -20,7 +20,7 @@ namespace CoreholdEditor
     /// sprite state). Wires every controller to the game's events.
     ///
     /// Idempotent: deletes any UI it previously built (by name) and rebuilds.
-    /// Menu: Tools/COREHOLD/Build Real UI.
+    /// Menu: Tools/COREHOLD/Scene Setup/Build Real UI.
     /// </summary>
     public static class BuildRealUI
     {
@@ -47,7 +47,7 @@ namespace CoreholdEditor
         static TMP_FontAsset _font;
         static float _large = 34f, _small = 22f;
 
-        [MenuItem("Tools/COREHOLD/Build Real UI")]
+        [MenuItem("Tools/COREHOLD/Scene Setup/Build Real UI", false, 47)]
         public static string Run()
         {
             var sb = new StringBuilder();

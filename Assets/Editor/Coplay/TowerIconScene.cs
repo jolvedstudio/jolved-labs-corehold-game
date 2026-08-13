@@ -13,7 +13,7 @@ namespace CoreholdEditor
     /// Ticket (e), take 2 — renders a clean icon for every TowerDefinition in a
     /// dedicated throwaway scene. Each icon shows JUST the tower, framed on a round
     /// white circle background (nothing else), 256x256, and is assigned back to the
-    /// definition. Menu: Tools/COREHOLD/Render Tower Icons (Circle).
+    /// definition. Menu: Tools/COREHOLD/Art/Render Tower Icons (Circle).
     ///
     /// URP always writes opaque alpha into the target, so a single render pass yields
     /// a solid square. We render the tower over solid BLACK and solid WHITE, then
@@ -27,7 +27,7 @@ namespace CoreholdEditor
         const string IconDir = "Assets/_COREHOLD/Art/Icons";
         static readonly Vector3 ViewDir = new Vector3(1f, 0.55f, -1f);
 
-        [MenuItem("Tools/COREHOLD/Render Tower Icons (Circle)")]
+        [MenuItem("Tools/COREHOLD/Art/Render Tower Icons (Circle)", false, 82)]
         public static string Run()
         {
             Directory.CreateDirectory(IconDir);

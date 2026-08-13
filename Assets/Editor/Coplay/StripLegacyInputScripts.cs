@@ -16,7 +16,7 @@ namespace CoreholdEditor
     /// </summary>
     public static class StripLegacyInputScripts
     {
-        [MenuItem("Tools/COREHOLD/Strip Legacy-Input Demo Scripts")]
+        [MenuItem("Tools/COREHOLD/Utilities/Strip Legacy-Input Demo Scripts", false, 102)]
         public static string Run()
         {
             var sb = new StringBuilder();
