@@ -46,10 +46,10 @@ namespace Corehold.Data
             [Tooltip("Which band this fills. The placer fills each band deliberately rather than scattering one pool everywhere.")]
             public PropRole role;
 
-            [Tooltip("Horizontal footprint radius in metres. REQUIRED — the clearance test measures this against laneHalfWidth + maxBodyRadius off any route centreline, and against the pad keep-out.")]
+            [Tooltip("Horizontal keep-out radius in metres AT SCALE 1, measured about the prefab pivot (the placer multiplies by the chosen scale). REQUIRED — the clearance test measures this against laneHalfWidth + maxBodyRadius off any route centreline, and against the pad keep-out. Use Tools → COREHOLD → Level → Measure Env Pack Metadata rather than typing it: a radius short by 30% looks fine in the inspector and puts a prop in the lane.")]
             public float footprintRadius;
 
-            [Tooltip("Height in metres. REQUIRED — the sight-line occlusion test uses it to decide whether this prop breaks a turret's line to a covered span.")]
+            [Tooltip("Height above the pivot in metres AT SCALE 1 (the placer multiplies by the chosen scale). REQUIRED — the sight-line occlusion test uses it to decide whether this prop breaks a turret's line to a covered span.")]
             public float height;
 
             [Tooltip("Uniform scale range. The seed picks within it, so variety stays deterministic.")]

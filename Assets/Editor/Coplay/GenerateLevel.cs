@@ -27,7 +27,7 @@ public static class GenerateLevel
     /// <summary>The coverage rule needs at least this many pads covering 4+ spans.</summary>
     private const int MinPremiumPads = 3;
 
-    [MenuItem("Tools/COREHOLD/Level/Generate Level", false, 3)]
+    [MenuItem("Tools/COREHOLD/Level/Generate Level", false, 20)]
     public static void Generate()
     {
         LevelBlueprint blueprint = ResolveBlueprint(out string how);
