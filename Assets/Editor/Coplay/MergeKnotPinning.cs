@@ -60,17 +60,27 @@ public static class MergeKnotPinning
             return;
         }
 
-        // Derive the pin from the PRIMARY route's own neighbours, using the standard
-        // Catmull-Rom convention (next − previous)/3. Two consequences worth knowing:
-        // the primary route's shape barely moves (this is close to what AutoSmooth
-        // already gives it), and the secondary route adopts the primary's entry into
-        // the shared tail. Any residual shift in route Length is captured by R9's
-        // Length-delta filing and re-baselined by R10.
-        Vector3 prev = primary.GetPoint(primaryMerge - 1);
-        Vector3 next = primary.GetPoint(primaryMerge + 1);
-        Vector3 pin = (next - prev) / 3f;
-
-        log.AppendLine($"Pin (from {primary.name}, (next−prev)/3): {pin}");
+        // Take the pin from the PRIMARY route's OWN AutoSmooth tangent, read back out
+        // of the package rather than reconstructed from a guessed tension constant.
+        // That way the donor route's curve is preserved exactly and only the adopting
+        // route moves — the smallest possible change to shipped geometry.
+        Vector3 pin;
+        if (primary.TryGetAutoSmoothTangentOut(primaryMerge, out Vector3 natural) &&
+            natural.sqrMagnitude > 1e-6f)
+        {
+            pin = natural;
+            log.AppendLine($"Pin (read from {primary.name}'s own AutoSmooth tangent): {pin}");
+        }
+        else
+        {
+            // AutoSmooth did not expose a stored tangent — fall back to the
+            // Catmull-Rom convention. Both routes still receive the SAME value, so
+            // the shared tail still matches; only its shape differs from natural.
+            Vector3 prev = primary.GetPoint(primaryMerge - 1);
+            Vector3 next = primary.GetPoint(primaryMerge + 1);
+            pin = (next - prev) / 3f;
+            log.AppendLine($"Pin (AutoSmooth tangent unavailable — fell back to (next−prev)/3): {pin}");
+        }
 
         WritePin(primary, primaryMerge, pin, log);
         WritePin(secondary, secondaryMerge, pin, log);
@@ -107,30 +117,43 @@ public static class MergeKnotPinning
     // ------------------------------------------------------------------ helpers
 
     /// <summary>
-    /// Sample both curves every <see cref="SampleStep"/> metres from their own merge
-    /// knot to the end and report the worst separation. Distances are measured per
-    /// route because the approach legs differ in length, so the shared tail starts at
-    /// a different arc distance on each.
+    /// Sample both curves BACKWARDS from the Core and report the worst separation.
+    ///
+    /// Measuring from the end is what makes this trustworthy: both routes finish at
+    /// the same point, and the shared tail is their last N knots, so stepping back
+    /// the same arc distance on each lands on the same place IF the tails agree.
+    /// It needs no knot→distance mapping, which is exactly what the first version
+    /// of this check got wrong — it assumed the curve was sampled uniformly per
+    /// knot interval, when the package samples uniformly in ARC LENGTH, so the
+    /// "merge knot" distance was tens of metres off and the check compared two
+    /// points on the un-shared approach legs.
+    ///
+    /// The span is the shared tail's POLYLINE length, which is spline-independent
+    /// and conservative: a curve through the same knots is never shorter than the
+    /// chords, so stepping back that far always stays inside the shared region.
     /// </summary>
     private static string Measure(PathRoute a, PathRoute b, int aMergeIndex, int bMergeIndex)
     {
-        float aStart = a.DistanceAlongAt(aMergeIndex);
-        float bStart = b.DistanceAlongAt(bMergeIndex);
-        float tail = Mathf.Min(a.Length - aStart, b.Length - bStart);
+        float span = PolylineTailLength(a, aMergeIndex);
+        span = Mathf.Min(span, Mathf.Min(a.Length, b.Length));
 
         float worst = 0f;
         float worstAt = 0f;
+        float firstBreach = -1f;
         int samples = 0;
-        for (float d = 0f; d <= tail; d += SampleStep)
+
+        for (float d = 0f; d <= span; d += SampleStep)
         {
-            Vector3 pa = a.SamplePosition(aStart + d, out _);
-            Vector3 pb = b.SamplePosition(bStart + d, out _);
+            Vector3 pa = a.SamplePosition(a.Length - d, out _);
+            Vector3 pb = b.SamplePosition(b.Length - d, out _);
             float sep = Vector3.Distance(pa, pb);
             if (sep > worst)
             {
                 worst = sep;
                 worstAt = d;
             }
+            if (sep > DivergenceGate && firstBreach < 0f)
+                firstBreach = d;
             samples++;
         }
 
@@ -141,12 +164,27 @@ public static class MergeKnotPinning
         var sb = new StringBuilder();
         sb.AppendLine("=== R7 shared-tail divergence ===");
         sb.AppendLine($"Mode        : {mode}");
-        sb.AppendLine($"Shared tail : {tail:0.00} m from {a.name}[{aMergeIndex}] / {b.name}[{bMergeIndex}] " +
-                      $"({samples} samples @ {SampleStep} m)");
-        sb.AppendLine($"Route length: {a.name} {a.Length:0.###} m, {b.name} {b.Length:0.###} m");
-        sb.AppendLine($"Max divergence: {worst:0.####} m at {worstAt:0.0} m along the tail " +
+        sb.AppendLine($"Measured    : {span:0.00} m back from the Core ({samples} samples @ {SampleStep} m), " +
+                      $"covering the tail shared from {a.name}[{aMergeIndex}] / {b.name}[{bMergeIndex}]");
+        sb.AppendLine($"Route length: {a.name} {a.Length:0.###} m, {b.name} {b.Length:0.###} m " +
+                      $"(difference {Mathf.Abs(a.Length - b.Length):0.###} m — the approach legs, " +
+                      $"which are NOT shared)");
+        sb.AppendLine($"Merge knot  : {a.name} at {a.DistanceAlongAt(aMergeIndex):0.###} m, " +
+                      $"{b.name} at {b.DistanceAlongAt(bMergeIndex):0.###} m");
+        if (firstBreach >= 0f)
+            sb.AppendLine($"First breach: {firstBreach:0.0} m back from the Core");
+        sb.AppendLine($"Max divergence: {worst:0.####} m at {worstAt:0.0} m back from the Core " +
                       $"(gate ≤ {DivergenceGate} m) -> {(worst <= DivergenceGate ? "PASS" : "**FAIL**")}");
         return sb.ToString();
+    }
+
+    /// <summary>Straight-line length of the shared tail, from the merge knot to the end.</summary>
+    private static float PolylineTailLength(PathRoute route, int mergeIndex)
+    {
+        float total = 0f;
+        for (int i = mergeIndex + 1; i < route.PointCount; i++)
+            total += Vector3.Distance(route.GetPoint(i - 1), route.GetPoint(i));
+        return total;
     }
 
     /// <summary>

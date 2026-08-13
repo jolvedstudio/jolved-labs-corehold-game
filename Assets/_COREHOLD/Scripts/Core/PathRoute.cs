@@ -89,6 +89,7 @@ namespace Corehold.Core
         //     which keeps the sampling identical in shape to the polyline path.
         private Vector3[] _arcPoints;
         private float[] _arcDistances;
+        private float[] _knotDistances;
         private bool _splineReady;
         private int _geometryHash;
         private bool _built;
@@ -247,15 +248,11 @@ namespace Corehold.Core
             if (_cumulativeDistances == null || index < 0 || index >= _cumulativeDistances.Length)
                 return 0f;
 
-            // Each knot lands exactly on a table sample: the table is built with a
-            // fixed number of samples per knot interval (see RebuildSpline).
-            if (_splineReady && _arcDistances != null)
-            {
-                int step = Mathf.Max(2, samplesPerCurve);
-                int sample = index * step;
-                if (sample < _arcDistances.Length)
-                    return _arcDistances[sample];
-            }
+            // Knot distances are located during the bake — they are NOT at a fixed
+            // stride through the table, because the sampling is uniform in arc
+            // length rather than in knot index (see ComputeKnotDistances).
+            if (_splineReady && _knotDistances != null && index < _knotDistances.Length)
+                return _knotDistances[index];
 
             return _cumulativeDistances[index];
         }
@@ -424,6 +421,7 @@ namespace Corehold.Core
             }
 
             _length = total;
+            ComputeKnotDistances(count, samples);
             _splineReady = true;
 
             // Cross-check the chord-summed table against the package's own arc length.
@@ -440,6 +438,118 @@ namespace Corehold.Core
                     $"Raise samplesPerCurve (currently {samplesPerCurve}) — Length feeds the balance model.",
                     this);
             }
+        }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Editor-only (R7 tooling): the outgoing tangent AutoSmooth derives for a
+        /// knot, with no pins applied. This lets the pinning tool copy one route's
+        /// NATURAL tangent onto the other, instead of guessing at the package's
+        /// tension constant — so the donor route's shape is preserved exactly and
+        /// only the adopting route moves. Returns false when the index is invalid.
+        /// </summary>
+        public bool TryGetAutoSmoothTangentOut(int knotIndex, out Vector3 tangentOut)
+        {
+            tangentOut = Vector3.zero;
+
+            int count = PointCount;
+            if (count < 2 || knotIndex < 0 || knotIndex >= count)
+                return false;
+
+            var spline = new Spline();
+            for (int i = 0; i < count; i++)
+            {
+                Transform wp = waypoints[i];
+                Vector3 p = wp != null ? wp.position : Vector3.zero;
+                spline.Add(new BezierKnot(new float3(p.x, p.y, p.z), float3.zero, float3.zero),
+                           TangentMode.AutoSmooth);
+            }
+            spline.Closed = false;
+
+            float3 t = spline[knotIndex].TangentOut;
+            tangentOut = new Vector3(t.x, t.y, t.z);
+            return true;
+        }
+#endif
+
+        /// <summary>
+        /// Locate each knot's arc distance along the baked curve.
+        ///
+        /// The table CANNOT be indexed as knot·stride: <c>EvaluatePosition(t)</c>
+        /// walks the curve at uniform ARC LENGTH, not uniform knot index, so a knot
+        /// sits wherever its geometry puts it (on the live west route, knot 2 is at
+        /// ~30 m — sample ~41 of 208 — not at sample 32). Each knot is therefore
+        /// found by scanning forward from the previous knot's sample for the closest
+        /// point, then refining onto the neighbouring segment. Forward-only scanning
+        /// is what keeps this correct on a route that folds back on itself: the
+        /// hairpin legs run ~10 m apart, so a nearest-point search over the whole
+        /// table could otherwise match the wrong pass.
+        /// </summary>
+        private void ComputeKnotDistances(int count, int samples)
+        {
+            if (_knotDistances == null || _knotDistances.Length != count)
+                _knotDistances = new float[count];
+
+            _knotDistances[0] = 0f;
+            int from = 0;
+
+            for (int k = 1; k < count; k++)
+            {
+                Transform wp = waypoints[k];
+                Vector3 target = wp != null ? wp.position : Vector3.zero;
+
+                int best = from;
+                float bestSq = float.MaxValue;
+                for (int j = from; j <= samples; j++)
+                {
+                    float sq = (_arcPoints[j] - target).sqrMagnitude;
+                    if (sq < bestSq)
+                    {
+                        bestSq = sq;
+                        best = j;
+                    }
+                }
+
+                _knotDistances[k] = RefineKnotDistance(best, samples, target);
+                from = best;
+            }
+
+            // The final knot is the end of the curve by construction.
+            _knotDistances[count - 1] = _arcDistances[samples];
+        }
+
+        /// <summary>
+        /// Sub-sample refinement: project the knot onto whichever segment adjoining
+        /// the nearest sample it actually falls on, so the returned distance is
+        /// accurate to well under a centimetre rather than half a sample spacing.
+        /// </summary>
+        private float RefineKnotDistance(int best, int samples, Vector3 target)
+        {
+            float bestDist = _arcDistances[best];
+            float bestSq = (_arcPoints[best] - target).sqrMagnitude;
+
+            for (int n = -1; n <= 1; n += 2)
+            {
+                int other = best + n;
+                if (other < 0 || other > samples)
+                    continue;
+
+                Vector3 a = _arcPoints[best];
+                Vector3 ab = _arcPoints[other] - a;
+                float len2 = ab.sqrMagnitude;
+                if (len2 < 1e-9f)
+                    continue;
+
+                float t = Mathf.Clamp01(Vector3.Dot(target - a, ab) / len2);
+                Vector3 proj = a + ab * t;
+                float sq = (proj - target).sqrMagnitude;
+                if (sq < bestSq)
+                {
+                    bestSq = sq;
+                    bestDist = Mathf.Lerp(_arcDistances[best], _arcDistances[other], t);
+                }
+            }
+            return bestDist;
         }
 
         /// <summary>
