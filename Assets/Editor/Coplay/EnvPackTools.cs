@@ -249,8 +249,61 @@ public static class EnvPackTools
 
         var result = new List<EnvPack.Entry>();
         var claimed = new HashSet<GameObject>();
-        int added = 0, refreshed = 0, relabelled = 0, editorFolder = 0;
+        int added = 0, refreshed = 0, relabelled = 0, editorFolder = 0, byLabel = 0;
 
+        // Shared by both discovery passes, so a prefab found by folder and one found by
+        // label are measured, merged and reported identically. Returns false when the
+        // prefab was refused.
+        bool Adopt(GameObject prefab, string prefabPath, EnvPack.PropRole proposed, bool allowLabelOverride)
+        {
+            // Editor-folder assets are stripped from player builds. A prop placed from
+            // one looks perfect in the editor and is a null reference in the build — the
+            // worst kind of failure, because nothing surfaces it until someone plays a
+            // build. Refuse it here instead.
+            if (IsUnderEditorFolder(prefabPath))
+            {
+                editorFolder++;
+                log.AppendLine($"      ! {prefab.name} lives under an Editor/ folder ({prefabPath}) — " +
+                               "SKIPPED. Unity strips those from player builds, so any level dressed " +
+                               "with it would load with missing props. Move it out.");
+                return false;
+            }
+
+            // A label beats the folder: it is applied to that asset deliberately, whereas
+            // the folder is a bulk decision.
+            EnvPack.PropRole role = proposed;
+            if (allowLabelOverride &&
+                TryRoleFromLabels(prefab, out EnvPack.PropRole labelled) && labelled != proposed)
+            {
+                role = labelled;
+                relabelled++;
+                log.AppendLine($"      · {prefab.name}: label '{labelled}' overrides folder '{proposed}'.");
+            }
+
+            if (existing.TryGetValue(prefab, out EnvPack.Entry entry))
+            {
+                refreshed++;
+                FillMissing(ref entry, prefab, log);            // authored values survive
+            }
+            else
+            {
+                added++;
+                entry = new EnvPack.Entry
+                {
+                    prefab = prefab,
+                    role = role,
+                    scaleRange = new Vector2(1f, 1f),
+                    allowInFold = false                          // pockets are where pads live
+                };
+                FillMissing(ref entry, prefab, log);
+                log.AppendLine($"      + {prefab.name,-28} {role,-10} r={entry.footprintRadius,6:0.00}  h={entry.height,6:0.00}");
+            }
+
+            result.Add(entry);
+            return true;
+        }
+
+        // Pass 1 — the category folders.
         foreach (var (folder, folderRole) in CategoryFolders)
         {
             string path = PrefabRoot + "/" + folder;
@@ -264,58 +317,42 @@ public static class EnvPackTools
             {
                 string prefabPath = AssetDatabase.GUIDToAssetPath(guid);
                 var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                if (prefab == null)
+                    continue;
+                if (!claimed.Add(prefab))
+                {
+                    log.AppendLine($"      ! {prefab.name} appears in more than one category folder — " +
+                                   "kept the first. Move it so there is one answer.");
+                    continue;
+                }
+
+                Adopt(prefab, prefabPath, folderRole, allowLabelOverride: true);
+            }
+        }
+
+        // Pass 2 — labelled prefabs ANYWHERE in the project. This is what makes a label a
+        // real alternative to filing rather than just an override: a prop that has to stay
+        // where it is — a vendor prefab you do not want to copy out of a package — still
+        // reaches the pack. Prefabs already taken by pass 1 are skipped, so the folder
+        // keeps ownership of anything filed.
+        foreach (var (_, labelRole) in CategoryFolders)
+        {
+            string[] guids = AssetDatabase.FindAssets($"t:Prefab l:{labelRole}");
+            if (guids.Length == 0)
+                continue;
+
+            foreach (string guid in guids)
+            {
+                string prefabPath = AssetDatabase.GUIDToAssetPath(guid);
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
                 if (prefab == null || !claimed.Add(prefab))
-                {
-                    if (prefab != null)
-                        log.AppendLine($"      ! {prefab.name} appears in more than one category folder — " +
-                                       "kept the first. Move it so there is one answer.");
                     continue;
-                }
 
-                // Editor-folder assets are stripped from player builds. A prop placed
-                // from one looks perfect in the editor and is a null reference in the
-                // build — the worst kind of failure, because nothing surfaces it until
-                // someone plays a build. Refuse it here instead.
-                if (IsUnderEditorFolder(prefabPath))
+                if (Adopt(prefab, prefabPath, labelRole, allowLabelOverride: false))
                 {
-                    editorFolder++;
-                    log.AppendLine($"      ! {prefab.name} lives under an Editor/ folder ({prefabPath}) — " +
-                                   "SKIPPED. Unity strips those from player builds, so any level dressed " +
-                                   "with it would load with missing props. Move it out.");
-                    continue;
+                    byLabel++;
+                    log.AppendLine($"      (by label '{labelRole}', left in place at {prefabPath})");
                 }
-
-                // A label wins over the folder: it is applied to the asset deliberately,
-                // and it is the only way to categorise a prefab that has to live
-                // elsewhere (a vendor prefab you do not want to copy, for instance).
-                EnvPack.PropRole role = folderRole;
-                if (TryRoleFromLabels(prefab, out EnvPack.PropRole labelled) && labelled != folderRole)
-                {
-                    role = labelled;
-                    relabelled++;
-                    log.AppendLine($"      · {prefab.name}: label '{labelled}' overrides folder '{folderRole}'.");
-                }
-
-                if (existing.TryGetValue(prefab, out EnvPack.Entry entry))
-                {
-                    refreshed++;
-                    FillMissing(ref entry, prefab, log);        // authored values survive
-                }
-                else
-                {
-                    added++;
-                    entry = new EnvPack.Entry
-                    {
-                        prefab = prefab,
-                        role = role,
-                        scaleRange = new Vector2(1f, 1f),
-                        allowInFold = false                      // pockets are where pads live
-                    };
-                    FillMissing(ref entry, prefab, log);
-                    log.AppendLine($"      + {prefab.name,-28} {role,-10} r={entry.footprintRadius,6:0.00}  h={entry.height,6:0.00}");
-                }
-
-                result.Add(entry);
             }
         }
 
@@ -342,9 +379,11 @@ public static class EnvPackTools
 
         log.AppendLine();
         log.AppendLine($"{result.Count} entr(ies): {added} added, {refreshed} refreshed (edits preserved), " +
-                       $"{outside} kept from outside {PrefabRoot}, {relabelled} relabelled by asset label.");
+                       $"{byLabel} found by label outside the pool, {outside} carried over from a previous " +
+                       $"build, {relabelled} relabelled by asset label.");
         if (dropped > 0)
-            log.AppendLine($"{dropped} entr(ies) dropped — a missing prefab, or a duplicate of one already listed.");
+            log.AppendLine($"{dropped} entr(ies) dropped — a missing prefab, a duplicate of one already " +
+                           "listed, or one refused above.");
         if (editorFolder > 0)
             log.AppendLine($"{editorFolder} prefab(s) SKIPPED for living under an Editor/ folder — those are " +
                            "stripped from player builds and would dress a level with props that vanish in one.");
