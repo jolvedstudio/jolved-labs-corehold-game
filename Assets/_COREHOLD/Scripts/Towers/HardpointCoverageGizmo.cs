@@ -8,20 +8,27 @@ using UnityEditor;
 namespace Corehold.Towers
 {
     /// <summary>
-    /// Editor-only coverage validator for a hardpoint (GDD §5.2 / §5.3, Ticket 30).
+    /// Editor-only coverage validator for a hardpoint (GDD §5.2 / §5.3, Ticket 30,
+    /// curve rewrite roadmap R8).
     ///
     /// Draws the <b>intended turret's tier-1 range ring</b> for this pad and counts
-    /// how many distinct route segments it covers. The coverage rule is load-bearing:
-    /// every hardpoint must cover at least <b>two</b> route segments at its intended
+    /// how many distinct route spans it covers. The coverage rule is load-bearing:
+    /// every hardpoint must cover at least <b>two</b> route spans at its intended
     /// turret's tier-1 range; at least <b>three</b> premium pads must cover <b>four
     /// or more</b>. Per-turret rings are used deliberately — a single 12 m sphere
     /// over-validates the Arc Node and under-validates the Mortar.
     ///
-    /// A segment is "covered" when the ring intersects it in the horizontal (XZ)
-    /// plane — the closest point on the segment to the pad is within range. This is
-    /// the same 2D test a designer eyeballs; range checks in play are full 3D
-    /// (GDD §7.2), but for reading a ground route on the map the horizontal test is
-    /// the correct authoring tool.
+    /// <b>A span is a knot interval measured on the route as the enemies actually
+    /// walk it</b> (R8): the interval between two consecutive waypoints is sampled
+    /// along its arc length through <see cref="PathRoute.SamplePosition"/>, so a
+    /// spline route is judged on its curve rather than on the chords between its
+    /// knots. With <c>useSpline</c> off the same code measures the polyline and
+    /// reproduces the original straight-segment answer, which is what makes the
+    /// before/after table in R9's gate a like-for-like comparison.
+    ///
+    /// Coverage is a horizontal (XZ) test — the same one a designer eyeballs. Range
+    /// checks in play are full 3D (GDD §7.2), but for reading a ground route on the
+    /// map the horizontal test is the correct authoring tool.
     /// </summary>
     [DisallowMultipleComponent]
     public class HardpointCoverageGizmo : MonoBehaviour
@@ -36,8 +43,8 @@ namespace Corehold.Towers
 
         public enum PadClass
         {
-            Premium,      // must cover 4+ segments
-            Standard,     // 2-3 segments
+            Premium,      // must cover 4+ spans
+            Standard,     // 2-3 spans
             Rear,         // final approach + air terminal leg
             Overwatch     // Siege Mortar home, sparse close coverage
         }
@@ -48,12 +55,23 @@ namespace Corehold.Towers
         [Tooltip("Design intent for this pad (GDD §5.3).")]
         public PadClass padClass = PadClass.Standard;
 
-        [Tooltip("Ground routes this pad is checked against. All routes share the same snake, so listing both entrance routes double-counts the shared segments; " +
-                 "assign the single canonical route (or both — the gizmo de-duplicates identical world segments).")]
+        [Tooltip("Ground routes this pad is checked against. All routes share the same snake, so listing both entrance routes double-counts the shared spans; " +
+                 "assign the single canonical route (or both — the gizmo de-duplicates identical world spans).")]
         public PathRoute[] routes;
 
-        [Tooltip("Mortar has a 6 m dead zone (GDD §7.3). Segments entirely inside this radius do not count for the Mortar.")]
+        [Tooltip("Mortar has a 6 m dead zone (GDD §7.3). Spans lying entirely inside this radius do not count for the Mortar.")]
         public float mortarMinRange = 6f;
+
+        [Tooltip("Arc-length step (m) used to walk each knot interval against the range ring (R8). Finer is more faithful; it only recomputes when this pad or its routes change, so the cost is not per-frame.")]
+        public float curveSampleStep = 0.25f;
+
+        // Coverage is recomputed only when the pad, its settings or its routes
+        // change. The old implementation rebuilt a HashSet of formatted strings for
+        // every pad on every OnDrawGizmos frame; curve sampling would have made that
+        // far worse, so the result is cached behind a cheap hash.
+        private int _coverageHash;
+        private int _coveredCache;
+        private bool _hasCache;
 
         /// <summary>Tier-1 range in metres for a turret kind (GDD §7.3).</summary>
         public static float RangeFor(TurretKind kind)
@@ -69,18 +87,74 @@ namespace Corehold.Towers
         }
 
         /// <summary>
-        /// Counts distinct covered route segments in the horizontal plane. Shared
-        /// segments (same endpoints in world space) are counted once.
+        /// Number of distinct covered spans, measured on the route as walked (R8).
+        /// Cached; the cache invalidates when the pad or its routes change.
         /// </summary>
         public int CountCoveredSegments()
+        {
+            int hash = ComputeCoverageHash();
+            if (_hasCache && hash == _coverageHash)
+                return _coveredCache;
+
+            _coverageHash = hash;
+            _hasCache = true;
+            _coveredCache = CountCoveredSpansOnCurve();
+            return _coveredCache;
+        }
+
+        /// <summary>
+        /// Count covered knot-interval spans by walking each interval along its arc
+        /// length. A span counts when any part of it falls inside the range ring —
+        /// tested per sub-segment between samples, so a span that only clips the
+        /// ring between two samples is still caught.
+        /// </summary>
+        public int CountCoveredSpansOnCurve()
+        {
+            if (routes == null)
+                return 0;
+
+            float range = RangeFor(intendedTurret);
+            float minRange = intendedTurret == TurretKind.Mortar ? mortarMinRange : 0f;
+            Vector3 padXZ = Flat(transform.position);
+
+            var seen = new HashSet<string>();
+            int covered = 0;
+
+            foreach (var route in routes)
+            {
+                if (route == null)
+                    continue;
+
+                int count = route.PointCount;
+                for (int i = 0; i + 1 < count; i++)
+                {
+                    // De-dup on the KNOT endpoints (0.1 m rounding), unchanged from
+                    // the original: the two entrance routes carry identical knots for
+                    // the shared snake, so its spans must be counted once.
+                    string key = SegKey(Flat(route.GetPoint(i)), Flat(route.GetPoint(i + 1)));
+                    if (!seen.Add(key))
+                        continue;
+
+                    if (SpanCovered(route, i, padXZ, range, minRange))
+                        covered++;
+                }
+            }
+            return covered;
+        }
+
+        /// <summary>
+        /// The original straight-chord count, kept for the R9 before/after table:
+        /// it measures the same pad against the chords between knots rather than the
+        /// walked route, which is what the pre-spline map was validated on.
+        /// </summary>
+        public int CountCoveredSegmentsLinear()
         {
             if (routes == null)
                 return 0;
 
             float range = RangeFor(intendedTurret);
             bool isMortar = intendedTurret == TurretKind.Mortar;
-            Vector3 padXZ = transform.position;
-            padXZ.y = 0f;
+            Vector3 padXZ = Flat(transform.position);
 
             var seen = new HashSet<string>();
             int covered = 0;
@@ -91,20 +165,16 @@ namespace Corehold.Towers
                 int count = route.PointCount;
                 for (int i = 0; i + 1 < count; i++)
                 {
-                    Vector3 a = route.GetPoint(i);
-                    Vector3 b = route.GetPoint(i + 1);
-                    a.y = 0f; b.y = 0f;
+                    Vector3 a = Flat(route.GetPoint(i));
+                    Vector3 b = Flat(route.GetPoint(i + 1));
 
-                    // De-duplicate shared snake segments across routes.
                     string key = SegKey(a, b);
                     if (!seen.Add(key)) continue;
 
-                    float d = DistancePointToSegment(padXZ, a, b);
-                    if (d > range) continue;
+                    if (DistancePointToSegment(padXZ, a, b) > range) continue;
 
                     if (isMortar)
                     {
-                        // Dead-zone rule: segment must have at least one point beyond min range.
                         float da = Vector3.Distance(padXZ, a);
                         float db = Vector3.Distance(padXZ, b);
                         if (da < mortarMinRange && db < mortarMinRange) continue;
@@ -114,6 +184,73 @@ namespace Corehold.Towers
                 }
             }
             return covered;
+        }
+
+        /// <summary>
+        /// Walk one knot interval along the route and test each sub-segment against
+        /// the ring. The Mortar dead-zone rule is the original one applied at finer
+        /// granularity: a piece lying entirely inside the dead zone does not count.
+        /// </summary>
+        private bool SpanCovered(PathRoute route, int knotIndex, Vector3 padXZ, float range, float minRange)
+        {
+            float d0 = route.DistanceAlongAt(knotIndex);
+            float d1 = route.DistanceAlongAt(knotIndex + 1);
+            if (d1 <= d0)
+                return false;
+
+            float step = Mathf.Max(0.05f, curveSampleStep);
+            int steps = Mathf.Max(1, Mathf.CeilToInt((d1 - d0) / step));
+
+            Vector3 prev = Flat(route.SamplePosition(d0, out _));
+            for (int s = 1; s <= steps; s++)
+            {
+                float d = Mathf.Lerp(d0, d1, s / (float)steps);
+                Vector3 cur = Flat(route.SamplePosition(d, out _));
+
+                if (DistancePointToSegment(padXZ, prev, cur) <= range)
+                {
+                    float da = Vector3.Distance(padXZ, prev);
+                    float db = Vector3.Distance(padXZ, cur);
+                    if (Mathf.Max(da, db) >= minRange)
+                        return true;
+                }
+                prev = cur;
+            }
+            return false;
+        }
+
+        private int ComputeCoverageHash()
+        {
+            unchecked
+            {
+                int h = 17;
+                Vector3 p = transform.position;
+                h = h * 31 + p.x.GetHashCode();
+                h = h * 31 + p.y.GetHashCode();
+                h = h * 31 + p.z.GetHashCode();
+                h = h * 31 + (int)intendedTurret;
+                h = h * 31 + mortarMinRange.GetHashCode();
+                h = h * 31 + curveSampleStep.GetHashCode();
+
+                if (routes != null)
+                {
+                    h = h * 31 + routes.Length;
+                    foreach (var r in routes)
+                    {
+                        if (r == null) { h *= 31; continue; }
+                        h = h * 31 + r.PointCount;
+                        h = h * 31 + r.Length.GetHashCode();   // moves when any knot moves
+                        h = h * 31 + (r.SplineReady ? 1 : 0);  // and when the mode flips
+                    }
+                }
+                return h;
+            }
+        }
+
+        private static Vector3 Flat(Vector3 v)
+        {
+            v.y = 0f;
+            return v;
         }
 
         private static string SegKey(Vector3 a, Vector3 b)
@@ -152,7 +289,7 @@ namespace Corehold.Towers
 
             Handles.color = ring;
             Handles.Label(transform.position + Vector3.up * 2.2f,
-                $"{name}\n{intendedTurret} r{range:0}m · {padClass}\ncovers {covered} seg");
+                $"{name}\n{intendedTurret} r{range:0}m · {padClass}\ncovers {covered} span");
         }
 
         private static Color ColorFor(TurretKind kind)

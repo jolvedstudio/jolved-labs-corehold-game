@@ -96,22 +96,27 @@ public static class MergeKnotPinning
     [MenuItem("Tools/COREHOLD/Check Route Divergence")]
     public static void CheckDivergence()
     {
-        if (!ResolveRoutes(out PathRoute primary, out PathRoute secondary, out string error))
-        {
-            Debug.LogWarning("[R7] " + error);
-            return;
-        }
-        if (!FindSharedTail(primary, secondary, out int primaryMerge, out int secondaryMerge, out _))
-        {
-            Debug.LogWarning($"[R7] '{primary.name}' and '{secondary.name}' share no tail knots.");
-            return;
-        }
-
-        string report = Measure(primary, secondary, primaryMerge, secondaryMerge);
+        string report = DivergenceReport();
         if (report.Contains("FAIL"))
             Debug.LogWarning(report);
         else
             Debug.Log(report);
+    }
+
+    /// <summary>
+    /// The divergence report as text, so R9's one-shot gate can fold it in
+    /// alongside clearance and coverage.
+    /// </summary>
+    public static string DivergenceReport()
+    {
+        if (!ResolveRoutes(out PathRoute primary, out PathRoute secondary, out string error))
+            return "=== R7 shared-tail divergence ===\nSKIPPED: " + error;
+
+        if (!FindSharedTail(primary, secondary, out int primaryMerge, out int secondaryMerge, out _))
+            return $"=== R7 shared-tail divergence ===\nSKIPPED: '{primary.name}' and " +
+                   $"'{secondary.name}' share no tail knots.";
+
+        return Measure(primary, secondary, primaryMerge, secondaryMerge);
     }
 
     // ------------------------------------------------------------------ helpers
