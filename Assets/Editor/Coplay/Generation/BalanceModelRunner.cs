@@ -241,16 +241,43 @@ public static class BalanceModelRunner
                 };
                 using (var proc = Process.Start(psi))
                 {
-                    string so = proc.StandardOutput.ReadToEnd();
-                    string se = proc.StandardError.ReadToEnd();
-                    if (!proc.WaitForExit(120_000))
+                    // Drain the pipes on tasks so the wait loop below can poll
+                    // for exit/cancel without the classic full-pipe deadlock.
+                    var soTask = proc.StandardOutput.ReadToEndAsync();
+                    var seTask = proc.StandardError.ReadToEndAsync();
+
+                    var sw = Stopwatch.StartNew();
+                    bool cancelled = false;
+                    bool timedOut = false;
+                    while (!proc.HasExited)
                     {
-                        proc.Kill();
-                        attempts.Add($"{exe}: timed out after 120 s");
-                        continue;
+                        if (sw.ElapsedMilliseconds > 120_000)
+                        {
+                            proc.Kill();
+                            timedOut = true;
+                            attempts.Add($"{exe}: timed out after 120 s");
+                            break;
+                        }
+                        if (!GenerationProgress.Detail(
+                                $"balance model running ({sw.Elapsed.TotalSeconds:0} s)…",
+                                Mathf.Clamp01((float)sw.Elapsed.TotalSeconds / 30f)))
+                        {
+                            proc.Kill();
+                            cancelled = true;
+                            break;
+                        }
+                        System.Threading.Thread.Sleep(100);
                     }
-                    stdout = so;
-                    stderr = se;
+                    if (cancelled)
+                    {
+                        attempts.Add($"{exe}: cancelled by user");
+                        detail = string.Join("\n", attempts);
+                        return false;
+                    }
+                    if (timedOut)
+                        continue;
+                    stdout = soTask.GetAwaiter().GetResult();
+                    stderr = seTask.GetAwaiter().GetResult();
                     detail = $"ran '{exe}' (exit {proc.ExitCode})";
                     // A non-zero exit is a MODEL verdict (flagged waves), not a
                     // launch failure — the JSON carries the details either way.

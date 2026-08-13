@@ -50,11 +50,13 @@ public static class GenerateLevel
         log.AppendLine();
 
         bool failed = false;
-        foreach (var (stage, result) in GenerationPipeline.RunAll(blueprint))
+        foreach (var run in GenerationPipeline.RunAll(blueprint))
         {
-            string icon = !result.ok ? "✗" : result.skipped ? "–" : "✓";
-            log.AppendLine($"  {icon} {stage.title,-26} {result.message}");
-            failed |= !result.ok;
+            string icon = !run.result.ok ? "✗" : run.result.skipped ? "–" : "✓";
+            string gate = run.stage.gate ? "[GATE] " : "";
+            string time = run.seconds >= 0.05f ? $" ({run.seconds:0.0} s)" : "";
+            log.AppendLine($"  {icon} {gate}{run.stage.title,-26} {run.result.message}{time}");
+            failed |= !run.result.ok;
         }
 
         log.AppendLine();

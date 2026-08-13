@@ -22,8 +22,11 @@ public class LevelLayout
 
     public Vector3 airSpawn;
 
-    /// <summary>Pads, when the layout dictates them (parity). Null ⇒ R28 selects.</summary>
-    public RefineryDeltaBlockout.HP[] pads;
+    /// <summary>Pads, when the layout dictates them (parity). Null ⇒ R28 selects.
+    /// Internal because <see cref="RefineryDeltaBlockout.HP"/> is internal — a public
+    /// member may not expose a less-accessible type (CS0052), and the pad spec is
+    /// generator plumbing, not API.</summary>
+    internal RefineryDeltaBlockout.HP[] pads;
 
     /// <summary>
     /// World position for a normalized playfield position (from the south-west

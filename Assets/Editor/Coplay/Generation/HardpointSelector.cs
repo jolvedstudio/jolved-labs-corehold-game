@@ -64,8 +64,9 @@ public static class HardpointSelector
     /// Select the blueprint's pad mix on the given routes. Returns null with the
     /// reason in <paramref name="report"/> when the geometry cannot satisfy the
     /// mix — which is a RESEED signal (R29), not something to patch here.
+    /// Internal because the HP spec it returns is internal (CS0050).
     /// </summary>
-    public static RefineryDeltaBlockout.HP[] Select(
+    internal static RefineryDeltaBlockout.HP[] Select(
         LevelBlueprint blueprint, List<PathRoute> routes, Vector3 corePos, out string report)
     {
         var log = new StringBuilder();
@@ -113,8 +114,16 @@ public static class HardpointSelector
             var gz = scorer.AddComponent<HardpointCoverageGizmo>();
             gz.routes = new[] { routes[0] };            // shipped convention: the primary
                                                         // route carries every shared span
-            foreach (Candidate c in candidates)
+            for (int ci = 0; ci < candidates.Count; ci++)
             {
+                Candidate c = candidates[ci];
+                if ((ci & 63) == 0 &&
+                    !GenerationProgress.Detail($"scoring hardpoint candidates {ci}/{candidates.Count}",
+                                               ci / (float)candidates.Count))
+                {
+                    report = "cancelled by user during candidate scoring";
+                    return null;
+                }
                 if (c.routeDist > HardpointCoverageGizmo.RangeFor(Kind.Mortar))
                     continue;
                 scorer.transform.position = c.pos;
