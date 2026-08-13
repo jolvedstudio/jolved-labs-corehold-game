@@ -24,10 +24,20 @@ using UnityEngine;
 ///
 /// Measurement is read-only: it walks the prefab's mesh bounds directly rather than
 /// instantiating anything, so it cannot dirty a scene or leave debris behind.
+///
+/// ROLE is the one field measurement cannot settle, because it encodes intent — which
+/// band of the level you want a prop to fill — and two props of identical size can
+/// belong in different bands. So role is handled by admission rather than inference:
+/// <see cref="EnvPack.PropRole.Unassigned"/> is the enum's zero value and the generate
+/// gate rejects it, and <see cref="SuggestRole"/> offers a size-based starting point
+/// for entries that have not been given one. A role you chose is never overwritten.
 /// </summary>
 public static class EnvPackTools
 {
-    private const string PackDir = "Assets/_COREHOLD/Data/Env";
+    // Data/<PluralNoun>/ is the established convention here — Enemies, Levels,
+    // Towers, Waves, Blueprints. Packs are their own type, not LevelDefinitions,
+    // so they get their own folder rather than sharing Data/Levels.
+    private const string PackDir = "Assets/_COREHOLD/Data/EnvPacks";
     private const string RefineryPackPath = PackDir + "/EnvPack_RefineryDelta.asset";
     private const string CreepyRoot = "Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Prefabs/";
 
@@ -35,6 +45,13 @@ public static class EnvPackTools
     /// The shipped map's dressing, transcribed from RefineryDeltaBlockout. The scale
     /// column is the scale the blockout actually places at — metadata is measured at
     /// scale 1 and the placer multiplies, so scaleRange is what carries it.
+    ///
+    /// The ROLE column is authored, not derived. It comes from where the blockout
+    /// actually puts each prop — a tank nested in a hairpin fold is mid-field, a
+    /// pumping station alone at (-48, -6) is a landmark, the turbine on the east edge
+    /// is skyline — which is far better evidence than the prefab's dimensions. The
+    /// generator is being taught to reproduce a map a human already composed; the
+    /// composition is the data.
     /// </summary>
     private static readonly (string path, EnvPack.PropRole role, float scale, bool inFold, string note)[] RefineryProps =
     {
@@ -71,7 +88,7 @@ public static class EnvPackTools
         log.AppendLine("=== Create Refinery Env Pack (R25) ===");
 
         if (!AssetDatabase.IsValidFolder(PackDir))
-            AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "Env");
+            AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "EnvPacks");
 
         var pack = AssetDatabase.LoadAssetAtPath<EnvPack>(RefineryPackPath);
         if (pack == null)
@@ -165,7 +182,7 @@ public static class EnvPackTools
             return;
         }
 
-        int filled = 0, kept = 0, unmeasurable = 0;
+        int filled = 0, kept = 0, unmeasurable = 0, suggestedRoles = 0;
 
         for (int i = 0; i < pack.entries.Length; i++)
         {
@@ -211,6 +228,25 @@ public static class EnvPackTools
                                $"h={e.height,6:0.00}{hDelta}");
             }
 
+            // Role is intent, not geometry — but size narrows it enough to be a
+            // useful starting point, and a suggestion beats leaving the field on
+            // its Unassigned default until the generate gate rejects it.
+            EnvPack.PropRole suggested = SuggestRole(m, scale);
+            if (e.role == EnvPack.PropRole.Unassigned)
+            {
+                e.role = suggested;
+                pack.entries[i] = e;
+                suggestedRoles++;
+                log.AppendLine($"      → role was Unassigned, suggested {suggested} from " +
+                               $"{m.footprint.x * scale:0.0} × {m.footprint.y * scale:0.0} × {m.height * scale:0.0} m. " +
+                               "Change it if you meant it somewhere else.");
+            }
+            else if (e.role != suggested)
+            {
+                log.AppendLine($"      · role {e.role} kept (size alone suggests {suggested}) — " +
+                               "left alone, since role is where you want it, not how big it is.");
+            }
+
             AppendMeasurementWarnings(e.prefab.name, m, scale, log);
         }
 
@@ -218,12 +254,16 @@ public static class EnvPackTools
         AssetDatabase.SaveAssets();
 
         log.AppendLine();
-        log.AppendLine($"{filled} filled, {kept} already authored (left alone), {unmeasurable} unmeasurable. " +
-                       $"{pack.CountInvalid()} entr(ies) still invalid.");
+        log.AppendLine($"{filled} filled, {kept} already authored (left alone), {unmeasurable} unmeasurable, " +
+                       $"{suggestedRoles} role(s) suggested. {pack.CountInvalid()} entr(ies) still invalid.");
         log.AppendLine($"Roles — Landmark {pack.CountInRole(EnvPack.PropRole.Landmark)}, " +
                        $"MidField {pack.CountInRole(EnvPack.PropRole.MidField)}, " +
                        $"Clutter {pack.CountInRole(EnvPack.PropRole.Clutter)}, " +
-                       $"Silhouette {pack.CountInRole(EnvPack.PropRole.Silhouette)}.");
+                       $"Silhouette {pack.CountInRole(EnvPack.PropRole.Silhouette)}, " +
+                       $"Unassigned {pack.CountInRole(EnvPack.PropRole.Unassigned)}.");
+        if (suggestedRoles > 0)
+            log.AppendLine("Suggested roles are a starting point measured from size — read them before generating. " +
+                           "A prop the placer puts in the wrong band is not a gate failure, it is just a worse map.");
 
         AppendCommitWarning(pack, log);
         Debug.Log(log.ToString());
@@ -327,6 +367,34 @@ public static class EnvPackTools
             log.AppendLine($"      · {name} keep-out at ×{scale:0.00} is {effective:0.00} m, wider than the " +
                            $"{ClearanceEnvelope:0.00} m clearance envelope — it cannot sit beside a route or pad, " +
                            "only in open field.");
+    }
+
+    /// <summary>
+    /// Propose a role from measured size. This is a STARTING POINT, not a derivation:
+    /// role encodes where you want a prop placed, and two objects of identical size can
+    /// belong in different bands. It exists only so a dragged-in prefab does not sit on
+    /// Unassigned until the generate gate rejects it.
+    ///
+    /// The thresholds are read off the map's own dimensions rather than invented:
+    ///   • ≥ 12 m tall — the far band sits beyond the 130×75 playfield, and with the
+    ///     camera pitched 38° down nothing shorter clears the mid-field to read as skyline.
+    ///   • ≥ 6 m in either axis — bigger than the 3.75 m clearance envelope, so it cannot
+    ///     be tucked beside a route and has to be something you navigate by.
+    ///   • ≤ 2 m and ≤ 2 m — below enemy eye height, so it cannot break a turret's line
+    ///     to a covered span, which is what makes clutter safe to scatter freely.
+    /// </summary>
+    private static EnvPack.PropRole SuggestRole(Measurement m, float scale)
+    {
+        float h = m.height * scale;
+        float r = m.radius * scale;
+
+        if (h >= 12f)
+            return EnvPack.PropRole.Silhouette;
+        if (r >= 6f || h >= 6f)
+            return EnvPack.PropRole.Landmark;
+        if (h <= 2f && r <= 2f)
+            return EnvPack.PropRole.Clutter;
+        return EnvPack.PropRole.MidField;
     }
 
     /// <summary>Assign the pack to the shipped-map blueprint, which R26 rebuilds against.</summary>

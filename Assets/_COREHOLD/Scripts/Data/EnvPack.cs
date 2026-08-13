@@ -24,17 +24,26 @@ namespace Corehold.Data
     [CreateAssetMenu(menuName = "COREHOLD/Env Pack", fileName = "EnvPack_")]
     public class EnvPack : ScriptableObject
     {
-        /// <summary>Which band of the level an entry is meant to fill.</summary>
+        /// <summary>
+        /// Which band of the level an entry is meant to fill.
+        ///
+        /// <see cref="Unassigned"/> is deliberately value 0 so that a freshly dragged-in
+        /// prefab does NOT silently claim a real role. Role is intent — where you want
+        /// the prop placed — and nothing about the prefab reveals it, so an unset role
+        /// has to fail loudly rather than default to something plausible.
+        /// </summary>
         public enum PropRole
         {
+            /// <summary>Not yet chosen. Rejected by the generate gate — pick one.</summary>
+            Unassigned = 0,
             /// <summary>Large, readable, few — the things a player navigates by.</summary>
-            Landmark,
+            Landmark = 1,
             /// <summary>Mid-size structures filling the field between routes.</summary>
-            MidField,
+            MidField = 2,
             /// <summary>Small scatter. Cheap, numerous, never sight-line relevant.</summary>
-            Clutter,
+            Clutter = 3,
             /// <summary>Far-band silhouettes beyond the playfield (R11's band).</summary>
-            Silhouette
+            Silhouette = 4
         }
 
         [System.Serializable]
@@ -75,10 +84,12 @@ namespace Corehold.Data
         }
 
         /// <summary>
-        /// Entries whose metadata is unusable — a missing prefab, or a zero
+        /// Entries whose metadata is unusable — a missing prefab, a zero
         /// footprint/height that would make the clearance and occlusion tests
-        /// silently pass everything. Surfaced by the generate-menu validation so a
-        /// bad pack fails loudly rather than dressing a level unsafely.
+        /// silently pass everything, or an <see cref="PropRole.Unassigned"/> role that
+        /// would leave the placer with nowhere to put the prop. Surfaced by the
+        /// generate-menu validation so a bad pack fails loudly rather than dressing a
+        /// level unsafely.
         /// </summary>
         public int CountInvalid()
         {
@@ -88,7 +99,8 @@ namespace Corehold.Data
             for (int i = 0; i < entries.Length; i++)
             {
                 Entry e = entries[i];
-                if (e.prefab == null || e.footprintRadius <= 0f || e.height <= 0f)
+                if (e.prefab == null || e.footprintRadius <= 0f || e.height <= 0f ||
+                    e.role == PropRole.Unassigned)
                     n++;
             }
             return n;
