@@ -298,6 +298,43 @@ Add a sixth buildable tower, Floodlight: 70 salvage, 12 m light radius, built on
 
 ---
 
+## P6 — the generation pipeline (read before writing any generator ticket)
+
+The eight P6 tickets are stages of one pipeline, and their **order is load-bearing** in ways that are not obvious from reading them individually. This is that order in one place.
+
+**Output contract.** A run produces a **playable scene**, not a geometry dump: the complete live root set — GameManager, PoolRegistry, RouteTraffic, AudioDirector, VFXDirector, OverlayManager, WaveManager, ResultScreen, DebugConsole, UITheme, EventSystem, Main Camera, Directional Light, Global Volume, LightProbeGroup, ReflectionProbe, Canvas_HUD / Canvas_Menus / Canvas_RotatePrompt, Spawner_West / North / Air, Floor, level container — **plus** a `LevelDefinition` asset wired into that scene's WaveManager. Press play and it runs ten waves. Anything less is not done.
+
+**Determinism.** Every random draw derives from `LevelBlueprint.randomSeed`. Same seed ⇒ identical routes, pads, dressing and wave table. R37's daily-seed challenge depends on this being exact across devices, so it is a hard rule rather than a preference.
+
+**Stages.**
+
+| # | Stage | Ticket | Produces |
+|---|---|---|---|
+| 1 | Scene skeleton | R26 | the root set, reusing `SetupAudioDirector` / `SetupVFXDirector` / `BuildRealUI` |
+| 2 | Protected structure | R26 | Core placed at `protectedNormalizedPos` |
+| 3 | Route synthesis | R27 | pinned splines, folds at 10–14 m, `Length` within ±5% of target |
+| 4 | **GATE 1 — clearance** | R29 | knot adjustment allowed here, logged, ≤3 passes |
+| 5 | Hardpoint selection | R28 | candidates pre-filtered by clearance, classified **by measured coverage** |
+| 6 | **GATE 2 — coverage** | R28/R29 | every pad ≥2 spans, ≥3 Premium at ≥4 |
+| 7 | Camera framing | R26 | `CameraFramingSetup` solved against the *generated* content bounds |
+| 8 | Floor fit | R11/R26 | ground plane sized from the camera frustum |
+| 9 | Dressing | R25 pack, R28 placer | skirt + in-field props, then coverage re-run **through the occlusion test** |
+| 10 | Emission | R30 | `LevelDefinition` — `hpGrowthPerWave` solved, `maxLiveEnemies` derived, spawners 0/1/2 wired |
+| 11 | **GATE 3 — model margins** | R29/R30 | per-wave margins in band |
+| 12 | Save or discard | R29 | pass ⇒ scene + asset saved; fail ⇒ **nothing emitted**, actionable report |
+
+**Four orderings you cannot swap.**
+- **Floor after camera (8 after 7).** Sizing the ground from the blueprint's `playfieldSize` is what leaves a void — each map's camera solve differs, so a design-box floor is wrong by a different amount every time. This already bit the shipped map.
+- **Coverage re-run after dressing (9 revisits 6).** Placing props can block a pad's line to its spans, and the distance-based coverage count cannot see that. Without the occlusion test the pipeline will certify a blocked pad as Premium.
+- **Merge pins during synthesis (inside 3).** Pins are part of producing a correct route, not a repair applied afterwards; a route measured before pinning reports a length it will not keep.
+- **Model solve after geometry is final (10 after 9).** Route length and pad coverage are both model inputs. Solving `hpGrowthPerWave` before dressing settles means solving against geometry that is still moving.
+
+**Failure is reseeding, not repair** (R29). A seed that cannot satisfy every gate is discarded; R31 runs nine seeds and hands the human the ones that passed.
+
+**Cross-language.** The gate model is Python and the generator is C#. Generation is editor-time, so shell out to `docs/balance_model.py` and read `--json` — never port the margin math into C#, because two implementations of the gate will drift and that defeats R1.
+
+---
+
 ### R25 — LevelBlueprint SO + generate menu (P6)
 `Pin: @LevelDefinition.cs @PathRoute.cs @RefineryDeltaBlockout.cs`
 Create `LevelBlueprint` in `Corehold.Data`: `playfieldSize`, `randomSeed` (**all randomness derives from it — determinism is a hard rule**), `protectedPrefab` + `protectedNormalizedPos` (default 0.765, 0.413 — the shipped Core at world (34.5, −6.5) normalized on the 130×75 field from its south-west corner), `routeLengthTarget`, `groundSpawnLegs` (1–2), `airCorridor` (bool), `hardpointCount` + a class-mix struct, `envPack`, and `rulesTemplate` (a `LevelDefinition` clone source). Add a `Tools → COREHOLD → Generate Level` menu entry (stub the generation call for now).
