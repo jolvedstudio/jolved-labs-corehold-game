@@ -14,23 +14,33 @@ using UnityEngine;
 /// have. A radius typed 30% short does not look wrong in the inspector — it produces
 /// a level that passes every gate with a prop sitting in the lane.
 ///
-/// So both entry points here MEASURE rather than ask:
+/// So all three entry points here MEASURE rather than ask:
 ///
+///   • <see cref="BuildFromFolders"/> — the everyday one. Drop prefabs into
+///     <c>Prefabs/EnvPack/&lt;Category&gt;/</c>, run it, get a measured pack. Re-running
+///     preserves every edit you made, so the folders seed a pack without owning it.
 ///   • <see cref="CreateRefineryPack"/> builds the pack the shipped map already
 ///     implies, from the nine prefab paths <c>RefineryDeltaBlockout.BuildStructures</c>
 ///     places, so R26 has a dressing pack to hit parity against.
-///   • <see cref="MeasureSelected"/> fills in the numbers for a pack you assembled
-///     yourself, and is the one you will use for every pack after the first.
+///   • <see cref="MeasureSelected"/> fills in the numbers for a pack assembled by hand.
 ///
 /// Measurement is read-only: it walks the prefab's mesh bounds directly rather than
 /// instantiating anything, so it cannot dirty a scene or leave debris behind.
 ///
 /// ROLE is the one field measurement cannot settle, because it encodes intent — which
 /// band of the level you want a prop to fill — and two props of identical size can
-/// belong in different bands. So role is handled by admission rather than inference:
+/// belong in different bands. Three mechanisms answer it, most specific first:
+///
+///   1. The asset's LABEL (<c>Landmark</c>, <c>MidField</c>, <c>Clutter</c>,
+///      <c>Silhouette</c>) — deliberate, per-asset, and the only option for a prefab
+///      that must stay where it is.
+///   2. The CATEGORY FOLDER it sits in — the default, and the one that scales, because
+///      filing a prefab is a decision the human is making anyway.
+///   3. <see cref="SuggestRole"/>'s size heuristic, for entries that have neither.
+///
 /// <see cref="EnvPack.PropRole.Unassigned"/> is the enum's zero value and the generate
-/// gate rejects it, and <see cref="SuggestRole"/> offers a size-based starting point
-/// for entries that have not been given one. A role you chose is never overwritten.
+/// gate rejects it, so nothing reaches a level on an unchosen role. A role you set is
+/// never overwritten by any of the three.
 /// </summary>
 public static class EnvPackTools
 {
@@ -78,6 +88,24 @@ public static class EnvPackTools
     // The clearance envelope every placement is measured against (roadmap P2/P6):
     // laneHalfWidth 0.9 + maxBodyRadius 1.35 + padRadius 1.5.
     private const float ClearanceEnvelope = 3.75f;
+
+    /// <summary>
+    /// Category-by-folder: drop a prefab in <c>Prefabs/EnvPack/Landmarks/</c> and it is a
+    /// Landmark. The answer to "which role is this?" is given by where you put the file,
+    /// which is the one place a human is already making that decision. Scanning is
+    /// recursive, so organise inside a category however you like.
+    /// </summary>
+    private const string PrefabRoot = "Assets/_COREHOLD/Prefabs/EnvPack";
+
+    private static readonly (string folder, EnvPack.PropRole role)[] CategoryFolders =
+    {
+        ("Landmarks",   EnvPack.PropRole.Landmark),
+        ("MidField",    EnvPack.PropRole.MidField),
+        ("Clutter",     EnvPack.PropRole.Clutter),
+        ("Silhouettes", EnvPack.PropRole.Silhouette),
+    };
+
+    private const string DefaultPackPath = PackDir + "/EnvPack_Default.asset";
 
     // ------------------------------------------------------------------- create
 
@@ -158,9 +186,228 @@ public static class EnvPackTools
         Debug.Log(log.ToString());
     }
 
+    // ------------------------------------------------------------ build from folders
+
+    /// <summary>
+    /// Build (or refresh) a pack from <c>Prefabs/EnvPack/&lt;Category&gt;/</c>, measuring
+    /// every prefab it finds. Targets the EnvPack selected in the Project window, or
+    /// <c>EnvPack_Default</c> when nothing is selected.
+    ///
+    /// **Re-running never clobbers your edits.** Entries are matched by prefab identity,
+    /// and anything you authored — a widened radius, a changed role, allowInFold, a scale
+    /// range — is carried through untouched. A rescan only adds prefabs that are new,
+    /// measures numbers that are still zero, and reports what it saw. That is what makes
+    /// the folders a starting point rather than a source of truth that overwrites you.
+    /// </summary>
+    [MenuItem("Tools/COREHOLD/Level/Build Env Pack From Folders", false, 4)]
+    public static void BuildFromFolders()
+    {
+        var log = new StringBuilder();
+        log.AppendLine("=== Build Env Pack From Folders (R25) ===");
+
+        EnsureCategoryFolders(log);
+
+        var pack = Selection.activeObject as EnvPack;
+        if (pack == null)
+        {
+            if (!AssetDatabase.IsValidFolder(PackDir))
+                AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "EnvPacks");
+            pack = AssetDatabase.LoadAssetAtPath<EnvPack>(DefaultPackPath);
+            if (pack == null)
+            {
+                pack = ScriptableObject.CreateInstance<EnvPack>();
+                AssetDatabase.CreateAsset(pack, DefaultPackPath);
+                log.AppendLine($"Created {DefaultPackPath} (no EnvPack was selected).");
+            }
+            else
+            {
+                log.AppendLine($"Refreshing {DefaultPackPath} (no EnvPack was selected).");
+            }
+        }
+        else
+        {
+            log.AppendLine($"Refreshing the selected pack '{pack.name}'.");
+        }
+
+        // Index what the pack already holds, so authored values survive the rescan.
+        var existing = new Dictionary<GameObject, EnvPack.Entry>();
+        if (pack.entries != null)
+            foreach (EnvPack.Entry e in pack.entries)
+                if (e.prefab != null && !existing.ContainsKey(e.prefab))
+                    existing[e.prefab] = e;
+
+        var result = new List<EnvPack.Entry>();
+        var claimed = new HashSet<GameObject>();
+        int added = 0, refreshed = 0, relabelled = 0;
+
+        foreach (var (folder, folderRole) in CategoryFolders)
+        {
+            string path = PrefabRoot + "/" + folder;
+            if (!AssetDatabase.IsValidFolder(path))
+                continue;
+
+            string[] guids = AssetDatabase.FindAssets("t:Prefab", new[] { path });
+            log.AppendLine($"  {folder,-12} {guids.Length} prefab(s)");
+
+            foreach (string guid in guids)
+            {
+                string prefabPath = AssetDatabase.GUIDToAssetPath(guid);
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                if (prefab == null || !claimed.Add(prefab))
+                {
+                    if (prefab != null)
+                        log.AppendLine($"      ! {prefab.name} appears in more than one category folder — " +
+                                       "kept the first. Move it so there is one answer.");
+                    continue;
+                }
+
+                // A label wins over the folder: it is applied to the asset deliberately,
+                // and it is the only way to categorise a prefab that has to live
+                // elsewhere (a vendor prefab you do not want to copy, for instance).
+                EnvPack.PropRole role = folderRole;
+                if (TryRoleFromLabels(prefab, out EnvPack.PropRole labelled) && labelled != folderRole)
+                {
+                    role = labelled;
+                    relabelled++;
+                    log.AppendLine($"      · {prefab.name}: label '{labelled}' overrides folder '{folderRole}'.");
+                }
+
+                if (existing.TryGetValue(prefab, out EnvPack.Entry entry))
+                {
+                    refreshed++;
+                    FillMissing(ref entry, prefab, log);        // authored values survive
+                }
+                else
+                {
+                    added++;
+                    entry = new EnvPack.Entry
+                    {
+                        prefab = prefab,
+                        role = role,
+                        scaleRange = new Vector2(1f, 1f),
+                        allowInFold = false                      // pockets are where pads live
+                    };
+                    FillMissing(ref entry, prefab, log);
+                    log.AppendLine($"      + {prefab.name,-28} {role,-10} r={entry.footprintRadius,6:0.00}  h={entry.height,6:0.00}");
+                }
+
+                result.Add(entry);
+            }
+        }
+
+        // Entries pointing outside the scanned tree are the user's, not ours — a
+        // vendor prefab categorised by label, or a hand-added one. Keep them.
+        int outside = 0;
+        if (pack.entries != null)
+        {
+            foreach (EnvPack.Entry e in pack.entries)
+            {
+                if (e.prefab == null || claimed.Contains(e.prefab))
+                    continue;
+                result.Add(e);
+                outside++;
+            }
+        }
+
+        int dropped = (pack.entries?.Length ?? 0) - refreshed - outside;
+
+        pack.entries = result.ToArray();
+        EditorUtility.SetDirty(pack);
+        AssetDatabase.SaveAssets();
+        Selection.activeObject = pack;
+
+        log.AppendLine();
+        log.AppendLine($"{result.Count} entr(ies): {added} added, {refreshed} refreshed (edits preserved), " +
+                       $"{outside} kept from outside {PrefabRoot}, {relabelled} relabelled by asset label.");
+        if (dropped > 0)
+            log.AppendLine($"{dropped} entr(ies) dropped — a missing prefab, or a duplicate of one already listed.");
+        log.AppendLine($"{pack.CountInvalid()} entr(ies) invalid. " +
+                       $"Landmark {pack.CountInRole(EnvPack.PropRole.Landmark)}, " +
+                       $"MidField {pack.CountInRole(EnvPack.PropRole.MidField)}, " +
+                       $"Clutter {pack.CountInRole(EnvPack.PropRole.Clutter)}, " +
+                       $"Silhouette {pack.CountInRole(EnvPack.PropRole.Silhouette)}.");
+
+        if (pack.groundMaterial == null && pack.groundPrefab == null)
+            log.AppendLine("No ground assigned — generated levels will keep whatever ground the scene has. " +
+                           "Set groundPrefab/groundMaterial on the pack to give a map its own.");
+
+        AppendCommitWarning(pack, log);
+        Debug.Log(log.ToString());
+    }
+
+    /// <summary>Create the category folders so the convention is discoverable, not documented-only.</summary>
+    private static void EnsureCategoryFolders(StringBuilder log)
+    {
+        if (!AssetDatabase.IsValidFolder(PrefabRoot))
+            AssetDatabase.CreateFolder("Assets/_COREHOLD/Prefabs", "EnvPack");
+
+        var created = new List<string>();
+        foreach (var (folder, _) in CategoryFolders)
+        {
+            if (AssetDatabase.IsValidFolder(PrefabRoot + "/" + folder))
+                continue;
+            AssetDatabase.CreateFolder(PrefabRoot, folder);
+            created.Add(folder);
+        }
+
+        if (created.Count > 0)
+            log.AppendLine($"Created {PrefabRoot}/{{{string.Join(", ", created)}}} — drop prefabs in " +
+                           "and re-run. The folder is the category.");
+    }
+
+    /// <summary>
+    /// Read a role from the asset's LABELS (Project window, bottom of the inspector),
+    /// matched case-insensitively against the role names.
+    ///
+    /// Labels rather than Unity tags, deliberately: a GameObject carries exactly one tag
+    /// from a project-global list shared with gameplay code, and tagging a vendor prefab
+    /// means editing a file under the git-ignored Assets/Vendor/, so the tag would never
+    /// reach anyone else. Labels are per-asset editor metadata, allow several at once,
+    /// and are searchable in the Project window as <c>l:Landmark</c>.
+    /// </summary>
+    private static bool TryRoleFromLabels(GameObject prefab, out EnvPack.PropRole role)
+    {
+        role = EnvPack.PropRole.Unassigned;
+        string[] labels = AssetDatabase.GetLabels(prefab);
+        if (labels == null)
+            return false;
+
+        foreach (string label in labels)
+        {
+            foreach (var (_, candidate) in CategoryFolders)
+            {
+                if (!string.Equals(label, candidate.ToString(), System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                role = candidate;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Measure only what is still zero. Authored numbers are never touched.</summary>
+    private static void FillMissing(ref EnvPack.Entry entry, GameObject prefab, StringBuilder log)
+    {
+        if (entry.footprintRadius > 0f && entry.height > 0f)
+            return;
+
+        if (!TryMeasure(prefab, out Measurement m))
+        {
+            log.AppendLine($"      ! {prefab.name} has no renderable mesh — footprint/height left at 0, " +
+                           "which the generate gate rejects.");
+            return;
+        }
+
+        if (entry.footprintRadius <= 0f) entry.footprintRadius = m.radius;
+        if (entry.height <= 0f) entry.height = m.height;
+
+        float scale = entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f;
+        AppendMeasurementWarnings(prefab.name, m, scale, log);
+    }
+
     // ------------------------------------------------------------------ measure
 
-    [MenuItem("Tools/COREHOLD/Level/Measure Env Pack Metadata", false, 4)]
+    [MenuItem("Tools/COREHOLD/Level/Measure Env Pack Metadata", false, 5)]
     public static void MeasureSelected()
     {
         var pack = Selection.activeObject as EnvPack;

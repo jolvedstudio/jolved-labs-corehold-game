@@ -71,6 +71,34 @@ namespace Corehold.Data
         [Tooltip("Every prop this pack can place, with the metadata the placer needs.")]
         public Entry[] entries;
 
+        [Header("Ground")]
+
+        [Tooltip("Optional ground object used instead of the built-in primitive plane. Leave empty for the plane. Either way the ground is SIZED FROM THE CAMERA FRUSTUM (R11) — never from the blueprint's playfieldSize, which is what left a void on the shipped map.")]
+        public GameObject groundPrefab;
+
+        [Tooltip("Material for the level's ground. Leave empty to keep whatever the scene already has. WeatherApplier (R13) captures the live ground material rather than assuming the shipped one, so a pack shipping its own is already supported.")]
+        public Material groundMaterial;
+
+        [Tooltip("Texture repeats per metre. The ground is scaled to fit each map's camera solve, so one fixed tiling stretches by a different amount on every map. 0 leaves the material's own tiling alone.")]
+        public float groundTilingPerMetre;
+
+        /// <summary>
+        /// Tiling to write for a ground of <paramref name="sizeMetres"/>, or
+        /// <c>Vector2.zero</c> when this pack does not manage tiling.
+        ///
+        /// Whoever applies this must write it through a <c>MaterialPropertyBlock</c>
+        /// (<c>_BaseMap_ST</c>), NOT through <c>renderer.material</c> (leaks an instance
+        /// per rebuild) and NOT through <c>sharedMaterial</c> (edits the material ASSET,
+        /// so one generated map silently retiles every other map using it).
+        /// </summary>
+        public Vector2 GroundTilingFor(Vector2 sizeMetres)
+        {
+            if (groundTilingPerMetre <= 0f)
+                return Vector2.zero;
+            return new Vector2(sizeMetres.x * groundTilingPerMetre,
+                               sizeMetres.y * groundTilingPerMetre);
+        }
+
         /// <summary>Count of usable entries in a role (an entry with no prefab is skipped).</summary>
         public int CountInRole(PropRole role)
         {
