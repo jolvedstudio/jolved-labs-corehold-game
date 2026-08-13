@@ -43,9 +43,12 @@ public static class OrganizeHierarchy
         {
             "AudioDirector", "VFXDirector", "OverlayManager", "WeatherApplier"
         }),
+        // "Level*" covers generated maps (R26), whose container is named after the
+        // blueprint rather than "RefineryLevel" — matching only the shipped literal
+        // would strand every generated level container at the root.
         ("_Level", new[]
         {
-            "RefineryLevel", "Floor", "SilhouetteBand", "Spawner_*"
+            "RefineryLevel", "Level*", "Floor", "SilhouetteBand", "Spawner_*"
         }),
         ("_UI", new[]
         {

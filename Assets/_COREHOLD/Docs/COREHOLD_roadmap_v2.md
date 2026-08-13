@@ -340,7 +340,19 @@ Add a sixth buildable tower, Floodlight: 70 salvage, 12 m light radius, built on
 
 The eight P6 tickets are stages of one pipeline, and their **order is load-bearing** in ways that are not obvious from reading them individually. This is that order in one place.
 
-**Output contract.** A run produces a **playable scene**, not a geometry dump: the complete live root set — GameManager, PoolRegistry, RouteTraffic, AudioDirector, VFXDirector, OverlayManager, WaveManager, ResultScreen, DebugConsole, UITheme, EventSystem, Main Camera, Directional Light, Global Volume, LightProbeGroup, ReflectionProbe, Canvas_HUD / Canvas_Menus / Canvas_RotatePrompt, Spawner_West / North / Air, Floor, level container — **plus** a `LevelDefinition` asset wired into that scene's WaveManager. Press play and it runs ten waves. Anything less is not done.
+**Output contract.** A run produces a **playable scene**, not a geometry dump: the complete live object set **plus** a `LevelDefinition` asset wired into that scene's WaveManager. Press play and it runs ten waves. Anything less is not done.
+
+That scene is emitted **already grouped**, into the same five containers `Tools → COREHOLD → Scene Setup → Organize Hierarchy` imposes on the hand-built scene — not 28 loose roots with the organiser run afterwards as a cleanup step. A generated map and the shipped one must be readable side by side, and a tidy hierarchy that depends on someone remembering to run a tool is one that rots on the first generated map nobody tidied.
+
+| Container | Holds |
+|---|---|
+| `_Systems` | GameManager, WaveManager, RouteTraffic, PoolRegistry, DebugConsole |
+| `_Directors` | AudioDirector, VFXDirector, OverlayManager, WeatherApplier |
+| `_Level` | level container, Floor, SilhouetteBand, Spawner_West / North / Air |
+| `_UI` | EventSystem, UITheme, Canvas_HUD / Canvas_Menus / Canvas_RotatePrompt, ResultScreen, RangeRing |
+| `_Rendering` | Main Camera, Directional Light, Global Volume, ReflectionProbe, LightProbeGroup |
+
+Two constraints come with the grouping. Containers sit **at the origin at identity** — `CameraShake` records the camera's LOCAL pose as its rest position, so a container carrying a transform silently redefines "at rest". And every editor tool addresses objects through `SceneLookup.Find`, which resolves a path's first segment by name at any depth; that is what lets the blockout, camera framing, lighting and the validators keep working once their targets are no longer at the root.
 
 **Determinism.** Every random draw derives from `LevelBlueprint.randomSeed`. Same seed ⇒ identical routes, pads, dressing and wave table. R37's daily-seed challenge depends on this being exact across devices, so it is a hard rule rather than a preference.
 
@@ -348,7 +360,7 @@ The eight P6 tickets are stages of one pipeline, and their **order is load-beari
 
 | # | Stage | Ticket | Produces |
 |---|---|---|---|
-| 1 | Scene skeleton | R26 | the root set, reusing `SetupAudioDirector` / `SetupVFXDirector` / `BuildRealUI` |
+| 1 | Scene skeleton | R26 | the five containers and their contents, reusing `SetupAudioDirector` / `SetupVFXDirector` / `BuildRealUI` |
 | 2 | Protected structure | R26 | Core placed at `protectedNormalizedPos` |
 | 3 | Route synthesis | R27 | pinned splines, folds at 10–14 m, `Length` within ±5% of target |
 | 4 | **GATE 1 — clearance** | R29 | knot adjustment allowed here, logged, ≤3 passes |
@@ -383,9 +395,11 @@ Create `LevelBlueprint` in `Corehold.Data`: `playfieldSize`, `randomSeed` (**all
 
 ### R26 — Parity rebuild from a blueprint (P6)
 `Pin: @RefineryDeltaBlockout.cs @CameraFramingSetup.cs @AudioDirector.cs @VFXDirector.cs @WaveManager.cs`
-Generalize `RefineryDeltaBlockout`'s helpers (promote the private statics to `internal`; keep the container/`Place()`/`MakeHP()`/`WireOne()` patterns) so a `LevelBlueprint` can rebuild the **exact shipped map**. Reuse `SetupAudioDirector` / `SetupVFXDirector` / `CameraFramingSetup`. Parity target = the complete live Game-scene root set: GameManager, PoolRegistry, RouteTraffic, AudioDirector, VFXDirector, WaveManager, ResultScreen, DebugConsole, UITheme, EventSystem, Main Camera, Directional Light, Global Volume, LightProbeGroup, ReflectionProbe, Canvas_HUD, Canvas_Menus, Canvas_RotatePrompt, Spawner_West/North/Air, Floor, WeatherApplier (R13), SilhouetteBand (R11), RefineryLevel — plus the RangeRing objects and the OverlayManager (which today sits parented under a RangeRing, not at the root). **Never target or run `BuildGameScene.cs`** (stale Ticket-28 scaffolding that destroys scene roots).
+Generalize `RefineryDeltaBlockout`'s helpers (promote the private statics to `internal`; keep the container/`Place()`/`MakeHP()`/`WireOne()` patterns) so a `LevelBlueprint` can rebuild the **exact shipped map**. Reuse `SetupAudioDirector` / `SetupVFXDirector` / `CameraFramingSetup`. Parity target = the complete live Game-scene object set — GameManager, PoolRegistry, RouteTraffic, AudioDirector, VFXDirector, OverlayManager, WaveManager, ResultScreen, DebugConsole, UITheme, EventSystem, Main Camera, Directional Light, Global Volume, LightProbeGroup, ReflectionProbe, Canvas_HUD, Canvas_Menus, Canvas_RotatePrompt, RangeRing, Spawner_West/North/Air, Floor, WeatherApplier (R13), SilhouetteBand (R11), level container — **arranged in the five containers of the P6 output contract**, not flat at the root. **Never target or run `BuildGameScene.cs`** (stale Ticket-28 scaffolding that destroys scene roots).
+
+**Emit grouped; do not emit flat and call `OrganizeHierarchy` afterwards.** The organiser is a repair tool for a scene that predates the grouping — making it a required post-step means every generated scene is briefly wrong and permanently one forgotten click away from staying that way. Concretely: lift the container/membership table out of `OrganizeHierarchy.cs` into one shared static that both it and the generator read, so the two cannot disagree about where a new object belongs, and so adding an object to the game means editing one list. Two details that table has to survive: a generated level container is **not** named `RefineryLevel`, so `_Level` matches it by prefix rather than by the shipped literal; and OverlayManager belongs in `_Directors`, where the organiser already promotes it from the RangeRing it is incidentally parented under today.
 **Stage order is load-bearing — the ground plane must be fitted AFTER the camera is framed.** Today `BuildFloor` sizes the floor from the design box (`FieldW/10, FieldD/10`) before any camera exists, which is why the shipped map's hand-widened 300×300 floor reverts to 130×75 on every rebuild and why R11 had a void to kill in the first place. Generated maps make this worse: each has its own `playfieldSize` and gets re-solved by `CameraFramingSetup`, so a design-box floor is wrong by a different amount every time. The pipeline must run **place protected structure → synthesize routes → select hardpoints → frame camera to the generated content → fit floor to the camera frustum → dress**, with the floor extent derived from the frustum (R11) rather than from the blueprint.
-**Done when:** a blueprint configured to the shipped values rebuilds a scene with the full live root set, the floor is sized from the framed camera rather than the design box, and a full 10-wave run on it is behaviourally identical to the shipped map.
+**Done when:** a blueprint configured to the shipped values rebuilds a scene with the full live object set already grouped into the five containers, the floor is sized from the framed camera rather than the design box, running `Organize Hierarchy` on the result reports **0 objects moved and nothing left at the root**, and a full 10-wave run on it is behaviourally identical to the shipped map.
 
 ---
 
