@@ -77,7 +77,10 @@ namespace CoreholdEditor
 
             var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
             EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene);
+            // The pipeline owns saving (its final stage). Saving here would fire a
+            // modal Save dialog on the untitled scene being generated.
+            if (!GenerationDriven.Active)
+                EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
 
             Debug.Log("[COREHOLD] Build Real UI\n" + sb);

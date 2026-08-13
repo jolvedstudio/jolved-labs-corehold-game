@@ -31,8 +31,11 @@ public static class SetupVFXDirector
     [MenuItem("Tools/COREHOLD/Scene Setup/VFX Director", false, 42)]
     public static void Setup()
     {
+        // Menu use: hop to the shipped scene if the human is elsewhere.
+        // Pipeline use: NEVER — opening a scene here would replace the scene
+        // being generated with Game.unity and build the map into it.
         Scene scene = SceneManager.GetActiveScene();
-        if (scene.path != ScenePath)
+        if (!GenerationDriven.Active && scene.path != ScenePath)
             scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
 
         // Find or create the director GameObject.
@@ -65,7 +68,10 @@ public static class SetupVFXDirector
         so.ApplyModifiedPropertiesWithoutUndo();
         EditorUtility.SetDirty(director);
         EditorSceneManager.MarkSceneDirty(scene);
-        EditorSceneManager.SaveScene(scene);
+        // The pipeline owns saving (its final stage). Saving here would fire a
+        // modal Save dialog on the untitled scene being generated.
+        if (!GenerationDriven.Active)
+            EditorSceneManager.SaveScene(scene);
 
         if (missing.Count > 0)
             Debug.LogError("[COREHOLD] VFXDirector setup: missing prefabs:\n- " + string.Join("\n- ", missing));
