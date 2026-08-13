@@ -64,8 +64,9 @@ public static class HardpointSelector
     /// Select the blueprint's pad mix on the given routes. Returns null with the
     /// reason in <paramref name="report"/> when the geometry cannot satisfy the
     /// mix — which is a RESEED signal (R29), not something to patch here.
+    /// Internal because the HP spec it returns is internal (CS0050).
     /// </summary>
-    public static RefineryDeltaBlockout.HP[] Select(
+    internal static RefineryDeltaBlockout.HP[] Select(
         LevelBlueprint blueprint, List<PathRoute> routes, Vector3 corePos, out string report)
     {
         var log = new StringBuilder();
