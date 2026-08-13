@@ -196,12 +196,20 @@ Add first-class geometry parameters to the balance model (route Length(s), hardp
 
 ### R11 — Surround skirt (S Spectacle)
 `Pin: @RefineryDeltaBlockout.cs @CameraFramingSetup.cs @VFXDirector.cs`
-Kill the black void around the 130×75 field with a surrounding skirt of environment geometry (Creepy Cat kit + owned rock packs). Constraints: **unlit**, ≤5 draw calls total, excluded from lightmaps, and a darker value range than the playfield so it recedes and never competes with gameplay legibility. Place via the container/`Place()` dressing pattern already in the blockout.
-**Done when:** the void is gone in all three camera aspects, the skirt adds ≤5 draw calls, is excluded from lightmaps, reads darker than the field, and the 907×510 legibility bar is unaffected.
+**Rescoped — the void is already gone; do not build the skirt as originally written.** Measured against the live camera (pos −12.75, 70.65, −84.16; pitch 38°; vFOV 35°), three facts changed this ticket:
+
+1. **The horizon is never in frame.** The top edge of the frustum sits 20.5° *below* horizontal, so the top of the screen is ground at z ≈ +105 m. A skybox cannot fix anything here — one is already assigned and simply never seen. It becomes relevant only if R15's flyover tilts the camera up, which is a reason to settle the flyover path before finalising this ticket.
+2. **The floor is already 300×300** (scale 30, not the blockout's 130×75), which is why no void is visible. Intersecting all four frustum corner rays with y=0 across the three verified aspects, the widest ground hit is **|x| ≤ 147.6 m, |z| ≤ 104.8 m** — inside the 150 m half-extent at every aspect, with ~2.4 m to spare. There is no void to kill today; the exposure is that the margin is accidental rather than derived, and that a rebuild reverts it.
+3. **`RefineryDeltaBlockout.BuildFloor` hard-codes `FieldW/10, FieldD/10`** and silently reverts that fix on any rebuild — see R26's stage order.
+
+So the work is: **drive the floor extent from the camera frustum** rather than the design box (intersect each aspect's edge rays with y=0, take max |x| / |z|, add margin); **retint the distance fog**, which is already enabled but set to mid-grey 0.5 against a dark blue-slate field so it reads as haze rather than depth — a one-property change and the highest-value pixel in the ticket; and only then add **3–5 silhouette meshes** in the far band (z ≈ 90–105) for depth. Constraints on those: **unlit**, excluded from lightmaps, darker than the playfield, placed via the container/`Place()` pattern.
+**Done when:** the floor extent is computed from the frustum (not the design box) and survives a blockout rebuild, fog reads as distance rather than haze, no void appears at any of the three aspects, the silhouette band adds ≤5 draw calls, and the 907×510 legibility bar is unaffected.
+**As shipped.** `GroundAndSkirt.RequiredHalfExtent(camera)` intersects all four frustum corner rays with y=0 across 16:9 / 16:10 / 20:9 and returns the widest hit plus a 10 m margin; `FloorScaleForCamera` turns that into a **uniform** plane scale (a Unity Plane's UVs span 0..1 across the whole surface, so non-uniform scaling stretches the ground texture unevenly). `RefineryDeltaBlockout.BuildFloor` now calls it, falling back to the design box only when no camera exists — closing the revert trap. It also warns when a frustum corner points at or above the horizon, since no ground plane can cover that and a skybox becomes load-bearing (which is exactly what R15's flyover would introduce). Fog density is **solved from the camera**, not hard-coded: for ExponentialSquared, transmittance is exp(−(ρ·d)²), so ρ = √(−ln T) / d_far holds the same perceptual gradient on any framing or generated map. Silhouettes are placed at normalized positions in the frustum's far band and pushed back via lightmap exclusion, shadows off and a darkening `MaterialPropertyBlock` — no vendor material is edited.
 
 ---
 
-### R12 — `[MANUAL]` Rock/terrain dressing day (S Spectacle)
+### R12 — `[MANUAL]` Rock/terrain dressing day (S Spectacle) — **SKIPPED**
+**Skipped by decision.** In-field dressing is handed to the generator instead of being done by hand on the shipped map: R25's `EnvPack` supplies the asset pool and R28's placer does the candidate → reject → score → deterministic-greedy pass. The sight-line rule this ticket states is not dropped — it moves to R28, where it finally gets a real implementation, because `HardpointCoverageGizmo` is a distance test and cannot detect an occluder. Do not hand-dress the shipped map in the meantime: props placed by hand are exactly the drift the generated pipeline exists to prevent.
 `Pin: @RefineryDeltaBlockout.cs @HardpointCoverageGizmo.cs`
 Human-led dressing day on the now-frozen spline geometry. Dress the hairpins and field with owned rock/environment assets following the **sight-line rule**: nothing may occlude a hardpoint's line to its covered route spans or obscure enemy readability. CoPlay places candidates via `Place()`; the human approves each. Re-run coverage after dressing to confirm no span was visually blocked.
 **Done when:** the field is dressed, the sight-line rule holds at all pads, coverage is unchanged from R8's accepted table, and screenshots are filed. Geometry is frozen — do not move waypoints/knots here.
@@ -211,7 +219,12 @@ Human-led dressing day on the now-frozen spline geometry. Dress the hairpins and
 ### R13 — WeatherPreset SO + WeatherApplier (S Spectacle)
 `Pin: @GameManager.cs @VFXDirector.cs @Main Camera`
 Create a `WeatherPreset` ScriptableObject (ambient tint, fog, precipitation type/density, wind — all `[TUNE]`) and a `WeatherApplier` that applies the preset at map load via a `MaterialPropertyBlock` (no per-object material instances). Precipitation is **camera-attached, screen-space**. A **null preset must be pixel-identical** to today's look. Apply on the appropriate `GameManager` state.
-**Done when:** applying a preset changes ambient/precipitation via MaterialPropertyBlock, a null preset produces a pixel-identical frame to the current build, and there is no per-frame allocation.
+**Weather is a LEVEL property, applied at load — not a mid-run effect.** Two reasons, and the first is architectural. The roadmap deliberately splits **cosmetic** conditions from **gameplay** conditions: weather is presentation only, while anything that changes play — Storm's air +30% speed, Blackout's ×2 acquisition range — is a **wave mutator** (R20), applied per-wave and carried as a first-class term in the balance model (R22). Hold that line and weather can never become a hidden difficulty variable the model cannot see; blur it and a visual system starts moving margins with no gate on it. The second reason is R14's own bar: enemies and turret states must stay readable *through* the effect, and shifting legibility mid-wave — while the player is reading armour pips and tracking a leaker — is a fairness problem in a game this read-dependent. If dynamic weather is ever wanted, transition only at a state boundary (Briefing → Build) so it can never change during a wave.
+
+**Ownership: the scene, not `LevelDefinition`.** The preset reference belongs on the `WeatherApplier` component, alongside lighting. `LevelDefinition` is shared *rules* data (waves, economy, caps) that R30 clones from a template; visual state does not belong there. R23's night variant is the same argument from the other side — a lighting variation of one layout is scene state, not rules state. Generation wires the applier like every other component, choosing from the blueprint's `weatherPool` by seed.
+
+**Fog ownership (conflicts with R11).** R11 sets `RenderSettings` fog colour and density, solved from the camera, and a `WeatherPreset` also carries fog. R11 owns the **baseline** — that is the null-preset look; a preset **overrides it while active and must restore the baseline when cleared**, or the null preset stops being pixel-identical and R13's own done-when fails.
+**Done when:** applying a preset changes ambient/precipitation via MaterialPropertyBlock, a null preset produces a pixel-identical frame to the current build, clearing a preset restores R11's solved fog baseline exactly, and there is no per-frame allocation.
 
 ---
 
@@ -219,6 +232,7 @@ Create a `WeatherPreset` ScriptableObject (ambient tint, fog, precipitation type
 `Pin: @VFXDirector.cs @GameManager.cs`
 Author two `WeatherPreset` assets — Rain and Dust — using CFXR where appropriate, each with ≤3 alpha layers of overdraw. Verify both hold the **907×510 legibility bar** (enemies and turret states remain clearly readable through the effect).
 **Done when:** Rain and Dust presets apply via R13's applier, each uses ≤3 alpha layers, overdraw stays within the mobile budget, and legibility is confirmed at 907×510 with screenshots filed.
+**As shipped.** Authored by **Tools → COREHOLD → Setup Weather**, which creates both assets and wires the applier. Each preset spends **one** alpha layer — a single particle system on one shared unlit material — and puts its remaining headroom into *low particle alpha* rather than more particles, which is what protects the legibility bar and leaves room for a second authored layer later. Rain: cool ambient, slightly denser fog than R11's solved baseline, fast thin stretched particles at alpha 0.30, light wind cant, and a cool ground tint reading as wet. Dust: warm and dimmer, large slow motes at alpha 0.16 (lower because they are far bigger — same overdraw, more coverage), denser warm fog, stronger lateral wind. Ambient is nudged in *hue* rather than darkened, since darkening ambient is what actually costs readability. The applier ships on the **null preset**, so nothing changes until a preset is deliberately assigned.
 
 ---
 
@@ -292,17 +306,56 @@ Add a sixth buildable tower, Floodlight: 70 salvage, 12 m light radius, built on
 
 ---
 
+## P6 — the generation pipeline (read before writing any generator ticket)
+
+The eight P6 tickets are stages of one pipeline, and their **order is load-bearing** in ways that are not obvious from reading them individually. This is that order in one place.
+
+**Output contract.** A run produces a **playable scene**, not a geometry dump: the complete live root set — GameManager, PoolRegistry, RouteTraffic, AudioDirector, VFXDirector, OverlayManager, WaveManager, ResultScreen, DebugConsole, UITheme, EventSystem, Main Camera, Directional Light, Global Volume, LightProbeGroup, ReflectionProbe, Canvas_HUD / Canvas_Menus / Canvas_RotatePrompt, Spawner_West / North / Air, Floor, level container — **plus** a `LevelDefinition` asset wired into that scene's WaveManager. Press play and it runs ten waves. Anything less is not done.
+
+**Determinism.** Every random draw derives from `LevelBlueprint.randomSeed`. Same seed ⇒ identical routes, pads, dressing and wave table. R37's daily-seed challenge depends on this being exact across devices, so it is a hard rule rather than a preference.
+
+**Stages.**
+
+| # | Stage | Ticket | Produces |
+|---|---|---|---|
+| 1 | Scene skeleton | R26 | the root set, reusing `SetupAudioDirector` / `SetupVFXDirector` / `BuildRealUI` |
+| 2 | Protected structure | R26 | Core placed at `protectedNormalizedPos` |
+| 3 | Route synthesis | R27 | pinned splines, folds at 10–14 m, `Length` within ±5% of target |
+| 4 | **GATE 1 — clearance** | R29 | knot adjustment allowed here, logged, ≤3 passes |
+| 5 | Hardpoint selection | R28 | candidates pre-filtered by clearance, classified **by measured coverage** |
+| 6 | **GATE 2 — coverage** | R28/R29 | every pad ≥2 spans, ≥3 Premium at ≥4 |
+| 7 | Camera framing | R26 | `CameraFramingSetup` solved against the *generated* content bounds |
+| 8 | Floor fit | R11/R26 | ground plane sized from the camera frustum |
+| 9 | Dressing | R25 pack, R28 placer | skirt + in-field props, then coverage re-run **through the occlusion test** |
+| 10 | Emission | R30 | `LevelDefinition` — `hpGrowthPerWave` solved, `maxLiveEnemies` derived, spawners 0/1/2 wired |
+| 11 | **GATE 3 — model margins** | R29/R30 | per-wave margins in band |
+| 12 | Save or discard | R29 | pass ⇒ scene + asset saved; fail ⇒ **nothing emitted**, actionable report |
+
+**Four orderings you cannot swap.**
+- **Floor after camera (8 after 7).** Sizing the ground from the blueprint's `playfieldSize` is what leaves a void — each map's camera solve differs, so a design-box floor is wrong by a different amount every time. This already bit the shipped map.
+- **Coverage re-run after dressing (9 revisits 6).** Placing props can block a pad's line to its spans, and the distance-based coverage count cannot see that. Without the occlusion test the pipeline will certify a blocked pad as Premium.
+- **Merge pins during synthesis (inside 3).** Pins are part of producing a correct route, not a repair applied afterwards; a route measured before pinning reports a length it will not keep.
+- **Model solve after geometry is final (10 after 9).** Route length and pad coverage are both model inputs. Solving `hpGrowthPerWave` before dressing settles means solving against geometry that is still moving.
+
+**Failure is reseeding, not repair** (R29). A seed that cannot satisfy every gate is discarded; R31 runs nine seeds and hands the human the ones that passed.
+
+**Cross-language.** The gate model is Python and the generator is C#. Generation is editor-time, so shell out to `docs/balance_model.py` and read `--json` — never port the margin math into C#, because two implementations of the gate will drift and that defeats R1.
+
+---
+
 ### R25 — LevelBlueprint SO + generate menu (P6)
 `Pin: @LevelDefinition.cs @PathRoute.cs @RefineryDeltaBlockout.cs`
-Create `LevelBlueprint` in `Corehold.Data`: `playfieldSize`, `randomSeed` (**all randomness derives from it — determinism is a hard rule**), `protectedPrefab` + `protectedNormalizedPos` (default 0.765, 0.413 — the shipped Core at world (34.5, −6.5) normalized on the 130×75 field from its south-west corner), `routeLengthTarget`, `groundSpawnLegs` (1–2), `airCorridor` (bool), `hardpointCount` + a class-mix struct, `envPack`, and `rulesTemplate` (a `LevelDefinition` clone source). Add a `Tools → COREHOLD → Generate Level` menu entry (stub the generation call for now).
-**Done when:** `LevelBlueprint` exists in Corehold.Data with all fields, the menu item appears, and the SO is documented as the single source of generation determinism (same seed ⇒ same everything).
+Create `LevelBlueprint` in `Corehold.Data`: `playfieldSize`, `randomSeed` (**all randomness derives from it — determinism is a hard rule**), `protectedPrefab` + `protectedNormalizedPos` (default 0.765, 0.413 — the shipped Core at world (34.5, −6.5) normalized on the 130×75 field from its south-west corner), `routeLengthTarget`, `groundSpawnLegs` (1–2), `airCorridor` (bool), `hardpointCount` + a class-mix struct, `envPack`, `weatherPool` (a `WeatherPreset[]` — the seed picks one, so weather varies per generated map without a human choosing; an **empty pool means the null preset**, which R13 requires to be pixel-identical to today's look, so the field degrades gracefully), and `rulesTemplate` (a `LevelDefinition` clone source). Add a `Tools → COREHOLD → Generate Level` menu entry (stub the generation call for now).
+**`envPack` is its own ScriptableObject, not a folder path.** Define `EnvPack` alongside the blueprint: a list of **direct prefab references** (not the asset-path strings `Place()` uses today — paths break when assets move) each carrying the metadata a placer actually needs — **footprint radius** (to test route/pad clearance), **height** (to test sight-line occlusion, R28), and a **role** tag (`Landmark` / `MidField` / `Clutter` / `Silhouette`) so the placer can fill each band deliberately. Note that `Assets/Vendor/` is git-ignored, so a pack referencing vendor prefabs carries dangling GUIDs for anyone without those packages — decide up front whether packs are committed or local-only.
+**Done when:** `LevelBlueprint` exists in Corehold.Data with all fields, `EnvPack` exists with per-prefab footprint/height/role metadata, the menu item appears, and the SO is documented as the single source of generation determinism (same seed ⇒ same everything).
 
 ---
 
 ### R26 — Parity rebuild from a blueprint (P6)
 `Pin: @RefineryDeltaBlockout.cs @CameraFramingSetup.cs @AudioDirector.cs @VFXDirector.cs @WaveManager.cs`
-Generalize `RefineryDeltaBlockout`'s helpers (promote the private statics to `internal`; keep the container/`Place()`/`MakeHP()`/`WireOne()` patterns) so a `LevelBlueprint` can rebuild the **exact shipped map**. Reuse `SetupAudioDirector` / `SetupVFXDirector` / `CameraFramingSetup`. Parity target = the complete live Game-scene root set: GameManager, PoolRegistry, RouteTraffic, AudioDirector, VFXDirector, WaveManager, ResultScreen, DebugConsole, UITheme, EventSystem, Main Camera, Directional Light, Global Volume, LightProbeGroup, ReflectionProbe, Canvas_HUD, Canvas_Menus, Canvas_RotatePrompt, Spawner_West/North/Air, Floor, RefineryLevel — plus the RangeRing objects and the OverlayManager (which today sits parented under a RangeRing, not at the root). **Never target or run `BuildGameScene.cs`** (stale Ticket-28 scaffolding that destroys scene roots).
-**Done when:** a blueprint configured to the shipped values rebuilds a scene with the full live root set, and a full 10-wave run on it is behaviourally identical to the shipped map.
+Generalize `RefineryDeltaBlockout`'s helpers (promote the private statics to `internal`; keep the container/`Place()`/`MakeHP()`/`WireOne()` patterns) so a `LevelBlueprint` can rebuild the **exact shipped map**. Reuse `SetupAudioDirector` / `SetupVFXDirector` / `CameraFramingSetup`. Parity target = the complete live Game-scene root set: GameManager, PoolRegistry, RouteTraffic, AudioDirector, VFXDirector, WaveManager, ResultScreen, DebugConsole, UITheme, EventSystem, Main Camera, Directional Light, Global Volume, LightProbeGroup, ReflectionProbe, Canvas_HUD, Canvas_Menus, Canvas_RotatePrompt, Spawner_West/North/Air, Floor, WeatherApplier (R13), SilhouetteBand (R11), RefineryLevel — plus the RangeRing objects and the OverlayManager (which today sits parented under a RangeRing, not at the root). **Never target or run `BuildGameScene.cs`** (stale Ticket-28 scaffolding that destroys scene roots).
+**Stage order is load-bearing — the ground plane must be fitted AFTER the camera is framed.** Today `BuildFloor` sizes the floor from the design box (`FieldW/10, FieldD/10`) before any camera exists, which is why the shipped map's hand-widened 300×300 floor reverts to 130×75 on every rebuild and why R11 had a void to kill in the first place. Generated maps make this worse: each has its own `playfieldSize` and gets re-solved by `CameraFramingSetup`, so a design-box floor is wrong by a different amount every time. The pipeline must run **place protected structure → synthesize routes → select hardpoints → frame camera to the generated content → fit floor to the camera frustum → dress**, with the floor extent derived from the frustum (R11) rather than from the blueprint.
+**Done when:** a blueprint configured to the shipped values rebuilds a scene with the full live root set, the floor is sized from the framed camera rather than the design box, and a full 10-wave run on it is behaviourally identical to the shipped map.
 
 ---
 
@@ -326,7 +379,8 @@ Synthesize hairpins at **W ≈ 10–14 m** and the Premium pads fall out of the 
 Generate a candidate superset of ~20 hardpoint positions at ≥3.75 m from the centreline — **seed the fold centres explicitly** (per R27's width band) rather than only offsetting generically from route bends, because the pocket between two parallel legs is where 4+ span coverage actually lives. Score every candidate once with the curve sampler per `TurretKind`. Classify with the existing `PadClass` semantics: **Premium** (4+ covered spans), **Standard** (2–3), **Rear** (final approach + air-terminal leg), **Overwatch** (Siege Mortar home — set back, sparse close coverage inside the 20 m ring / 6 m dead zone). Discard any <2 spans. Run **one deterministic greedy selection pass** by class need, tie-broken by score, enforcing a minimum inter-pad spacing (~6 m, `[TUNE]`).
 
 **Classify from the measurement, never from an intent label — this is the ticket's whole point.** The shipped map shows the failure it prevents: a human declared HP_Premium_2 a Premium pad and separately chose its position, the clearance pass later moved it from (4, 13) — 5 spans but only 2.0 m off the centreline — out to (7.5, 1.5), which cleared the envelope and silently dropped it to 3 spans, and nothing re-measured. Clearance and coverage were each satisfied in turn and the pad ended up failing its own class. Here that cannot happen: **clearance is a precondition of candidacy and coverage is the score over the survivors**, so both hold jointly by construction, and a pad is Premium *because* it measured 4+, not because it was named one.
-**Done when:** the generator produces a classified, spaced hardpoint set matching the blueprint's count/mix, every kept pad has ≥2 spans with ≥3 Premium at ≥4, selection is deterministic from the seed, and no pad sits closer than the spacing minimum.
+**Environment props reuse this exact machinery — and need a check that does not exist yet.** Dressing from the blueprint's `EnvPack` (R25) is the same candidate → reject → score → deterministic-greedy pass, with rejection on footprint radius + `laneHalfWidth` + `maxBodyRadius` off any centreline, plus a keep-out around pads and the protected structure. **But the sight-line rule R12 states has no implementation behind it, and the obvious check does not work:** `HardpointCoverageGizmo` is a pure *distance* test with no notion of occluders, so a 12 m storage tank parked between a pad and the route still reports every span as covered. R12's "re-run coverage after dressing" would therefore pass a fully blocked pad. Build the missing test here: for each pad, sample its covered spans and test the pad→sample segment against every prop's footprint cylinder at turret muzzle height, dropping spans that are blocked. Automated dressing is unsafe without it. Props also spend draw calls against the GDD budget, so the pack should carry batching intent (`TurretMeshCombiner` is the precedent).
+**Done when:** the generator produces a classified, spaced hardpoint set matching the blueprint's count/mix, every kept pad has ≥2 spans with ≥3 Premium at ≥4, selection is deterministic from the seed, no pad sits closer than the spacing minimum, and coverage is re-evaluated through the occlusion test after props are placed.
 
 ---
 
@@ -341,7 +395,8 @@ Wire a three-stage gate into generation: (1) **clearance** on live numbers — i
 ### R30 — Model-driven LevelDefinition emission (P6)
 `Pin: @LevelDefinition.cs @WaveManager.cs @docs/balance_model.py @RouteTraffic.cs`
 On successful generation, emit a `LevelDefinition`: clone `rulesTemplate`, then **solve `hpGrowthPerWave` so margins match the shipped map's band** (use the balance model as the solver), and set `maxLiveEnemies` from the generated routes' derived capacity — at generation time compute Σ `PathRoute.TotalCapacity(largestRadius)` over the ground routes plus the air-corridor allowance, the same math `RouteTraffic.DerivedCapacity(largestRadius)` runs on live tracks in play (it reads registered movers, so it cannot be called on an unplayed scene). Wire spawners (index 0 west ground / 1 north ground / 2 air) via the existing `WireOne`.
-**Done when:** generated levels ship a LevelDefinition whose modeled per-wave margins sit in the shipped band, maxLiveEnemies is derived from the generated capacity, and a full 10-wave run is winnable at parity difficulty.
+**How C# reaches the solver — the one unresolved integration in the generator chain.** The balance model is Python and the generator is C#. Do **not** port the margin math into C#: two implementations of the gate will drift, and the whole point of R1 is that there is exactly one. Generation is editor-time, so shell out — run `python3 docs/balance_model.py` from the editor with the generated geometry and read back `--json`, which R1 already emits. `--measured-lengths` already accepts route lengths; extend the CLI with hardpoint count/mix as the generator needs it. That keeps one model, one band, and one place to re-tune. It does make Python a dev-machine dependency for generation, which is acceptable for an editor tool and should be stated in the failure message when the process cannot start.
+**Done when:** generated levels ship a LevelDefinition whose modeled per-wave margins sit in the shipped band, maxLiveEnemies is derived from the generated capacity, the model is invoked as a subprocess rather than reimplemented, and a full 10-wave run is winnable at parity difficulty.
 
 ---
 
