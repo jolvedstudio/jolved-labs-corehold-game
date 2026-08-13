@@ -122,7 +122,7 @@ public static class GroundAndSkirt
 
     private static void FitFloor(Camera cam, StringBuilder log)
     {
-        var floor = GameObject.Find("Floor");
+        var floor = SceneLookup.Find("Floor");
         if (floor == null)
         {
             log.AppendLine("[warn] no 'Floor' object found.");
@@ -235,7 +235,7 @@ public static class GroundAndSkirt
         var log = new StringBuilder();
         log.AppendLine("=== R11 silhouette band ===");
 
-        var prior = GameObject.Find("SilhouetteBand");
+        var prior = SceneLookup.Find("SilhouetteBand");
         if (prior != null)
             Object.DestroyImmediate(prior);
 

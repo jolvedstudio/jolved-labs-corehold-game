@@ -49,7 +49,7 @@ public static class FinalSetup
         }
 
         // Add CoreDestruction to the Shield Generator in the scene.
-        var gen = GameObject.Find("RefineryLevel/Core_Blockout/Core_ShieldGenerator");
+        var gen = SceneLookup.Find("RefineryLevel/Core_Blockout/Core_ShieldGenerator");
         if (gen == null)
         {
             // Search loosely.

@@ -24,7 +24,7 @@ namespace CoreholdEditor
             var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
 
             // Remove any prior overlay so this is idempotent.
-            var prior = GameObject.Find("Canvas_RotatePrompt");
+            var prior = SceneLookup.Find("Canvas_RotatePrompt");
             if (prior != null) Object.DestroyImmediate(prior);
 
             var iconSprite = CreateIconSprite();

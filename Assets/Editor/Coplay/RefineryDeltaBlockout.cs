@@ -67,7 +67,7 @@ public static class RefineryDeltaBlockout
         RemovePlaceholders(log);
 
         // ---- Container ----
-        var root = GameObject.Find("RefineryLevel");
+        var root = SceneLookup.Find("RefineryLevel");
         if (root != null) Object.DestroyImmediate(root);
         root = new GameObject("RefineryLevel");
         Undo.RegisterCreatedObjectUndo(root, "Build Refinery Delta");
@@ -115,7 +115,7 @@ public static class RefineryDeltaBlockout
     {
         foreach (var n in new[] { "Core", "Route_West", "Route_North" })
         {
-            var go = GameObject.Find(n);
+            var go = SceneLookup.Find(n);
             // Only remove the top-level placeholder (not the ones under RefineryLevel).
             if (go != null && go.transform.parent == null)
             {
@@ -159,7 +159,7 @@ public static class RefineryDeltaBlockout
 
     static void BuildFloor(Transform parent)
     {
-        var floor = GameObject.Find("Floor");
+        var floor = SceneLookup.Find("Floor");
         if (floor == null)
         {
             floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
@@ -275,7 +275,7 @@ public static class RefineryDeltaBlockout
 
     static void WireOne(string name, int index, PathRoute route, Transform core, Vector3 pos, StringBuilder log)
     {
-        var go = GameObject.Find(name);
+        var go = SceneLookup.Find(name);
         if (go == null)
         {
             log.AppendLine($"[warn] Spawner '{name}' not found; skipped.");

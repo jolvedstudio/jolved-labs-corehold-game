@@ -62,12 +62,12 @@ namespace CoreholdEditor
             var toMark = new HashSet<Transform>();
 
             // Explicit Floor object.
-            var floor = GameObject.Find("Floor");
+            var floor = SceneLookup.Find("Floor");
             if (floor != null) toMark.Add(floor.transform);
 
             foreach (var rootPath in StaticRoots)
             {
-                var root = GameObject.Find(rootPath);
+                var root = SceneLookup.Find(rootPath);
                 if (root == null) continue;
                 foreach (var t in root.GetComponentsInChildren<Transform>(true))
                     toMark.Add(t);

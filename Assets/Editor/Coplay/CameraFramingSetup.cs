@@ -62,18 +62,18 @@ namespace CoreholdEditor
             var pts = new List<Vector3>();
             void Collect(string rootPath)
             {
-                var go = GameObject.Find(rootPath);
+                var go = SceneLookup.Find(rootPath);
                 if (go == null) return;
                 foreach (var t in go.GetComponentsInChildren<Transform>(true))
                     pts.Add(t.position);
             }
             Collect("RefineryLevel/Routes");
             Collect("RefineryLevel/Hardpoints");
-            var core = GameObject.Find("RefineryLevel/Core_Blockout/Core_Target");
+            var core = SceneLookup.Find("RefineryLevel/Core_Blockout/Core_Target");
             if (core != null) pts.Add(core.transform.position);
             foreach (var s in new[] { "Spawner_West", "Spawner_North", "Spawner_Air" })
             {
-                var g = GameObject.Find(s);
+                var g = SceneLookup.Find(s);
                 if (g != null) pts.Add(g.transform.position);
             }
 

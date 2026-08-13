@@ -27,7 +27,7 @@ namespace CoplayEditor
             var cam = Camera.main;
             if (cam == null)
             {
-                var camGo = GameObject.Find("Main Camera");
+                var camGo = SceneLookup.Find("Main Camera");
                 if (camGo != null) cam = camGo.GetComponent<Camera>();
             }
             if (cam != null)
@@ -50,8 +50,8 @@ namespace CoplayEditor
             }
 
             // ---- Core damage state ----
-            var core = GameObject.Find(CorePath);
-            var head = GameObject.Find(HeadPath);
+            var core = SceneLookup.Find(CorePath);
+            var head = SceneLookup.Find(HeadPath);
             if (core == null)
             {
                 log.AppendLine("WARNING: Core_ShieldGenerator not found — CoreDamageState NOT added.");
@@ -82,8 +82,8 @@ namespace CoplayEditor
                 }
 
                 // Two darkening segments — the base extra modules go dark at 66% / 33%.
-                var segA = GameObject.Find(SegAPath);
-                var segB = GameObject.Find(SegBPath);
+                var segA = SceneLookup.Find(SegAPath);
+                var segB = SceneLookup.Find(SegBPath);
                 SetSingleRenderer(so.FindProperty("segment0Renderers"), segA, "segment0 (66%)", log);
                 SetSingleRenderer(so.FindProperty("segment1Renderers"), segB, "segment1 (33%)", log);
                 if (segA != null) EnableEmission(new[] { segA.GetComponent<Renderer>() });

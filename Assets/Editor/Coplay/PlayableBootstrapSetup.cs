@@ -19,7 +19,7 @@ namespace CoreholdEditor
         {
             var sb = new StringBuilder();
 
-            var gmGo = GameObject.Find("GameManager");
+            var gmGo = SceneLookup.Find("GameManager");
             if (gmGo == null)
             {
                 gmGo = new GameObject("GameManager");
