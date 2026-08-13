@@ -47,13 +47,6 @@ namespace Corehold.UI
         [Tooltip("Vertical gap between the pip and the bar, in metres.")]
         [SerializeField] private float pipGap = 0.28f;
 
-        [Header("Health-bar visibility (GDD §9.4)")]
-        [Tooltip("Seconds the bar stays up after the last damage, then fades.")]
-        [SerializeField] private float barHideDelay = 2f;
-
-        [Tooltip("Seconds the fade-out takes once the delay elapses.")]
-        [SerializeField] private float barFadeDuration = 0.4f;
-
         [Header("Shared material (GDD §9.4 — one material for all overlays)")]
         [Tooltip("Unlit, transparent, vertex-colour material shared by every quad. Built at runtime if null.")]
         [SerializeField] private Material sharedMaterial;
@@ -249,6 +242,12 @@ namespace Corehold.UI
             // The actual health bar is now drawn by the self-contained
             // WorldHealthBar component on each enemy, so the OverlayManager only
             // keeps the always-visible armour pip. Disable its bar quad entirely.
+            //
+            // OPEN (GDD §9.4): the "bar stays up N s after last damage, then
+            // fades" rule went with the bar — WorldHealthBar draws always-on and
+            // implements no fade. The barHideDelay/barFadeDuration fields that
+            // used to sit here were dead (this path is hard-disabled) and were
+            // removed; when the rule gets built, it belongs in WorldHealthBar.
             float barAlpha = 0f;
             bool barVisible = false;
             if (o.bar.gameObject.activeSelf != barVisible)

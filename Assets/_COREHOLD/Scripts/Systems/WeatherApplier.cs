@@ -289,7 +289,7 @@ namespace Corehold.Systems
             // procedural system stale.
             if (_precipitationBuilt && _precipitationSource != p.precipitationPrefab && _precipitation != null)
             {
-                DestroyObject(_precipitation);
+                DestroyEitherMode(_precipitation);
                 _precipitation = null;
             }
 
@@ -329,8 +329,9 @@ namespace Corehold.Systems
             ConfigureProceduralParticles(_precipitation, p, cam);
         }
 
-        /// <summary>Destroy that works whether the applier is driven in play mode or from an editor tool.</summary>
-        private static void DestroyObject(Object o)
+        /// <summary>Destroy that works whether the applier is driven in play mode or from an editor tool.
+        /// (Named to avoid hiding UnityEngine.Object's deprecated static DestroyObject — CS0108.)</summary>
+        private static void DestroyEitherMode(Object o)
         {
             if (Application.isPlaying) Destroy(o);
             else DestroyImmediate(o);
