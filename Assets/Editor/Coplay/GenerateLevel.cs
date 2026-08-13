@@ -165,6 +165,11 @@ public static class GenerateLevel
         if (b.rulesTemplate == null)
             errors.Add("rulesTemplate is unassigned — R30 clones it to emit the LevelDefinition.");
 
+        if (b.groundSpawnLegs == 1)
+            warnings.Add("groundSpawnLegs is 1 but the shipped wave tables send groups to spawner 1 (north). " +
+                         "The balance model reroutes those to the primary route; verify the wave table's " +
+                         "spawner indices before shipping a 1-leg map (wave regeneration is R33).");
+
         if (b.envPackPool == null || b.envPackPool.Length == 0)
         {
             warnings.Add("envPackPool is empty — the level will generate undressed.");

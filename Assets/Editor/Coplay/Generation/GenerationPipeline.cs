@@ -50,6 +50,7 @@ public static class GenerationPipeline
         public bool sceneCreated;
         public bool sceneSaved;
         public List<string> dressingStillBlocked;   // pads the occlusion self-repair could not save
+        public BalanceModelRunner.Result model;     // the emission stage's model run; gate 3 judges it
     }
 
     public struct Stage
@@ -569,20 +570,67 @@ public static class GenerationPipeline
         levelProp.objectReferenceValue = clone;
         so.ApplyModifiedPropertiesWithoutUndo();
 
+        // ---- the R30 model run: solve for generated maps, verify for parity --
+        Vector3 airSpawn = ctx.layout.airSpawn;
+        Vector3 coreXZ = ctx.coreTarget.position;
+
         if (b.parityLayout)
-            return StageResult.Ok($"'{b.rulesTemplate.name}' cloned VERBATIM → {assetPath} " +
-                                  "(parity keeps the shipped rules exactly; solving would un-parity them)");
-        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}, wired into WaveManager " +
-                              "(hpGrowthPerWave solve + derived maxLiveEnemies land with R30)");
+        {
+            // Parity keeps the shipped rules VERBATIM — solving would
+            // un-parity them. The model still runs, as a verification.
+            ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
+                solveGrowth: false, hpGrowth: clone.hpGrowthPerWave,
+                maxLive: clone.maxLiveEnemies, out string verifyError);
+            if (ctx.model == null)
+                return StageResult.Fail(verifyError);
+
+            return StageResult.Ok($"'{b.rulesTemplate.name}' cloned VERBATIM → {assetPath}; model verified " +
+                                  $"at growth {clone.hpGrowthPerWave:0.###} (gate 3 judges the margins)");
+        }
+
+        int derivedMaxLive = BalanceModelRunner.DeriveMaxLive(ctx.routes, b.airCorridor);
+        ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
+            solveGrowth: true, hpGrowth: 0f, maxLive: derivedMaxLive, out string error);
+        if (ctx.model == null)
+            return StageResult.Fail(error);
+        if (!ctx.model.solved || ctx.model.solved_hp_growth <= 0f)
+            return StageResult.Fail("model ran but did not report a solved hpGrowthPerWave — contract drift?");
+
+        clone.hpGrowthPerWave = ctx.model.solved_hp_growth;
+        clone.maxLiveEnemies = derivedMaxLive;
+        EditorUtility.SetDirty(clone);
+        AssetDatabase.SaveAssets();
+
+        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; SOLVED hpGrowthPerWave = " +
+                              $"{ctx.model.solved_hp_growth:0.####} (close targeted mid-band), " +
+                              $"maxLiveEnemies = {derivedMaxLive} (derived from route capacity)");
     }
 
     private static StageResult StModelGate(Context ctx)
     {
-        // R30 shells out to docs/balance_model.py and reads --json. Deliberately
-        // NOT approximated here: a second implementation of the margin math is
-        // exactly the drift R1 exists to prevent, and a fake PASS would teach the
-        // team to trust a gate that is not there.
-        return StageResult.Skip("pending R30 — balance model runs as a subprocess; margins unverified until then");
+        // GATE 3 (R29/R30): the per-wave margins, judged from the SAME model
+        // run the emission stage performed — one subprocess, one verdict. The
+        // margin math lives only in docs/balance_model.py; a second
+        // implementation here is exactly the drift R1 exists to prevent.
+        if (ctx.model == null)
+            return StageResult.Fail("the model never ran — emission should have invoked it");
+
+        if (!ctx.model.in_band)
+        {
+            var flagged = new List<string>();
+            foreach (var row in ctx.model.rows)
+                if (row.flags != null && row.flags.Length > 0)
+                    flagged.Add($"wave {row.wave}: margin {row.margin:0.00} [{string.Join(",", row.flags)}]" +
+                                (string.IsNullOrEmpty(row.worst_group) ? "" : $" worst={row.worst_group}"));
+            return StageResult.Fail("margins out of band at the solved/verified growth — this geometry " +
+                                    "cannot be balanced by growth alone; reseed (R29):\n  • " +
+                                    string.Join("\n  • ", flagged));
+        }
+
+        float open = ctx.model.rows[0].margin;
+        float close = ctx.model.rows[ctx.model.rows.Length - 1].margin;
+        return StageResult.Ok($"all {ctx.model.rows.Length} waves in band at growth " +
+                              $"{ctx.model.hp_growth_used:0.####} — opens {open:0.00}, closes {close:0.00}");
     }
 
     private static StageResult StSave(Context ctx)

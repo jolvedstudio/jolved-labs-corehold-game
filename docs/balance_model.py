@@ -209,6 +209,24 @@ CHAIN_BONUS_PER_LIVE_ENEMY = 8   # not assumed in the baseline income
 CHAIN_BONUS_CAP = 80
 MAX_LIVE_ENEMIES = 14
 
+# ---- Generator overrides (roadmap R30) --------------------------------------
+#
+# The generator parameterizes the model per generated map: its own geometry
+# (--geometry), a candidate or solved HP growth (--hp-growth /
+# --solve-hp-growth), the derived live-enemy cap (--max-live) and a build
+# priority ordered for its own pad names. ACTIVE carries the values one process
+# run actually uses; the constants above remain the live-map defaults, so a
+# bare run still reports the shipped baseline byte-for-byte.
+ACTIVE = {
+    "hp_growth": HP_GROWTH_PER_WAVE,
+    "max_live": MAX_LIVE_ENEMIES,
+    "build_priority": None,   # None -> BUILD_PRIORITY (the shipped names)
+}
+
+
+def active_build_priority():
+    return ACTIVE["build_priority"] if ACTIVE["build_priority"] else BUILD_PRIORITY
+
 DIFFICULTY_HP_MULT = {"normal": 1.00, "veteran": 1.25, "nightmare": 1.55}
 DIFFICULTY_ECO_MULT = {"normal": 1.00, "veteran": 1.12, "nightmare": 1.22}
 
@@ -486,7 +504,7 @@ def run_build_phase(geom: Geometry, salvage: int, built: dict) -> int:
         progressed = False
 
         # 1) unbuilt pads first
-        for pad in BUILD_PRIORITY:
+        for pad in active_build_priority():
             if pad in built:
                 continue
             tower_id = geom.pads[pad][2]
@@ -498,12 +516,12 @@ def run_build_phase(geom: Geometry, salvage: int, built: dict) -> int:
                 break
         if progressed:
             continue
-        if any(pad not in built for pad in BUILD_PRIORITY):
+        if any(pad not in built for pad in active_build_priority()):
             break  # a pad is unaffordable; bank for it rather than upgrading
 
         # 2) best-value upgrade (with two-step lookahead)
         best = None  # (gain_per_salvage, pad, target_tier, cost)
-        for pad in BUILD_PRIORITY:
+        for pad in active_build_priority():
             inst = built[pad]
             tiers = TOWERS[inst.tower_id]["tiers"]
             cur_value = tier_value(geom, pad, inst.tower_id, inst.tier)
@@ -550,7 +568,7 @@ def aura_bonuses(geom: Geometry, built: dict, pad_name: str):
 # =============================================================================
 
 def wave_scalar(wave_number: int) -> float:
-    return 1.0 + HP_GROWTH_PER_WAVE * (wave_number - 1)
+    return 1.0 + ACTIVE["hp_growth"] * (wave_number - 1)
 
 
 def compute_wave(geom: Geometry, built: dict, wave_number: int,
@@ -566,7 +584,10 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
             route = None
             traverse = geom.air_length() / enemy["speed"]
         else:
-            route = geom.routes[spawner]
+            # A wave may reference a ground spawner the map does not have (a
+            # 1-leg generated map running the shipped wave table): those groups
+            # walk the primary route instead, mirroring a single-entrance map.
+            route = geom.routes.get(spawner) or geom.routes[min(geom.routes)]
             traverse = traverse_time(enemy, route)
         eff_hp = enemy["hp"] * scalar * hp_mult * count
         groups.append(dict(id=enemy_id, enemy=enemy, count=count, gap=gap,
@@ -648,7 +669,7 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
     for _, delta in events:
         live += delta
         peak = max(peak, live)
-    peak = min(peak, MAX_LIVE_ENEMIES)
+    peak = min(peak, ACTIVE["max_live"])
 
     return dict(margin=margin, required=required, deliverable=deliverable,
                 worst_group=worst["id"], worst_margin=worst_margin,
@@ -667,20 +688,56 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
 #  Report
 # =============================================================================
 
-def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = False):
-    geom = Geometry()
-    # Sanity: the live map (fails loudly if the embedded data drifts).
-    assert len(geom.pads) == 8, "expected the 8 shipped hardpoints"
-    assert len(WAVES) == 10, "expected the 10 shipped waves"
-    for r in geom.routes.values():
-        assert 145.0 <= r.polyline_length <= 155.0, \
-            f"{r.name} polyline {r.polyline_length:.1f} m off the ~150 m live map"
+def load_geometry(path: str) -> Geometry:
+    """
+    A GENERATED map's geometry (roadmap R30), written by the Unity pipeline:
+    routes as knot polylines with their measured spline lengths, the air
+    corridor, the pad set, and the build priority for the sim (the shipped
+    BUILD_PRIORITY names mean nothing on a generated map). One model, two
+    geometries — the margin math itself is untouched, which is the point.
+    """
+    with open(path) as f:
+        data = json.load(f)
 
-    # Spline geometry is the standing baseline (R10); --polyline recovers the
-    # pre-spline map, and an explicit override wins over both.
-    lengths = None if polyline else (measured_lengths or SPLINE_ROUTE_LENGTHS)
-    if lengths:
-        geom.apply_measured_lengths(lengths)
+    geom = Geometry(
+        routes={int(r["spawner"]): Route(r["name"], [tuple(p) for p in r["points"]])
+                for r in data["routes"]},
+        air_spawn=tuple(data["air_spawn"]),
+        air_target=tuple(data["air_target"]),
+        pads={p["name"]: (float(p["x"]), float(p["z"]), p["tower"], p.get("cls", "?"))
+              for p in data["pads"]},
+    )
+    geom.apply_measured_lengths(
+        {int(r["spawner"]): float(r["measured_length"]) for r in data["routes"]
+         if r.get("measured_length")})
+
+    priority = data.get("build_priority")
+    if not priority:
+        order = {"Premium": 0, "Standard": 1, "Rear": 2, "Overwatch": 3}
+        priority = sorted(geom.pads, key=lambda n: (order.get(geom.pads[n][3], 9), n))
+    ACTIVE["build_priority"] = priority
+    return geom
+
+
+def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = False,
+              geometry: Geometry = None):
+    if geometry is not None:
+        geom = geometry
+        _value_cache.clear()      # positions differ from any earlier geometry
+    else:
+        geom = Geometry()
+        # Sanity: the live map (fails loudly if the embedded data drifts).
+        assert len(geom.pads) == 8, "expected the 8 shipped hardpoints"
+        assert len(WAVES) == 10, "expected the 10 shipped waves"
+        for r in geom.routes.values():
+            assert 145.0 <= r.polyline_length <= 155.0, \
+                f"{r.name} polyline {r.polyline_length:.1f} m off the ~150 m live map"
+
+        # Spline geometry is the standing baseline (R10); --polyline recovers the
+        # pre-spline map, and an explicit override wins over both.
+        lengths = None if polyline else (measured_lengths or SPLINE_ROUTE_LENGTHS)
+        if lengths:
+            geom.apply_measured_lengths(lengths)
 
     built: dict = {}
     salvage = round(STARTING_SALVAGE * DIFFICULTY_ECO_MULT[difficulty])
@@ -723,8 +780,9 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
       f"dwell={QUEUE_DWELL_FACTOR}  band=[>={BAND_MIN:.2f} all, "
       f"close<={BAND_CLOSE_MAX:.2f} @w{CLOSE_WAVE}, mid<={BAND_MID_MAX:.2f}]")
     scaled = any(abs(r.scale - 1.0) > 1e-9 for r in geom.routes.values())
-    w(f"geometry: Route_West {geom.routes[0].length:.3f} m, "
-      f"Route_North {geom.routes[1].length:.3f} m, "
+    route_bits = ", ".join(f"{geom.routes[k].name} {geom.routes[k].length:.3f} m"
+                           for k in sorted(geom.routes))
+    w(f"geometry: {route_bits}, "
       f"air corridor {geom.air_length():.2f} m, {len(geom.pads)} pads"
       + ("  [spline geometry — the adopted baseline, R10]" if scaled
          else "  [pre-spline polyline — comparison only]"))
@@ -819,8 +877,44 @@ def parse_measured(spec: str) -> dict:
     return {0: float(parts[0]), 1: float(parts[1])}
 
 
+def solve_hp_growth(difficulty: str, geometry: Geometry):
+    """
+    Solve hpGrowthPerWave so the closing wave's margin lands mid-band (~1.10)
+    on THIS geometry (roadmap R30). Growth raises every wave's required HP, so
+    the close margin is monotonically decreasing in it — a bisection, using the
+    same run_model the gate uses, so there is exactly one implementation of the
+    margin math anywhere. Returns (growth, rows, build_log); band flags at the
+    solved value are the caller's verdict, because some geometries cannot be
+    brought into band by growth alone and that must FAIL, not fudge.
+    """
+    target = 1.10
+    lo, hi = 0.02, 0.60
+
+    def close_margin(g):
+        ACTIVE["hp_growth"] = g
+        _, rows, log = run_model(difficulty, geometry=geometry)
+        return rows[CLOSE_WAVE - 1]["margin"], rows, log
+
+    m_lo, rows, build_log = close_margin(lo)
+    if m_lo <= target:
+        # Even minimal growth closes at/below target — weakest usable growth.
+        ACTIVE["hp_growth"] = lo
+        return lo, rows, build_log
+
+    for _ in range(24):
+        mid = 0.5 * (lo + hi)
+        m, rows, build_log = close_margin(mid)
+        if m > target:
+            lo = mid          # too easy — grow harder
+        else:
+            hi = mid
+    ACTIVE["hp_growth"] = hi
+    _, rows, build_log = run_model(difficulty, geometry=geometry)
+    return hi, rows, build_log
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="COREHOLD per-wave balance model (R1, R10)")
+    ap = argparse.ArgumentParser(description="COREHOLD per-wave balance model (R1, R10, R30)")
     ap.add_argument("--difficulty", choices=list(DIFFICULTY_HP_MULT),
                     default="normal")
     ap.add_argument("--measured-lengths", metavar="WEST,NORTH", type=parse_measured,
@@ -828,14 +922,44 @@ def main(argv=None) -> int:
                          "the model then reports the per-wave margin delta vs the polyline")
     ap.add_argument("--polyline", action="store_true",
                     help="run the PRE-SPLINE polyline geometry (149.985 m routes) for comparison")
+    ap.add_argument("--geometry", metavar="PATH",
+                    help="generated-map geometry JSON (R30): routes, air corridor, pads, "
+                         "build priority — replaces the embedded live map")
+    ap.add_argument("--hp-growth", type=float, metavar="X",
+                    help="run with this hpGrowthPerWave instead of the live 0.18")
+    ap.add_argument("--solve-hp-growth", action="store_true",
+                    help="bisect hpGrowthPerWave so the close wave lands mid-band (R30); "
+                         "reported as solved_hp_growth in --json")
+    ap.add_argument("--max-live", type=int, metavar="N",
+                    help="live-enemy cap for the peak sweep (the generator derives this "
+                         "from route capacity, R30)")
     ap.add_argument("--report", metavar="PATH",
                     help="also write the table to this file")
     ap.add_argument("--json", metavar="PATH",
-                    help="also dump rows as JSON (for delta tooling, R10)")
+                    help="also dump rows as JSON (for delta tooling and the generator gate)")
     args = ap.parse_args(argv)
 
-    geom, rows, build_log = run_model(args.difficulty, args.measured_lengths, args.polyline)
+    if args.hp_growth is not None:
+        ACTIVE["hp_growth"] = args.hp_growth
+    if args.max_live is not None:
+        ACTIVE["max_live"] = args.max_live
+
+    geometry = load_geometry(args.geometry) if args.geometry else None
+
+    solved = None
+    if args.solve_hp_growth:
+        if geometry is None:
+            print("--solve-hp-growth requires --geometry (solving against the live map "
+                  "would overwrite tuned data)", file=sys.stderr)
+            return 2
+        solved, rows, build_log = solve_hp_growth(args.difficulty, geometry)
+        geom = geometry
+    else:
+        geom, rows, build_log = run_model(args.difficulty, args.measured_lengths,
+                                          args.polyline, geometry)
     report = format_report(args.difficulty, geom, rows, build_log)
+    if solved is not None:
+        report += f"\n\nSOLVED hpGrowthPerWave = {solved:.4f} (close-wave margin targeted at 1.10)"
 
     if args.measured_lengths:
         _, base_rows, _ = run_model(args.difficulty, polyline=True)
@@ -856,6 +980,11 @@ def main(argv=None) -> int:
     if args.json:
         with open(args.json, "w") as f:
             json.dump(dict(difficulty=args.difficulty,
+                           hp_growth_used=ACTIVE["hp_growth"],
+                           solved=args.solve_hp_growth,
+                           solved_hp_growth=solved if solved is not None else -1.0,
+                           max_live=ACTIVE["max_live"],
+                           in_band=not any(r["flags"] for r in rows),
                            rows=[{k: v for k, v in r.items()} for r in rows]),
                       f, indent=1)
 
