@@ -262,6 +262,16 @@ namespace Corehold.Core
             Recompute();
         }
 
+        /// <summary>
+        /// Rebuild the cached geometry immediately. For editor tooling that MOVES
+        /// waypoint Transforms (the R29 clearance adjustment): the dirty-check
+        /// normally runs from OnValidate/OnDrawGizmos, so a script that moves a
+        /// waypoint and then reads Length/SamplePosition in the same frame would
+        /// otherwise read the stale bake. The internal hash guard makes this free
+        /// when nothing actually moved.
+        /// </summary>
+        public void RecomputeNow() => Recompute();
+
         private void OnValidate()
         {
             Recompute();

@@ -3,6 +3,7 @@ using System.Text;
 using Corehold.Core;
 using Corehold.Data;
 using Corehold.Towers;
+using UnityEditor;
 using UnityEngine;
 
 /// <summary>
@@ -170,6 +171,71 @@ public static class GenerationGates
         summary = $"lengths in ±5% of {target:0.#} m; margins held; " +
                   $"no approach under {MinRouteSeparation:0.##} m";
         return null;
+    }
+
+    /// <summary>
+    /// The R29 clearance-adjustment loop: when gate 1 fails on a SYNTHESIZED
+    /// route (parity geometry is never touched — it must mirror the shipped
+    /// map), knots breaching the field margin are clamped inside it, each move
+    /// LOGGED, for at most three passes with a full re-check between passes.
+    ///
+    /// Only margin breaches are adjusted. Separation violations stay
+    /// fail-and-reseed: nudging interleaved legs apart moves the fold geometry
+    /// that R28's pockets and the length fit both depend on — exactly the
+    /// repair-one-break-another loop the roadmap forbids (it is how the shipped
+    /// map got a 3-span Premium pad). A margin clamp, by contrast, moves a knot
+    /// by centimetres at the field edge, far from any pocket.
+    ///
+    /// The pipeline runs this BEFORE pads, coverage and the model, so the
+    /// roadmap's "adjustment must be followed by a full re-run of coverage +
+    /// model" holds by stage order rather than by bookkeeping.
+    /// </summary>
+    public static string AdjustAndRecheck(List<PathRoute> routes, LevelBlueprint blueprint,
+                                          out string summary, out List<string> adjustments)
+    {
+        adjustments = new List<string>();
+        string failure = CheckClearance(routes, blueprint, out summary);
+        if (failure == null)
+            return null;
+
+        float haltW = blueprint.playfieldSize.x * 0.5f - FieldMargin;
+        float haltD = blueprint.playfieldSize.y * 0.5f - FieldMargin;
+
+        for (int pass = 1; pass <= 3 && failure != null; pass++)
+        {
+            bool moved = false;
+            foreach (PathRoute route in routes)
+            {
+                for (int i = 1; i < route.PointCount - 1; i++)
+                {
+                    Vector3 p = route.GetPoint(i);
+                    float cx = Mathf.Clamp(p.x, -haltW, haltW);
+                    float cz = Mathf.Clamp(p.z, -haltD, haltD);
+                    if (Mathf.Approximately(cx, p.x) && Mathf.Approximately(cz, p.z))
+                        continue;
+
+                    // Waypoints are child Transforms; move the transform, then
+                    // force the rebake so the re-check reads the new curve.
+                    var so = new SerializedObject(route);
+                    var wp = so.FindProperty("waypoints").GetArrayElementAtIndex(i)
+                               .objectReferenceValue as Transform;
+                    if (wp == null)
+                        continue;
+                    Vector3 to = new Vector3(cx, p.y, cz);
+                    wp.position = to;
+                    moved = true;
+                    adjustments.Add($"pass {pass}: {route.name} knot {i} " +
+                                    $"({p.x:0.##}, {p.z:0.##}) → ({to.x:0.##}, {to.z:0.##}) [margin clamp]");
+                }
+                route.RecomputeNow();
+            }
+
+            if (!moved)
+                break;                       // remaining violations are not margin breaches
+            failure = CheckClearance(routes, blueprint, out summary);
+        }
+
+        return failure;
     }
 
     /// <summary>Arc distance along a route of the knot at (or nearest) a world point.</summary>

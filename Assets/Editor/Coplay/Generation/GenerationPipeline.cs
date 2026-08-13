@@ -329,7 +329,25 @@ public static class GenerationPipeline
 
     private static StageResult StGate1(Context ctx)
     {
-        string failure = GenerationGates.CheckClearance(ctx.routes, ctx.blueprint, out string summary);
+        // Parity geometry is measured as-is — adjusting it would un-parity the
+        // rebuild. Synthesized geometry gets the R29 loop: margin clamps only,
+        // logged, ≤3 passes, full re-check between passes.
+        string failure;
+        string summary;
+        if (ctx.blueprint.parityLayout)
+        {
+            failure = GenerationGates.CheckClearance(ctx.routes, ctx.blueprint, out summary);
+        }
+        else
+        {
+            failure = GenerationGates.AdjustAndRecheck(ctx.routes, ctx.blueprint,
+                                                       out summary, out List<string> adjustments);
+            if (adjustments.Count > 0)
+                Debug.Log("[R29] Gate 1 knot adjustments:\n  " + string.Join("\n  ", adjustments));
+            if (failure == null && adjustments.Count > 0)
+                summary += $"; {adjustments.Count} knot(s) margin-clamped (logged)";
+        }
+
         if (failure != null)
             return StageResult.Fail(failure);
         return StageResult.Ok(summary);
