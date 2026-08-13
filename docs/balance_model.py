@@ -282,9 +282,22 @@ WAVES = [
 
 @dataclass
 class Route:
-    """A ground route as a polyline with arc-length sampling."""
+    """
+    A ground route as a polyline with arc-length sampling.
+
+    `scale` (roadmap R10) is the measured spline length divided by the polyline
+    length. Sampling and coverage are always computed in POLYLINE space — the
+    curve passes through the same knots and the same hairpin pockets, so it
+    covers the same spans; R9's gate confirmed this empirically, reporting an
+    identical covered-span count on chords and on the curve for all eight pads.
+    What the curve changes is how long a unit spends walking those spans, so the
+    scale is applied to TIME, not to the geometry. That keeps pad-to-route
+    distances honest (scaling coordinates would move the pads relative to the
+    route) while still crediting the extra time-in-range a longer curve buys.
+    """
     name: str
     points: list
+    scale: float = 1.0
 
     def __post_init__(self):
         self.cum = [0.0]
@@ -292,11 +305,16 @@ class Route:
             ax, az = self.points[i - 1]
             bx, bz = self.points[i]
             self.cum.append(self.cum[-1] + math.hypot(bx - ax, bz - az))
-        self.length = self.cum[-1]
+        self.polyline_length = self.cum[-1]
+
+    @property
+    def length(self) -> float:
+        """Effective route length: the measured spline length when scaled (R10)."""
+        return self.polyline_length * self.scale
 
     def sample(self, s: float):
-        """Position at arc length s (clamped)."""
-        s = max(0.0, min(s, self.length))
+        """Position at arc length s in POLYLINE space (clamped)."""
+        s = max(0.0, min(s, self.polyline_length))
         for i in range(1, len(self.points)):
             if s <= self.cum[i] or i == len(self.points) - 1:
                 seg = self.cum[i] - self.cum[i - 1]
@@ -322,17 +340,29 @@ class Geometry:
         return math.hypot(self.air_target[0] - self.air_spawn[0],
                           self.air_target[1] - self.air_spawn[1])
 
+    def apply_measured_lengths(self, lengths: dict):
+        """
+        Adopt measured route lengths (roadmap R10) — e.g. the spline lengths
+        filed by R9's gate — keyed by spawner index. The air corridor is a
+        straight flight and is unaffected by the spline work, so it is not
+        scalable here by design.
+        """
+        for spawner, measured in lengths.items():
+            route = self.routes[spawner]
+            if measured and measured > 0.001:
+                route.scale = measured / route.polyline_length
+
 
 def covered_intervals(route: Route, px: float, pz: float,
                       reach: float, min_reach: float):
     """Arc-length intervals of `route` horizontally within (min_reach, reach]
     of the pad. Sampled at COVERAGE_SAMPLE_STEP_M."""
     step = COVERAGE_SAMPLE_STEP_M
-    n = max(2, int(route.length / step))
+    n = max(2, int(route.polyline_length / step))
     intervals = []
     start = None
     for i in range(n + 1):
-        s = route.length * i / n
+        s = route.polyline_length * i / n
         x, z = route.sample(s)
         d = math.hypot(x - px, z - pz)
         inside = (d <= reach) and (d >= min_reach)
@@ -342,7 +372,7 @@ def covered_intervals(route: Route, px: float, pz: float,
             intervals.append((start, s))
             start = None
     if start is not None:
-        intervals.append((start, route.length))
+        intervals.append((start, route.polyline_length))
     return intervals
 
 
@@ -379,7 +409,11 @@ def enemy_speed_at(enemy: dict, s: float, route_len: float) -> float:
 
 
 def time_in_intervals(enemy: dict, route: Route, intervals) -> float:
-    """Seconds one enemy spends inside the covered intervals (free-flow)."""
+    """
+    Seconds one enemy spends inside the covered intervals (free-flow). Intervals
+    are in polyline space; the result is scaled by the route's measured-length
+    factor, which is where a longer spline earns its extra time-in-range (R10).
+    """
     total = 0.0
     for a, b in intervals:
         steps = max(1, int((b - a) / 2.0))
@@ -387,12 +421,12 @@ def time_in_intervals(enemy: dict, route: Route, intervals) -> float:
             s0 = a + (b - a) * k / steps
             s1 = a + (b - a) * (k + 1) / steps
             mid = 0.5 * (s0 + s1)
-            total += (s1 - s0) / enemy_speed_at(enemy, mid, route.length)
-    return total
+            total += (s1 - s0) / enemy_speed_at(enemy, mid, route.polyline_length)
+    return total * route.scale
 
 
 def traverse_time(enemy: dict, route: Route) -> float:
-    return time_in_intervals(enemy, route, [(0.0, route.length)])
+    return time_in_intervals(enemy, route, [(0.0, route.polyline_length)])
 
 
 # =============================================================================
@@ -621,13 +655,17 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
 #  Report
 # =============================================================================
 
-def run_model(difficulty: str):
+def run_model(difficulty: str, measured_lengths: dict = None):
     geom = Geometry()
     # Sanity: the live map (fails loudly if the embedded data drifts).
     assert len(geom.pads) == 8, "expected the 8 shipped hardpoints"
     assert len(WAVES) == 10, "expected the 10 shipped waves"
     for r in geom.routes.values():
-        assert 145.0 <= r.length <= 155.0, f"{r.name} length {r.length:.1f} m off the ~150 m live map"
+        assert 145.0 <= r.polyline_length <= 155.0, \
+            f"{r.name} polyline {r.polyline_length:.1f} m off the ~150 m live map"
+
+    if measured_lengths:
+        geom.apply_measured_lengths(measured_lengths)
 
     built: dict = {}
     salvage = round(STARTING_SALVAGE * DIFFICULTY_ECO_MULT[difficulty])
@@ -669,9 +707,11 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     w(f"difficulty={difficulty}  focus={FOCUS_SWARM}/{FOCUS_HEAVY}(heavy)  "
       f"dwell={QUEUE_DWELL_FACTOR}  band=[>={BAND_MIN:.2f} all, "
       f"close<={BAND_CLOSE_MAX:.2f} @w{CLOSE_WAVE}, mid<={BAND_MID_MAX:.2f}]")
-    w(f"geometry: Route_West {geom.routes[0].length:.2f} m, "
-      f"Route_North {geom.routes[1].length:.2f} m, "
-      f"air corridor {geom.air_length():.2f} m, {len(geom.pads)} pads")
+    scaled = any(abs(r.scale - 1.0) > 1e-9 for r in geom.routes.values())
+    w(f"geometry: Route_West {geom.routes[0].length:.3f} m, "
+      f"Route_North {geom.routes[1].length:.3f} m, "
+      f"air corridor {geom.air_length():.2f} m, {len(geom.pads)} pads"
+      + ("  [MEASURED spline lengths — R10]" if scaled else "  [polyline baseline]"))
     w("")
     w(f"{'wv':>2} {'requiredHP':>10} {'deliverable':>11} {'margin':>6} "
       f"{'worst-group':>16} {'live':>4} {'salv-pre':>8} {'income':>6}  flags / builds")
@@ -708,25 +748,90 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     return "\n".join(out)
 
 
+def format_delta_table(difficulty: str, base_rows, new_rows,
+                       measured: dict, geom: Geometry) -> str:
+    """
+    The per-wave margin delta table R10 owes: polyline baseline vs measured
+    spline geometry, flagging every wave that moved more than the gate's 0.15.
+    """
+    out = []
+    w = out.append
+    w("=== R10 — per-wave margin delta: polyline baseline -> measured spline geometry ===")
+    w(f"difficulty={difficulty}")
+    for spawner, route in geom.routes.items():
+        if spawner in measured:
+            delta_pct = (route.length - route.polyline_length) / route.polyline_length
+            w(f"  {route.name}: {route.polyline_length:.3f} m -> {route.length:.3f} m "
+              f"({delta_pct:+.2%})")
+    w(f"  air corridor: {geom.air_length():.3f} m (straight flight — unchanged by splines)")
+    w("")
+    w(f"{'wv':>2} {'baseline':>9} {'spline':>8} {'delta':>7}  {'band':<12} note")
+
+    movers = []
+    for base, new in zip(base_rows, new_rows):
+        delta = new["margin"] - base["margin"]
+        if abs(delta) > 0.15:
+            movers.append((new["wave"], delta))
+        band = ",".join(new["flags"]) if new["flags"] else "in band"
+        note = ""
+        if abs(delta) > 0.15:
+            note = "**MOVED >0.15 — explain**"
+        elif new["wave"] == CLOSE_WAVE and new["margin"] > BAND_CLOSE_MAX:
+            note = "close wave above band — apply +0.01..0.02 wave-HP scalar"
+        w(f"{new['wave']:>2} {base['margin']:>9.2f} {new['margin']:>8.2f} "
+          f"{delta:>+7.2f}  {band:<12} {note}")
+
+    w("")
+    if movers:
+        w("WAVES MOVED >0.15: " + ", ".join(f"wave {n} ({d:+.2f})" for n, d in movers))
+    else:
+        w("No wave margin moved more than 0.15 — the geometry change is absorbed.")
+
+    capped = sum(1 for r in new_rows if r["margin"] >= OVERKILL_CAP - 1e-6)
+    if capped:
+        w(f"Note: {capped} wave(s) sit at the {OVERKILL_CAP:.2f} overkill cap and CANNOT show "
+          f"movement — those waves are over-killed either way, so extra time-in-range")
+        w("changes nothing about the outcome. The waves with real headroom are the ones to read.")
+    return "\n".join(out)
+
+
+def parse_measured(spec: str) -> dict:
+    """Parse --measured-lengths WEST,NORTH into the spawner-indexed dict."""
+    parts = [p.strip() for p in spec.split(",")]
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("expected two lengths: WEST,NORTH")
+    return {0: float(parts[0]), 1: float(parts[1])}
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="COREHOLD per-wave balance model (R1)")
+    ap = argparse.ArgumentParser(description="COREHOLD per-wave balance model (R1, R10)")
     ap.add_argument("--difficulty", choices=list(DIFFICULTY_HP_MULT),
                     default="normal")
+    ap.add_argument("--measured-lengths", metavar="WEST,NORTH", type=parse_measured,
+                    help="measured ground-route lengths in metres (R9's gate report) — "
+                         "the model then reports the per-wave margin delta vs the polyline baseline")
     ap.add_argument("--report", metavar="PATH",
                     help="also write the table to this file")
     ap.add_argument("--json", metavar="PATH",
                     help="also dump rows as JSON (for delta tooling, R10)")
     args = ap.parse_args(argv)
 
-    geom, rows, build_log = run_model(args.difficulty)
+    geom, rows, build_log = run_model(args.difficulty, args.measured_lengths)
     report = format_report(args.difficulty, geom, rows, build_log)
+
+    if args.measured_lengths:
+        _, base_rows, _ = run_model(args.difficulty)
+        report += "\n\n" + format_delta_table(
+            args.difficulty, base_rows, rows, args.measured_lengths, geom)
+
     print(report)
 
     if args.report:
         # The baseline file carries all three tiers, like Appendix A's own
-        # run()/run(veteran)/run(nightmare) printout. Normal is the gate.
+        # run()/run(veteran)/run(nightmare) printout. Normal is the gate. Any
+        # measured geometry applies to every tier, so the file describes one map.
         sections = [report if d == args.difficulty else
-                    format_report(d, *run_model(d))
+                    format_report(d, *run_model(d, args.measured_lengths))
                     for d in ("normal", "veteran", "nightmare")]
         with open(args.report, "w") as f:
             f.write(("\n\n" + "=" * 78 + "\n\n").join(sections) + "\n")
