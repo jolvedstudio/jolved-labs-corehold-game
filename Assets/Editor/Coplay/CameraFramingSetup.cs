@@ -46,7 +46,10 @@ namespace CoreholdEditor
 
             EditorUtility.SetDirty(cam);
             EditorSceneManager.MarkSceneDirty(cam.gameObject.scene);
-            EditorSceneManager.SaveScene(cam.gameObject.scene);
+            // The pipeline owns saving (its final stage). Saving here would fire a
+            // modal Save dialog on the untitled scene being generated.
+            if (!GenerationDriven.Active)
+                EditorSceneManager.SaveScene(cam.gameObject.scene);
 
             var report = Verify(cam, minX, maxX, minZ, maxZ, pointCount);
             Debug.Log("[COREHOLD] " + report);

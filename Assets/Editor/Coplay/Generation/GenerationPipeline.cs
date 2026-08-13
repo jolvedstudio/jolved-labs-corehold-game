@@ -113,53 +113,69 @@ public static class GenerationPipeline
         var watch = new System.Diagnostics.Stopwatch();
 
         GenerationProgress.Begin(Stages.Length);
-        try
+
+        // Tell the scene-setup tools they are pipeline steps, not menu actions:
+        // they must not open Game.unity over the scene being generated, and must
+        // not save (this pipeline owns its save stage). See GenerationDriven.
+        using (GenerationDriven.Scope())
         {
-            for (int i = 0; i < Stages.Length; i++)
+            try
             {
-                Stage stage = Stages[i];
-                bool keepGoing = GenerationProgress.Stage(i, $"{stage.title}  ({stage.ticket})");
-
-                StageResult r;
-                watch.Restart();
-                if (!keepGoing)
-                {
-                    r = StageResult.Fail("cancelled by user");
-                }
-                else
-                {
-                    try { r = stage.run(ctx); }
-                    catch (Exception ex) { r = StageResult.Fail($"{ex.GetType().Name}: {ex.Message}"); }
-
-                    // A stage may also have returned early because the user hit
-                    // Cancel mid-stage (the grid, the model subprocess).
-                    if (r.ok && GenerationProgress.Cancelled)
-                        r = StageResult.Fail("cancelled by user");
-                }
-                watch.Stop();
-
-                results.Add(new StageRun { stage = stage, result = r, seconds = (float)watch.Elapsed.TotalSeconds });
-                onStage?.Invoke(stage, r);
-
-                if (!r.ok)
-                {
-                    var discard = Discard(ctx);
-                    results.Add(new StageRun
-                    {
-                        stage = new Stage { title = "Discard", ticket = "R29", run = null },
-                        result = discard,
-                        seconds = 0f,
-                    });
-                    onStage?.Invoke(results[results.Count - 1].stage, discard);
-                    break;
-                }
+                RunStages(ctx, results, watch, onStage);
+            }
+            finally
+            {
+                GenerationProgress.End();
             }
         }
-        finally
-        {
-            GenerationProgress.End();
-        }
         return results;
+    }
+
+    /// <summary>The stage loop itself — extracted so the driven-scope and the
+    /// progress-bar teardown read as the plain nesting they are.</summary>
+    private static void RunStages(Context ctx, List<StageRun> results,
+                                  System.Diagnostics.Stopwatch watch,
+                                  Action<Stage, StageResult> onStage)
+    {
+        for (int i = 0; i < Stages.Length; i++)
+        {
+            Stage stage = Stages[i];
+            bool keepGoing = GenerationProgress.Stage(i, $"{stage.title}  ({stage.ticket})");
+
+            StageResult r;
+            watch.Restart();
+            if (!keepGoing)
+            {
+                r = StageResult.Fail("cancelled by user");
+            }
+            else
+            {
+                try { r = stage.run(ctx); }
+                catch (Exception ex) { r = StageResult.Fail($"{ex.GetType().Name}: {ex.Message}"); }
+
+                // A stage may also have returned early because the user hit
+                // Cancel mid-stage (the grid, the model subprocess).
+                if (r.ok && GenerationProgress.Cancelled)
+                    r = StageResult.Fail("cancelled by user");
+            }
+            watch.Stop();
+
+            results.Add(new StageRun { stage = stage, result = r, seconds = (float)watch.Elapsed.TotalSeconds });
+            onStage?.Invoke(stage, r);
+
+            if (!r.ok)
+            {
+                var discard = Discard(ctx);
+                results.Add(new StageRun
+                {
+                    stage = new Stage { title = "Discard", ticket = "R29", run = null },
+                    result = discard,
+                    seconds = 0f,
+                });
+                onStage?.Invoke(results[results.Count - 1].stage, discard);
+                break;
+            }
+        }
     }
 
     /// <summary>Failure cleanup: nothing emitted means NOTHING — not a half-scene, not a stray asset.</summary>

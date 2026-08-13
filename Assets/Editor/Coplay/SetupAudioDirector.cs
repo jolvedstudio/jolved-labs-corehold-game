@@ -41,8 +41,11 @@ public static class SetupAudioDirector
     [MenuItem("Tools/COREHOLD/Scene Setup/Audio Director", false, 41)]
     public static void Setup()
     {
+        // Menu use: hop to the shipped scene if the human is elsewhere.
+        // Pipeline use: NEVER — opening a scene here would replace the scene
+        // being generated with Game.unity and build the map into it.
         Scene scene = SceneManager.GetActiveScene();
-        if (scene.path != ScenePath)
+        if (!GenerationDriven.Active && scene.path != ScenePath)
             scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
 
         var director = Object.FindFirstObjectByType<AudioDirector>();
@@ -89,7 +92,10 @@ public static class SetupAudioDirector
         so.ApplyModifiedPropertiesWithoutUndo();
         EditorUtility.SetDirty(director);
         EditorSceneManager.MarkSceneDirty(scene);
-        EditorSceneManager.SaveScene(scene);
+        // The pipeline owns saving (its final stage). Saving here would fire a
+        // modal Save dialog on the untitled scene being generated.
+        if (!GenerationDriven.Active)
+            EditorSceneManager.SaveScene(scene);
 
         if (missing.Count > 0)
             Debug.LogError("[COREHOLD] AudioDirector setup: missing clips:\n- " + string.Join("\n- ", missing));
