@@ -73,7 +73,9 @@ namespace Corehold.Systems
             /// <summary>Core alarm when the Core takes a leak hit (Creepy Cat).</summary>
             CoreAlarm,
             /// <summary>Kill-streak step (R2) — replayed with a rising pitch scale as the streak grows. APPEND-ONLY: enum values are serialized by index in the scene.</summary>
-            StreakStep
+            StreakStep,
+            /// <summary>"CLOSE CALL" sting when a wave ends with the Core nearly lost (R3).</summary>
+            CloseCall
         }
 
         [System.Serializable]
@@ -124,6 +126,7 @@ namespace Corehold.Systems
             new SfxEntry { id = Sfx.Build,       volume = 0.8f, pitchSpread = 0f },
             new SfxEntry { id = Sfx.CoreAlarm,   volume = 1.0f, pitchSpread = 0f },
             new SfxEntry { id = Sfx.StreakStep,  volume = 0.8f, pitchSpread = 0f },
+            new SfxEntry { id = Sfx.CloseCall,   volume = 0.9f, pitchSpread = 0f },
         };
 
         [Header("Turret rotation loop (GDD §10)")]

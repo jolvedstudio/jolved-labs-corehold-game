@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using Corehold.Data;
 using Corehold.Enemies;
 using UnityEngine;
@@ -76,6 +77,12 @@ namespace Corehold.Core
                 if (_state == value)
                     return;
                 _state = value;
+                // Entering combat or an end screen reclaims the clock: any
+                // running time dip (R3 close call / R5 hit-stop) is restored
+                // immediately. Build is exempt on purpose — the wave-complete
+                // dip fires in the same call chain as the Wave→Build flip.
+                if (_state == GameState.Wave || _state == GameState.Victory || _state == GameState.Defeat)
+                    CancelTimeDip();
                 OnStateChanged?.Invoke(_state);
             }
         }
@@ -243,6 +250,65 @@ namespace Corehold.Core
                 }
                 OnStreakChanged?.Invoke(CurrentStreak, bonus, worldPos);
             }
+        }
+
+        // ----- Time dip (R3 close call, reused by the R5 micro hit-stop) -----
+
+        private Coroutine _timeDip;
+        private float _dipScale = 1f;
+        private float _dipRestoreScale = 1f;
+
+        /// <summary>
+        /// Briefly dip <see cref="Time.timeScale"/> (R3): set it to
+        /// <paramref name="scale"/> for <paramref name="seconds"/> of UNSCALED
+        /// time, then restore the pre-dip scale (so a 2× run resumes at 2×).
+        /// Interrupt-safe: if anything else takes the clock while the dip runs
+        /// (pause, the speed toggle, a scene reload) the dip stands down without
+        /// touching it, and entering Wave/Victory/Defeat cancels it outright.
+        /// </summary>
+        public void TimeDip(float scale, float seconds)
+        {
+            CancelTimeDip();
+            // Never dip a paused clock (timeScale 0) — resume would inherit it.
+            if (seconds <= 0f || Time.timeScale <= 0.01f || !isActiveAndEnabled)
+                return;
+            _timeDip = StartCoroutine(TimeDipRoutine(Mathf.Clamp01(scale), seconds));
+        }
+
+        /// <summary>End a running dip now, restoring the pre-dip scale (no-op when idle).</summary>
+        public void CancelTimeDip()
+        {
+            if (_timeDip == null)
+                return;
+            StopCoroutine(_timeDip);
+            _timeDip = null;
+            // Only restore if the clock still holds OUR value — if pause or the
+            // speed toggle already changed it, the clock is theirs now.
+            if (Mathf.Approximately(Time.timeScale, _dipScale))
+                Time.timeScale = _dipRestoreScale;
+        }
+
+        private IEnumerator TimeDipRoutine(float scale, float seconds)
+        {
+            _dipRestoreScale = Time.timeScale > 0.01f ? Time.timeScale : 1f;
+            _dipScale = scale;
+            Time.timeScale = scale;
+
+            float t = 0f;
+            while (t < seconds)
+            {
+                t += Time.unscaledDeltaTime;
+                if (!Mathf.Approximately(Time.timeScale, _dipScale))
+                {
+                    // Someone else grabbed the clock mid-dip — hands off.
+                    _timeDip = null;
+                    yield break;
+                }
+                yield return null;
+            }
+
+            Time.timeScale = _dipRestoreScale;
+            _timeDip = null;
         }
 
         /// <summary>

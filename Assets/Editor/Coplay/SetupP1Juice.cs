@@ -40,6 +40,14 @@ public static class SetupP1Juice
             // replays it pitch-scaled; swap for a distinct blip when auditioning.
             CreepySound + "Interfaces/Light_Switch_A.wav",
         }),
+        (AudioDirector.Sfx.CloseCall, 0.9f, 0f, new[]
+        {
+            CreepySound + "Vocal/Msg_Alert.wav",
+            CreepySound + "Vocal/Msg_Warning Intruder Alert.wav",
+            CreepySound + "Interfaces/Gravity_Switch_B.wav",
+            // Fallback: the Build puff switch — placeholder; swap when auditioning.
+            CreepySound + "Interfaces/Gravity_Switch_A.wav",
+        }),
     };
 
     [MenuItem("Tools/COREHOLD/Setup P1 Juice")]
