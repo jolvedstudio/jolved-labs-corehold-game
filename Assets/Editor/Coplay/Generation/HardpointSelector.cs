@@ -113,8 +113,16 @@ public static class HardpointSelector
             var gz = scorer.AddComponent<HardpointCoverageGizmo>();
             gz.routes = new[] { routes[0] };            // shipped convention: the primary
                                                         // route carries every shared span
-            foreach (Candidate c in candidates)
+            for (int ci = 0; ci < candidates.Count; ci++)
             {
+                Candidate c = candidates[ci];
+                if ((ci & 63) == 0 &&
+                    !GenerationProgress.Detail($"scoring hardpoint candidates {ci}/{candidates.Count}",
+                                               ci / (float)candidates.Count))
+                {
+                    report = "cancelled by user during candidate scoring";
+                    return null;
+                }
                 if (c.routeDist > HardpointCoverageGizmo.RangeFor(Kind.Mortar))
                     continue;
                 scorer.transform.position = c.pos;

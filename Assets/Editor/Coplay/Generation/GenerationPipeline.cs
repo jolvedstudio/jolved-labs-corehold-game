@@ -57,7 +57,16 @@ public static class GenerationPipeline
     {
         public string title;
         public string ticket;
+        public bool gate;                  // the R29 gates — surfaced distinctly in every UI
         public Func<Context, StageResult> run;
+    }
+
+    /// <summary>One executed stage: what ran, what happened, how long it took.</summary>
+    public struct StageRun
+    {
+        public Stage stage;
+        public StageResult result;
+        public float seconds;
     }
 
     // ------------------------------------------------------------------- stages
@@ -71,17 +80,17 @@ public static class GenerationPipeline
         new Stage { title = "Scene skeleton",            ticket = "R26",     run = StSkeleton },
         new Stage { title = "Protected structure",       ticket = "R26",     run = StProtected },
         new Stage { title = "Routes + spawners",         ticket = "R26/R27", run = StRoutes },
-        new Stage { title = "GATE 1 — clearance",        ticket = "R29",     run = StGate1 },
+        new Stage { title = "GATE 1 — clearance",        ticket = "R29",     run = StGate1, gate = true },
         new Stage { title = "Hardpoints",                ticket = "R26/R28", run = StPads },
-        new Stage { title = "GATE 2 — coverage",         ticket = "R28/R29", run = StGate2 },
+        new Stage { title = "GATE 2 — coverage",         ticket = "R28/R29", run = StGate2, gate = true },
         new Stage { title = "Camera framing",            ticket = "R26",     run = StCamera },
         new Stage { title = "Floor fit + theme ground",  ticket = "R11/R26", run = StGround },
         new Stage { title = "Dressing",                  ticket = "R26/R28", run = StDressing },
-        new Stage { title = "GATE 2b — occlusion re-run", ticket = "R28",    run = StOcclusion },
+        new Stage { title = "GATE 2b — occlusion re-run", ticket = "R28",    run = StOcclusion, gate = true },
         new Stage { title = "Weather",                   ticket = "R13",     run = StWeather },
         new Stage { title = "Group & verify hierarchy",  ticket = "R26",     run = StHierarchy },
         new Stage { title = "Emit LevelDefinition",      ticket = "R30",     run = StEmitLevel },
-        new Stage { title = "GATE 3 — model margins",    ticket = "R29/R30", run = StModelGate },
+        new Stage { title = "GATE 3 — model margins",    ticket = "R29/R30", run = StModelGate, gate = true },
         new Stage { title = "Save scene",                ticket = "R29",     run = StSave },
     };
 
@@ -90,28 +99,65 @@ public static class GenerationPipeline
     /// a blueprint that fails any stage emits no scene) — the half-built scene
     /// is closed unsaved and any created LevelDefinition asset is deleted, so
     /// the only artifacts a failed run leaves are its report lines.
+    ///
+    /// Progress paints through <see cref="GenerationProgress"/>'s cancelable
+    /// bar (a synchronous run cannot repaint an editor window), stages are
+    /// timed, and a user CANCEL is handled as a failure at the current stage —
+    /// the same discard path, so an abandoned run leaves nothing behind.
     /// </summary>
-    public static List<(Stage stage, StageResult result)> RunAll(
+    public static List<StageRun> RunAll(
         LevelBlueprint blueprint, Action<Stage, StageResult> onStage = null)
     {
         var ctx = new Context { blueprint = blueprint };
-        var results = new List<(Stage, StageResult)>();
+        var results = new List<StageRun>();
+        var watch = new System.Diagnostics.Stopwatch();
 
-        foreach (Stage stage in Stages)
+        GenerationProgress.Begin(Stages.Length);
+        try
         {
-            StageResult r;
-            try { r = stage.run(ctx); }
-            catch (Exception ex) { r = StageResult.Fail($"{ex.GetType().Name}: {ex.Message}"); }
-
-            results.Add((stage, r));
-            onStage?.Invoke(stage, r);
-            if (!r.ok)
+            for (int i = 0; i < Stages.Length; i++)
             {
-                var discard = Discard(ctx);
-                results.Add((new Stage { title = "Discard", ticket = "R29", run = null }, discard));
-                onStage?.Invoke(results[results.Count - 1].Item1, discard);
-                break;
+                Stage stage = Stages[i];
+                bool keepGoing = GenerationProgress.Stage(i, $"{stage.title}  ({stage.ticket})");
+
+                StageResult r;
+                watch.Restart();
+                if (!keepGoing)
+                {
+                    r = StageResult.Fail("cancelled by user");
+                }
+                else
+                {
+                    try { r = stage.run(ctx); }
+                    catch (Exception ex) { r = StageResult.Fail($"{ex.GetType().Name}: {ex.Message}"); }
+
+                    // A stage may also have returned early because the user hit
+                    // Cancel mid-stage (the grid, the model subprocess).
+                    if (r.ok && GenerationProgress.Cancelled)
+                        r = StageResult.Fail("cancelled by user");
+                }
+                watch.Stop();
+
+                results.Add(new StageRun { stage = stage, result = r, seconds = (float)watch.Elapsed.TotalSeconds });
+                onStage?.Invoke(stage, r);
+
+                if (!r.ok)
+                {
+                    var discard = Discard(ctx);
+                    results.Add(new StageRun
+                    {
+                        stage = new Stage { title = "Discard", ticket = "R29", run = null },
+                        result = discard,
+                        seconds = 0f,
+                    });
+                    onStage?.Invoke(results[results.Count - 1].stage, discard);
+                    break;
+                }
             }
+        }
+        finally
+        {
+            GenerationProgress.End();
         }
         return results;
     }
