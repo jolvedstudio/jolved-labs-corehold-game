@@ -27,7 +27,7 @@ public static class GenerateLevel
     /// <summary>The coverage rule needs at least this many pads covering 4+ spans.</summary>
     private const int MinPremiumPads = 3;
 
-    [MenuItem("Tools/COREHOLD/Level/Generate Level", false, 3)]
+    [MenuItem("Tools/COREHOLD/Level/Generate Level", false, 20)]
     public static void Generate()
     {
         LevelBlueprint blueprint = ResolveBlueprint(out string how);
@@ -163,8 +163,9 @@ public static class GenerateLevel
         {
             int invalid = b.envPack.CountInvalid();
             if (invalid > 0)
-                errors.Add($"envPack '{b.envPack.name}' has {invalid} entr(ies) with no prefab or a " +
-                           "zero footprint/height — the clearance and occlusion tests would silently pass them.");
+                errors.Add($"envPack '{b.envPack.name}' has {invalid} entr(ies) with no prefab, a zero " +
+                           "footprint/height, or an Unassigned role — the clearance and occlusion tests would " +
+                           "silently pass them. Run Tools → COREHOLD → Level → Measure Env Pack Metadata.");
             if (b.envPack.CountInRole(EnvPack.PropRole.Silhouette) == 0)
                 warnings.Add($"envPack '{b.envPack.name}' has no Silhouette entries — the far band (R11) will be bare.");
         }

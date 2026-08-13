@@ -24,17 +24,26 @@ namespace Corehold.Data
     [CreateAssetMenu(menuName = "COREHOLD/Env Pack", fileName = "EnvPack_")]
     public class EnvPack : ScriptableObject
     {
-        /// <summary>Which band of the level an entry is meant to fill.</summary>
+        /// <summary>
+        /// Which band of the level an entry is meant to fill.
+        ///
+        /// <see cref="Unassigned"/> is deliberately value 0 so that a freshly dragged-in
+        /// prefab does NOT silently claim a real role. Role is intent — where you want
+        /// the prop placed — and nothing about the prefab reveals it, so an unset role
+        /// has to fail loudly rather than default to something plausible.
+        /// </summary>
         public enum PropRole
         {
+            /// <summary>Not yet chosen. Rejected by the generate gate — pick one.</summary>
+            Unassigned = 0,
             /// <summary>Large, readable, few — the things a player navigates by.</summary>
-            Landmark,
+            Landmark = 1,
             /// <summary>Mid-size structures filling the field between routes.</summary>
-            MidField,
+            MidField = 2,
             /// <summary>Small scatter. Cheap, numerous, never sight-line relevant.</summary>
-            Clutter,
+            Clutter = 3,
             /// <summary>Far-band silhouettes beyond the playfield (R11's band).</summary>
-            Silhouette
+            Silhouette = 4
         }
 
         [System.Serializable]
@@ -46,10 +55,10 @@ namespace Corehold.Data
             [Tooltip("Which band this fills. The placer fills each band deliberately rather than scattering one pool everywhere.")]
             public PropRole role;
 
-            [Tooltip("Horizontal footprint radius in metres. REQUIRED — the clearance test measures this against laneHalfWidth + maxBodyRadius off any route centreline, and against the pad keep-out.")]
+            [Tooltip("Horizontal keep-out radius in metres AT SCALE 1, measured about the prefab pivot (the placer multiplies by the chosen scale). REQUIRED — the clearance test measures this against laneHalfWidth + maxBodyRadius off any route centreline, and against the pad keep-out. Use Tools → COREHOLD → Level → Measure Env Pack Metadata rather than typing it: a radius short by 30% looks fine in the inspector and puts a prop in the lane.")]
             public float footprintRadius;
 
-            [Tooltip("Height in metres. REQUIRED — the sight-line occlusion test uses it to decide whether this prop breaks a turret's line to a covered span.")]
+            [Tooltip("Height above the pivot in metres AT SCALE 1 (the placer multiplies by the chosen scale). REQUIRED — the sight-line occlusion test uses it to decide whether this prop breaks a turret's line to a covered span.")]
             public float height;
 
             [Tooltip("Uniform scale range. The seed picks within it, so variety stays deterministic.")]
@@ -61,6 +70,34 @@ namespace Corehold.Data
 
         [Tooltip("Every prop this pack can place, with the metadata the placer needs.")]
         public Entry[] entries;
+
+        [Header("Ground")]
+
+        [Tooltip("Optional ground object used instead of the built-in primitive plane. Leave empty for the plane. Either way the ground is SIZED FROM THE CAMERA FRUSTUM (R11) — never from the blueprint's playfieldSize, which is what left a void on the shipped map.")]
+        public GameObject groundPrefab;
+
+        [Tooltip("Material for the level's ground. Leave empty to keep whatever the scene already has. WeatherApplier (R13) captures the live ground material rather than assuming the shipped one, so a pack shipping its own is already supported.")]
+        public Material groundMaterial;
+
+        [Tooltip("Texture repeats per metre. The ground is scaled to fit each map's camera solve, so one fixed tiling stretches by a different amount on every map. 0 leaves the material's own tiling alone.")]
+        public float groundTilingPerMetre;
+
+        /// <summary>
+        /// Tiling to write for a ground of <paramref name="sizeMetres"/>, or
+        /// <c>Vector2.zero</c> when this pack does not manage tiling.
+        ///
+        /// Whoever applies this must write it through a <c>MaterialPropertyBlock</c>
+        /// (<c>_BaseMap_ST</c>), NOT through <c>renderer.material</c> (leaks an instance
+        /// per rebuild) and NOT through <c>sharedMaterial</c> (edits the material ASSET,
+        /// so one generated map silently retiles every other map using it).
+        /// </summary>
+        public Vector2 GroundTilingFor(Vector2 sizeMetres)
+        {
+            if (groundTilingPerMetre <= 0f)
+                return Vector2.zero;
+            return new Vector2(sizeMetres.x * groundTilingPerMetre,
+                               sizeMetres.y * groundTilingPerMetre);
+        }
 
         /// <summary>Count of usable entries in a role (an entry with no prefab is skipped).</summary>
         public int CountInRole(PropRole role)
@@ -75,10 +112,12 @@ namespace Corehold.Data
         }
 
         /// <summary>
-        /// Entries whose metadata is unusable — a missing prefab, or a zero
+        /// Entries whose metadata is unusable — a missing prefab, a zero
         /// footprint/height that would make the clearance and occlusion tests
-        /// silently pass everything. Surfaced by the generate-menu validation so a
-        /// bad pack fails loudly rather than dressing a level unsafely.
+        /// silently pass everything, or an <see cref="PropRole.Unassigned"/> role that
+        /// would leave the placer with nowhere to put the prop. Surfaced by the
+        /// generate-menu validation so a bad pack fails loudly rather than dressing a
+        /// level unsafely.
         /// </summary>
         public int CountInvalid()
         {
@@ -88,7 +127,8 @@ namespace Corehold.Data
             for (int i = 0; i < entries.Length; i++)
             {
                 Entry e = entries[i];
-                if (e.prefab == null || e.footprintRadius <= 0f || e.height <= 0f)
+                if (e.prefab == null || e.footprintRadius <= 0f || e.height <= 0f ||
+                    e.role == PropRole.Unassigned)
                     n++;
             }
             return n;

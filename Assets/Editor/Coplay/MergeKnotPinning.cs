@@ -32,7 +32,7 @@ public static class MergeKnotPinning
     /// <summary>Two knots count as the same position within this many metres.</summary>
     private const float SamePointEpsilon = 0.01f;
 
-    [MenuItem("Tools/COREHOLD/Level/Pin Merge Knots", false, 4)]
+    [MenuItem("Tools/COREHOLD/Level/Pin Merge Knots", false, 40)]
     public static void PinMergeKnots()
     {
         if (!ResolveRoutes(out PathRoute primary, out PathRoute secondary, out string error))
