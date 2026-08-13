@@ -163,6 +163,7 @@ Vendor prefabs you can't move: add the role as an **asset label** (`Landmark`, `
 | Gate 2b: "pads still sight-blocked" | Dressing and pads can't coexist on this seed | Seed +1; recurring → your theme's MidField props are too tall/wide for the fold pockets — check `allowInFold` and measured heights |
 | Gate 3: "margins out of band" | Geometry can't be balanced by growth alone | Seed +1. The flagged waves in the report say which side (LOW = defense starved, HIGH = too easy) |
 | Hierarchy verify: "unrecognised root(s)" | A tool emitted a root the container table doesn't know | Add the name to `SceneContainers.Groups` — one line |
+| Gate 2 census is a **multiple** of the blueprint mix (e.g. 6/4/4/2 against 3/2/2/1) | Another scene was loaded and its pads were counted too | Fixed — every generation query is scoped to the active scene. If stage 3 still reports "N scenes are loaded", close the others |
 | "envPackPool is empty" warning | No theme assigned | Fine for greybox testing; assign packs for visuals |
 | Parity blueprint runs synthesis | Asset predates `parityLayout` | Re-run **Create Refinery Delta Blueprint** |
 | Missing-prefab warnings on parity dressing | `Assets/Vendor/` kit not installed on this machine | Cosmetic only; install the kit for visuals |

@@ -143,7 +143,9 @@ public static class BalanceModelRunner
         error = null;
         var inv = System.Globalization.CultureInfo.InvariantCulture;
 
-        var pads = UnityEngine.Object.FindObjectsByType<HardpointCoverageGizmo>(FindObjectsSortMode.None)
+        // Active scene only — the model must describe the map being generated,
+        // not pads belonging to some other scene the editor happens to have open.
+        var pads = SceneQuery.InActiveScene<HardpointCoverageGizmo>()
             .OrderBy(g => g.name, StringComparer.Ordinal).ToArray();
         if (pads.Length == 0)
         {
