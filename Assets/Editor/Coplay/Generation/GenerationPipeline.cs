@@ -329,11 +329,18 @@ public static class GenerationPipeline
         SetupVFXDirector.Setup();
         string ui = BuildRealUI.Run();
 
+        // The setup tools do not cover the whole singleton set — WaveManager,
+        // PoolRegistry, RouteTraffic and DebugConsole only ever existed in the
+        // forbidden BuildGameScene scaffolding, so a generated scene had nothing
+        // to run its waves (R26's "full live object set").
+        string singletons = SceneSkeleton.EnsureSingletons();
+
         // These tools emit at the scene root (they predate the containers), so
         // adopt their output immediately — the scene is grouped at every stage
         // boundary, and the final verify pass proves nothing was missed.
         int swept = SceneContainers.AdoptAll();
-        return StageResult.Ok($"singletons, directors, UI ({swept} root(s) adopted into containers)");
+        return StageResult.Ok($"directors, UI, {singletons} " +
+                              $"({swept} root(s) adopted into containers)");
     }
 
     private static StageResult StProtected(Context ctx)
@@ -407,8 +414,12 @@ public static class GenerationPipeline
             RefineryDeltaBlockout.WireOne("Spawner_Air", 2, null, ctx.coreTarget,
                 ctx.layout.airSpawn, log, levelRoot);
 
+        // Spawners exist only now, so this is where the WaveManager learns about
+        // them — by spawner INDEX, because the wave tables address them that way.
+        string spawnerWiring = SceneSkeleton.WireSpawners();
+
         string lengths = string.Join(", ", ctx.routes.Select(r => $"{r.name} {r.Length:0.###} m"));
-        return StageResult.Ok($"{lengths}; {pinNote}; spawners wired");
+        return StageResult.Ok($"{lengths}; {pinNote}; {spawnerWiring}");
     }
 
     private static StageResult StGate1(Context ctx)
