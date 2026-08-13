@@ -64,12 +64,17 @@ public static class MergeKnotPinning
         // of the package rather than reconstructed from a guessed tension constant.
         // That way the donor route's curve is preserved exactly and only the adopting
         // route moves — the smallest possible change to shipped geometry.
+        // Log both routes' natural tangents: their difference IS the divergence this
+        // ticket removes, and seeing it makes the fix auditable.
+        if (secondary.TryGetAutoSmoothTangentOut(secondaryMerge, out Vector3 secondaryNatural))
+            log.AppendLine($"Natural world tangent — {secondary.name}: {secondaryNatural} (will be overridden)");
+
         Vector3 pin;
         if (primary.TryGetAutoSmoothTangentOut(primaryMerge, out Vector3 natural) &&
             natural.sqrMagnitude > 1e-6f)
         {
             pin = natural;
-            log.AppendLine($"Pin (read from {primary.name}'s own AutoSmooth tangent): {pin}");
+            log.AppendLine($"Pin (read from {primary.name}'s own AutoSmooth tangent, world space): {pin}");
         }
         else
         {

@@ -466,8 +466,14 @@ namespace Corehold.Core
             }
             spline.Closed = false;
 
-            float3 t = spline[knotIndex].TangentOut;
-            tangentOut = new Vector3(t.x, t.y, t.z);
+            // BezierKnot tangents are stored in the knot's LOCAL frame — AutoSmooth
+            // aligns the knot's rotation so local +Z is the travel direction and puts
+            // the magnitude there. Rotate into world space before handing it out, or
+            // two routes with different approach directions would appear to share a
+            // tangent while pointing different ways.
+            BezierKnot knot = spline[knotIndex];
+            float3 world = math.mul(knot.Rotation, knot.TangentOut);
+            tangentOut = new Vector3(world.x, world.y, world.z);
             return true;
         }
 #endif
@@ -581,12 +587,23 @@ namespace Corehold.Core
                 BezierKnot knot = spline[k];
                 Vector3 pin = tangentPins[i].tangentOut;
 
+                // Tangents are stored in the knot's LOCAL frame (rotated by
+                // knot.Rotation), and AutoSmooth gives each route a different
+                // rotation here because their approach directions differ. Writing the
+                // same local value into both routes would therefore point them
+                // different ways in world space — which is exactly the divergence
+                // this pin exists to remove. So normalise the frame: carry the
+                // incoming tangent into world space and store an identity rotation,
+                // leaving Position + world tangents as the only things that shape the
+                // curve. Nothing here reads knot rotation (no up-vector evaluation).
+                float3 worldIn = math.mul(knot.Rotation, knot.TangentIn);
+
                 spline.SetTangentMode(k, TangentMode.Broken);
                 spline.SetKnot(k, new BezierKnot(
                     knot.Position,
-                    knot.TangentIn,
+                    worldIn,
                     new float3(pin.x, pin.y, pin.z),
-                    knot.Rotation));
+                    quaternion.identity));
             }
         }
 
