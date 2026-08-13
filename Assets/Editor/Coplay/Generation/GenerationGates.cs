@@ -1,0 +1,235 @@
+using System.Collections.Generic;
+using System.Text;
+using Corehold.Core;
+using Corehold.Data;
+using Corehold.Towers;
+using UnityEngine;
+
+/// <summary>
+/// The generation gates (R29). A gate returns null when it passes and an
+/// ACTIONABLE failure string when it does not — naming the offending knots and
+/// pads, because "gate failed" with no address costs the human a debugging
+/// session the report already paid for.
+///
+/// Gates measure the REAL scene objects — the built PathRoutes and the actual
+/// HardpointCoverageGizmo components — never a parallel reimplementation. The
+/// gizmo is the same validator the shipped map was authored against (R8), so a
+/// generated pad and a hand-placed one are judged by identical code.
+/// </summary>
+public static class GenerationGates
+{
+    // Clearance constants (roadmap P2/P6). laneHalfWidth + maxBodyRadius per
+    // side: two lane bands may approach until their outermost bodies touch.
+    private const float LaneHalfWidth = 0.9f;
+    private const float MaxBodyRadius = 1.35f;
+    private const float MinRouteSeparation = 2f * (LaneHalfWidth + MaxBodyRadius);  // 4.5 m
+
+    /// <summary>Field-edge margin for interior knots (R27's synthesis margin).</summary>
+    private const float FieldMargin = 4f;
+
+    /// <summary>Curve sampling step for separation checks.</summary>
+    private const float SampleStep = 1f;
+
+    /// <summary>
+    /// Same-route pairs closer than this along the arc are neighbours, not a
+    /// self-intersection risk — the window must exceed the widest hairpin turn.
+    /// </summary>
+    private const float SelfArcWindow = 8f;
+
+    /// <summary>
+    /// Cross-route pairs within this distance of the merge point are excluded:
+    /// two legs converging on one knot approach each other BY DESIGN, and the
+    /// shared tail after it is identical geometry on both routes.
+    /// </summary>
+    private const float MergeExclusion = 8f;
+
+    // ------------------------------------------------------------ gate 1
+
+    /// <summary>
+    /// GATE 1 — route clearance. Checks, on the curves as walked:
+    ///   • spline Length within ±5% of the blueprint target,
+    ///   • interior knots inside the field minus the 4 m margin (endpoints are
+    ///     spawn/core and may sit on the edge),
+    ///   • no self-approach closer than 4.5 m outside the hairpin window,
+    ///   • no cross-route approach closer than 4.5 m outside the merge zone.
+    /// Returns null on pass (with a one-line summary), else the failure text.
+    /// </summary>
+    public static string CheckClearance(List<PathRoute> routes, LevelBlueprint blueprint, out string summary)
+    {
+        summary = null;
+        var problems = new StringBuilder();
+
+        // -- length band -------------------------------------------------------
+        float target = blueprint.routeLengthTarget;
+        foreach (PathRoute route in routes)
+        {
+            float deviation = Mathf.Abs(route.Length - target) / target;
+            if (deviation > 0.05f)
+                problems.AppendLine($"  • {route.name} measures {route.Length:0.##} m — " +
+                                    $"{deviation:P1} off the {target:0.#} m target (band ±5%)");
+        }
+
+        // -- interior knots inside the margin ---------------------------------
+        float haltW = blueprint.playfieldSize.x * 0.5f - FieldMargin;
+        float haltD = blueprint.playfieldSize.y * 0.5f - FieldMargin;
+        foreach (PathRoute route in routes)
+        {
+            for (int i = 1; i < route.PointCount - 1; i++)
+            {
+                Vector3 p = route.GetPoint(i);
+                if (Mathf.Abs(p.x) > haltW || Mathf.Abs(p.z) > haltD)
+                    problems.AppendLine($"  • {route.name} knot {i} at ({p.x:0.#}, {p.z:0.#}) breaches the " +
+                                        $"{FieldMargin:0} m field margin (|x|≤{haltW:0.#}, |z|≤{haltD:0.#})");
+            }
+        }
+
+        // -- separation, measured on the sampled curves ------------------------
+        var sampled = new List<(PathRoute route, List<Vector3> pts, List<float> dist)>();
+        foreach (PathRoute route in routes)
+        {
+            var pts = new List<Vector3>();
+            var dist = new List<float>();
+            for (float d = 0f; d <= route.Length; d += SampleStep)
+            {
+                pts.Add(route.SamplePosition(d, out _));
+                dist.Add(d);
+            }
+            sampled.Add((route, pts, dist));
+        }
+
+        foreach (var (route, pts, dist) in sampled)
+        {
+            float worst = float.MaxValue;
+            float worstAt = 0f;
+            for (int i = 0; i < pts.Count; i++)
+                for (int j = i + 1; j < pts.Count; j++)
+                {
+                    if (dist[j] - dist[i] < SelfArcWindow)
+                        continue;
+                    float d = HorizontalDistance(pts[i], pts[j]);
+                    if (d < worst) { worst = d; worstAt = dist[i]; }
+                }
+            if (worst < MinRouteSeparation)
+                problems.AppendLine($"  • {route.name} approaches itself at {worst:0.##} m " +
+                                    $"(≥{MinRouteSeparation:0.##} m required) near arc {worstAt:0.#} m — " +
+                                    "two lane bands would overlap");
+        }
+
+        if (sampled.Count == 2)
+        {
+            Vector3 merge = FindMergePoint(routes[0], routes[1]);
+            float worst = float.MaxValue;
+            Vector3 worstAtA = Vector3.zero;
+            for (int i = 0; i < sampled[0].pts.Count; i++)
+            {
+                Vector3 a = sampled[0].pts[i];
+                if (HorizontalDistance(a, merge) < MergeExclusion)
+                    continue;
+                for (int j = 0; j < sampled[1].pts.Count; j++)
+                {
+                    Vector3 b = sampled[1].pts[j];
+                    if (HorizontalDistance(b, merge) < MergeExclusion)
+                        continue;
+                    // The shared tail is identical geometry on both routes —
+                    // exclude coincident samples, they are the same lane.
+                    float d = HorizontalDistance(a, b);
+                    if (d < 0.05f)
+                        continue;
+                    if (d < worst) { worst = d; worstAtA = a; }
+                }
+            }
+            if (worst < MinRouteSeparation)
+                problems.AppendLine($"  • routes approach each other at {worst:0.##} m " +
+                                    $"(≥{MinRouteSeparation:0.##} m) near ({worstAtA.x:0.#}, {worstAtA.z:0.#}), " +
+                                    "outside the merge zone — entrance lanes would overlap");
+        }
+
+        if (problems.Length > 0)
+            return "clearance violations:\n" + problems.ToString().TrimEnd();
+
+        summary = $"lengths in ±5% of {target:0.#} m; margins held; " +
+                  $"no approach under {MinRouteSeparation:0.##} m";
+        return null;
+    }
+
+    /// <summary>First knot (walking back from the core) where the two routes coincide.</summary>
+    private static Vector3 FindMergePoint(PathRoute a, PathRoute b)
+    {
+        int ai = a.PointCount - 1;
+        int bi = b.PointCount - 1;
+        Vector3 merge = a.GetPoint(ai);
+        while (ai >= 0 && bi >= 0 &&
+               Vector3.Distance(a.GetPoint(ai), b.GetPoint(bi)) <= 0.01f)
+        {
+            merge = a.GetPoint(ai);
+            ai--;
+            bi--;
+        }
+        return merge;
+    }
+
+    private static float HorizontalDistance(Vector3 a, Vector3 b)
+    {
+        float dx = a.x - b.x, dz = a.z - b.z;
+        return Mathf.Sqrt(dx * dx + dz * dz);
+    }
+
+    // ------------------------------------------------------------ gate 2
+
+    /// <summary>
+    /// GATE 2 — coverage, judged by the ACTUAL HardpointCoverageGizmo components
+    /// in the scene (the R8 validator, measuring the walked curve): every pad
+    /// ≥2 covered spans, every Premium ≥4, at least 3 Premium pads, and the
+    /// class census matching the blueprint's mix. Returns null on pass.
+    /// </summary>
+    public static string CheckCoverage(LevelBlueprint blueprint, out string summary)
+    {
+        summary = null;
+        var gizmos = Object.FindObjectsByType<HardpointCoverageGizmo>(FindObjectsSortMode.None);
+        if (gizmos.Length == 0)
+            return "no hardpoints in the scene — the pad stage emitted nothing";
+
+        var problems = new StringBuilder();
+        var census = new Dictionary<HardpointCoverageGizmo.PadClass, int>();
+        int premiumAtFour = 0;
+
+        foreach (var gz in gizmos)
+        {
+            census.TryGetValue(gz.padClass, out int c);
+            census[gz.padClass] = c + 1;
+
+            int covered = gz.CountCoveredSegments();
+            bool premium = gz.padClass == HardpointCoverageGizmo.PadClass.Premium;
+            if (premium && covered >= 4)
+                premiumAtFour++;
+
+            int need = premium ? 4 : 2;
+            if (covered < need)
+                problems.AppendLine($"  • {gz.name} ({gz.padClass}, {gz.intendedTurret}) covers " +
+                                    $"{covered} span(s) — needs ≥{need}");
+        }
+
+        if (premiumAtFour < 3)
+            problems.AppendLine($"  • only {premiumAtFour} Premium pad(s) at ≥4 spans — the rule needs 3");
+
+        var mix = blueprint.classMix;
+        CheckCensus(census, HardpointCoverageGizmo.PadClass.Premium, mix.premium, problems);
+        CheckCensus(census, HardpointCoverageGizmo.PadClass.Standard, mix.standard, problems);
+        CheckCensus(census, HardpointCoverageGizmo.PadClass.Rear, mix.rear, problems);
+        CheckCensus(census, HardpointCoverageGizmo.PadClass.Overwatch, mix.overwatch, problems);
+
+        if (problems.Length > 0)
+            return "coverage violations:\n" + problems.ToString().TrimEnd();
+
+        summary = $"{gizmos.Length} pads all ≥2 spans, {premiumAtFour} Premium at ≥4, mix matches blueprint";
+        return null;
+    }
+
+    private static void CheckCensus(Dictionary<HardpointCoverageGizmo.PadClass, int> census,
+                                    HardpointCoverageGizmo.PadClass cls, int expected, StringBuilder problems)
+    {
+        census.TryGetValue(cls, out int actual);
+        if (actual != expected)
+            problems.AppendLine($"  • {actual} {cls} pad(s) placed, blueprint asks for {expected}");
+    }
+}

@@ -91,6 +91,7 @@ public static class GenerateLevel
         }
 
         // Values measured off the live map earlier in this project, not guessed.
+        bp.parityLayout = true;   // this blueprint IS the parity target — no seed variation
         bp.randomSeed = 1;
         bp.playfieldSize = new Vector2(130f, 75f);
         bp.protectedNormalizedPos = new Vector2(0.765f, 0.413f);  // Core at (34.5, -6.5)

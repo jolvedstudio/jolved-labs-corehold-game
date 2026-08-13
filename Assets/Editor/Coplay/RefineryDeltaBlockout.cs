@@ -58,6 +58,18 @@ public static class RefineryDeltaBlockout
         CorePos,                      // arrive at the Core (34.5,-6.5)
     };
 
+    // ---- Shipped layout, exposed for the generation pipeline (R26) ----
+    //
+    // The generator's parity path rebuilds THIS geometry through the full
+    // pipeline. Route points and the core position are the blockout's own data;
+    // the parity PAD set intentionally lives in ShippedLayout instead, because
+    // the scene's pads were hand-moved after this builder ran (the clearance
+    // pass), so the scene — not the constants below — is ground truth for them.
+    internal static Vector3 ShippedCorePos => CorePos;
+    internal static Vector3[] ShippedWestRoute => WestLeg.Concat(Snake).ToArray();
+    internal static Vector3[] ShippedNorthRoute => NorthLeg.Concat(Snake).ToArray();
+    internal static readonly Vector3 ShippedAirSpawn = new Vector3(0f, 4f, 37f);
+
     [MenuItem("Tools/COREHOLD/Level/Build Refinery Delta", false, 1)]
     public static void Build()
     {
@@ -96,7 +108,7 @@ public static class RefineryDeltaBlockout
         var northRoute = BuildRoute(routesRoot.transform, "Route_North", northFull, new Color(0.2f, 0.6f, 1f, 1f));
 
         // ---- Core ----
-        var core = BuildCore(root.transform);
+        var core = BuildCore(root.transform, CorePos, null);
 
         // ---- Spawners wiring ----
         WireSpawners(westRoute, northRoute, core, WestLeg[0], NorthLeg[0], log);
@@ -140,7 +152,7 @@ public static class RefineryDeltaBlockout
         return l;
     }
 
-    static GameObject Place(string assetPath, Transform parent, Vector3 pos, Vector3 euler, float scale, string name = null)
+    internal static GameObject Place(string assetPath, Transform parent, Vector3 pos, Vector3 euler, float scale, string name = null)
     {
         var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
         if (prefab == null)
@@ -183,7 +195,7 @@ public static class RefineryDeltaBlockout
 
     const string CreepyRoot = "Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Prefabs/";
 
-    static void BuildStructures(Transform parent)
+    internal static void BuildStructures(Transform parent)
     {
         var s = new GameObject("Structures");
         s.transform.SetParent(parent, false);
@@ -218,7 +230,7 @@ public static class RefineryDeltaBlockout
               new Vector3(56f, 0f, 22f), new Vector3(0f, -30f, 0f), 1f, "Turbine_A");
     }
 
-    static PathRoute BuildRoute(Transform parent, string name, Vector3[] pts, Color color)
+    internal static PathRoute BuildRoute(Transform parent, string name, Vector3[] pts, Color color)
     {
         var routeGo = new GameObject(name);
         routeGo.transform.SetParent(parent, false);
@@ -246,22 +258,41 @@ public static class RefineryDeltaBlockout
 
     const string FiradzoRoot = "Assets/Vendor/TD_Sci-Fi_Turrets_Pack_V2/Prefabs/";
 
-    static Transform BuildCore(Transform parent)
+    /// <summary>
+    /// Build the protected structure at <paramref name="corePos"/>. With a
+    /// <paramref name="protectedPrefab"/> (from a blueprint, R26) that prefab IS
+    /// the structure; otherwise the shipped platform + shield-generator stack is
+    /// placed. Either way a "Core_Target" child marks the aim point.
+    /// </summary>
+    internal static Transform BuildCore(Transform parent, Vector3 corePos, GameObject protectedPrefab)
     {
         var coreRoot = new GameObject("Core_Blockout");
         coreRoot.transform.SetParent(parent, false);
-        coreRoot.transform.position = CorePos;
+        coreRoot.transform.position = corePos;
 
-        var platform = Place(CreepyRoot + "Bases & Hangars/P_Plateform_Big_01.prefab", coreRoot.transform,
-              CorePos, Vector3.zero, 0.3f, "Core_Platform");
-        float platTop = platform != null ? 5.92f * 0.3f : 0f;
+        float targetHeight;
+        if (protectedPrefab != null)
+        {
+            var structure = (GameObject)PrefabUtility.InstantiatePrefab(protectedPrefab);
+            structure.transform.SetParent(coreRoot.transform, false);
+            structure.transform.position = corePos;
+            structure.name = "Core_Structure";
+            targetHeight = 3f;
+        }
+        else
+        {
+            var platform = Place(CreepyRoot + "Bases & Hangars/P_Plateform_Big_01.prefab", coreRoot.transform,
+                  corePos, Vector3.zero, 0.3f, "Core_Platform");
+            float platTop = platform != null ? 5.92f * 0.3f : 0f;
 
-        Place(FiradzoRoot + "Shield_generator_2/Shield_generator_2_1.prefab", coreRoot.transform,
-              CorePos + new Vector3(0f, platTop, 0f), Vector3.zero, 1f, "Core_ShieldGenerator");
+            Place(FiradzoRoot + "Shield_generator_2/Shield_generator_2_1.prefab", coreRoot.transform,
+                  corePos + new Vector3(0f, platTop, 0f), Vector3.zero, 1f, "Core_ShieldGenerator");
+            targetHeight = platTop + 3f;
+        }
 
         var target = new GameObject("Core_Target");
         target.transform.SetParent(coreRoot.transform, false);
-        target.transform.position = CorePos + new Vector3(0f, platTop + 3f, 0f);
+        target.transform.position = corePos + new Vector3(0f, targetHeight, 0f);
         return target.transform;
     }
 
@@ -273,9 +304,22 @@ public static class RefineryDeltaBlockout
         WireOne("Spawner_Air", 2, null, core, new Vector3(0f, 4f, 37f), log);
     }
 
-    static void WireOne(string name, int index, PathRoute route, Transform core, Vector3 pos, StringBuilder log)
+    /// <summary>
+    /// Wire (or create, when <paramref name="createUnder"/> is given — the
+    /// generation pipeline builds fresh scenes with no spawners to find) one
+    /// spawner by name: index, route, core target, position.
+    /// </summary>
+    internal static void WireOne(string name, int index, PathRoute route, Transform core, Vector3 pos,
+                                StringBuilder log, Transform createUnder = null)
     {
         var go = SceneLookup.Find(name);
+        if (go == null && createUnder != null)
+        {
+            go = new GameObject(name);
+            go.transform.SetParent(createUnder, false);
+            go.AddComponent<Spawner>();
+            log.AppendLine($"[ok] created spawner '{name}'");
+        }
         if (go == null)
         {
             log.AppendLine($"[warn] Spawner '{name}' not found; skipped.");
@@ -291,17 +335,59 @@ public static class RefineryDeltaBlockout
         log.AppendLine($"[ok] wired {name} (index {index}) at {pos}");
     }
 
-    struct HP
+    internal struct HP
     {
         public string name; public Vector3 pos;
         public Corehold.Towers.HardpointCoverageGizmo.TurretKind kind;
         public Corehold.Towers.HardpointCoverageGizmo.PadClass cls;
     }
 
-    static HP MakeHP(string n, Vector3 p,
+    internal static HP MakeHP(string n, Vector3 p,
                      Corehold.Towers.HardpointCoverageGizmo.TurretKind k,
                      Corehold.Towers.HardpointCoverageGizmo.PadClass c)
         => new HP { name = n, pos = p, kind = k, cls = c };
+
+    /// <summary>
+    /// Build a pad set under <paramref name="parent"/>: pad object, floor prefab,
+    /// TowerHardpoint, coverage gizmo wired to the route. Returns true when the
+    /// coverage rule held (every pad ≥2 spans, ≥3 Premium at ≥4). The generation
+    /// pipeline supplies its own pad list; the menu build uses the blockout's.
+    /// </summary>
+    internal static bool BuildHardpoints(Transform parent, PathRoute route, IList<HP> hps, StringBuilder log)
+    {
+        var hpRoot = new GameObject("Hardpoints");
+        hpRoot.transform.SetParent(parent, false);
+
+        log.AppendLine("=== Hardpoint coverage (per-turret tier-1 rings) ===");
+        int premiumFour = 0;
+        bool allPass = true;
+        foreach (var h in hps)
+        {
+            var go = new GameObject(h.name);
+            go.transform.SetParent(hpRoot.transform, false);
+            go.transform.position = h.pos;
+
+            Place(CreepyRoot + "Building/Floors/P_Floor_Cache_01.prefab", go.transform,
+                  h.pos, Vector3.zero, 0.5f, "Pad");
+
+            go.AddComponent<Corehold.Towers.TowerHardpoint>();
+            var gz = go.AddComponent<Corehold.Towers.HardpointCoverageGizmo>();
+            gz.intendedTurret = h.kind;
+            gz.padClass = h.cls;
+            gz.routes = new[] { route };
+
+            int covered = gz.CountCoveredSegments();
+            bool isPrem = h.cls == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium;
+            bool pass = isPrem ? covered >= 4 : covered >= 2;
+            if (isPrem && covered >= 4) premiumFour++;
+            if (!pass) allPass = false;
+            log.AppendLine($"{h.name,-14} {h.kind,-11} r{Corehold.Towers.HardpointCoverageGizmo.RangeFor(h.kind):0}m {h.cls,-9} -> {covered} segs {(pass ? "PASS" : "**FAIL**")}");
+        }
+        log.AppendLine($"Premium pads covering 4+: {premiumFour} (need >=3)");
+        bool satisfied = allPass && premiumFour >= 3;
+        log.AppendLine($"COVERAGE RULE: {(satisfied ? "SATISFIED" : "**NOT MET**")}");
+        return satisfied;
+    }
 
     static void BuildHardpoints(Transform parent, PathRoute route, StringBuilder log)
     {
@@ -333,39 +419,10 @@ public static class RefineryDeltaBlockout
             MakeHP("HP_Overwatch", new Vector3(24f, 0f, -8f), Mortar, Overwatch),
         };
 
-        var hpRoot = new GameObject("Hardpoints");
-        hpRoot.transform.SetParent(parent, false);
-
-        log.AppendLine("=== Hardpoint coverage (per-turret tier-1 rings) ===");
-        int premiumFour = 0;
-        bool allPass = true;
-        foreach (var h in hps)
-        {
-            var go = new GameObject(h.name);
-            go.transform.SetParent(hpRoot.transform, false);
-            go.transform.position = h.pos;
-
-            Place(CreepyRoot + "Building/Floors/P_Floor_Cache_01.prefab", go.transform,
-                  h.pos, Vector3.zero, 0.5f, "Pad");
-
-            go.AddComponent<Corehold.Towers.TowerHardpoint>();
-            var gz = go.AddComponent<Corehold.Towers.HardpointCoverageGizmo>();
-            gz.intendedTurret = h.kind;
-            gz.padClass = h.cls;
-            gz.routes = new[] { route };
-
-            int covered = gz.CountCoveredSegments();
-            bool isPrem = h.cls == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium;
-            bool pass = isPrem ? covered >= 4 : covered >= 2;
-            if (isPrem && covered >= 4) premiumFour++;
-            if (!pass) allPass = false;
-            log.AppendLine($"{h.name,-14} {h.kind,-11} r{Corehold.Towers.HardpointCoverageGizmo.RangeFor(h.kind):0}m {h.cls,-9} -> {covered} segs {(pass ? "PASS" : "**FAIL**")}");
-        }
-        log.AppendLine($"Premium pads covering 4+: {premiumFour} (need >=3)");
-        log.AppendLine($"COVERAGE RULE: {(allPass && premiumFour >= 3 ? "SATISFIED" : "**NOT MET**")}");
+        BuildHardpoints(parent, route, hps, log);
     }
 
-    static void BuildWreckAndRadar(Transform parent)
+    internal static void BuildWreckAndRadar(Transform parent)
     {
         var d = new GameObject("Narrative");
         d.transform.SetParent(parent, false);

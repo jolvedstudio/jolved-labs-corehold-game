@@ -53,6 +53,9 @@ namespace Corehold.Data
         [Tooltip("Design-box size in metres (shipped map: 130 × 75). NOTE: this does NOT size the ground plane — the floor is fitted to the camera frustum after framing (R11/R26), because a design-box floor is wrong by a different amount on every map.")]
         public Vector2 playfieldSize = new Vector2(130f, 75f);
 
+        [Tooltip("Use the shipped Refinery Delta layout (routes, pads, dressing) instead of synthesizing from the seed — R26's parity/regression path, which must rebuild the live map exactly and therefore cannot vary by seed. Generated maps leave this OFF.")]
+        public bool parityLayout;
+
         [Header("Protected structure (the Core)")]
         [Tooltip("Prefab placed as the thing being defended.")]
         public GameObject protectedPrefab;
