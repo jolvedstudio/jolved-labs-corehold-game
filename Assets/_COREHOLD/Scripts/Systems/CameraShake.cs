@@ -49,6 +49,39 @@ namespace Corehold.Systems
         [Tooltip("Minimum UNSCALED seconds between shakes. A breach must not become a seizure. GDD §3.3: 1.5 s.")]
         [SerializeField] private float cooldown = 1.5f;
 
+        [Header("Impact kick (R5) — directional, fast exponential settle")]
+        [Tooltip("[TUNE] Kick distance (m) per hitscan/projectile impact (VFXDirector.PlayImpact).")]
+        [SerializeField] private float kickImpact = 0.05f;
+
+        [Tooltip("[TUNE] Kick distance (m) when the Core takes a hit (PlayCoreHit).")]
+        [SerializeField] private float kickCoreHit = 0.10f;
+
+        [Tooltip("[TUNE] Kick distance (m) per splash explosion (PlayExplosion).")]
+        [SerializeField] private float kickExplosion = 0.14f;
+
+        [Tooltip("[TUNE] Exponential decay rate (per unscaled second) back to the framed position — high = a sharp nudge that settles fast.")]
+        [SerializeField] private float kickDecayPerSecond = 9f;
+
+        [Tooltip("[TUNE] Hard ceiling (m) on the accumulated kick offset so stacked impacts can never throw the framing.")]
+        [SerializeField] private float kickMaxOffset = 0.35f;
+
+        [Tooltip("[TUNE] Minimum unscaled seconds between accepted kicks — autocannon fire reads as texture, not a rattle.")]
+        [SerializeField] private float kickMinInterval = 0.06f;
+
+        [Header("Accessibility (R5)")]
+        [Tooltip("[TUNE] Global scale on ALL camera feedback — trauma shake and kicks alike. 0 = off entirely.")]
+        [Range(0f, 1f)] [SerializeField] private float effectScale = 1f;
+
+        [Header("Micro hit-stop (R5 — optional, default off)")]
+        [Tooltip("[TUNE] When on, explosions also trigger a tiny time dip through GameManager.TimeDip (interrupt-safe, R3).")]
+        [SerializeField] private bool enableHitStop = false;
+
+        [Tooltip("[TUNE] Time.timeScale during the micro hit-stop.")]
+        [SerializeField] private float hitStopScale = 0.05f;
+
+        [Tooltip("[TUNE] Unscaled seconds the micro hit-stop lasts.")]
+        [SerializeField] private float hitStopSeconds = 0.05f;
+
         // ----- Singleton -----
         private static CameraShake _instance;
 
@@ -144,6 +177,57 @@ namespace Corehold.Systems
         /// </summary>
         public bool ShakeFootfall() => Shake(defaultTrauma * 0.8f);
 
+        // ----- Impact kick (R5) — the reusable screen-kick standard -----
+        //
+        // A kick is a small DIRECTIONAL recoil away from an impact point with a
+        // rapid exponential settle back to the framed position — distinct from
+        // the Perlin trauma shake above (which stays reserved for Core hits and
+        // footfalls). Additive over the same captured rest pose, so neither can
+        // fight the content framing. Future tickets call these helpers; never
+        // re-implement a kick elsewhere.
+
+        private Vector3 _kickOffset;
+        private float _lastKickTime = -999f;
+
+        /// <summary>
+        /// Nudge the camera away from a world-space impact point by
+        /// <paramref name="strength"/> metres (clamped, rate-limited, scaled by
+        /// the accessibility <see cref="effectScale"/>).
+        /// </summary>
+        public void Kick(Vector3 worldFrom, float strength)
+        {
+            if (strength <= 0f || effectScale <= 0f)
+                return;
+
+            float now = Time.unscaledTime;
+            if (now - _lastKickTime < kickMinInterval)
+                return;
+            _lastKickTime = now;
+
+            Vector3 worldDir = transform.position - worldFrom;
+            worldDir = worldDir.sqrMagnitude > 0.0001f ? worldDir.normalized : -transform.forward;
+            Vector3 local = transform.InverseTransformDirection(worldDir) * strength;
+            _kickOffset = Vector3.ClampMagnitude(_kickOffset + local, kickMaxOffset);
+        }
+
+        /// <summary>Small kick for a shot striking a unit (wired from VFXDirector.PlayImpact).</summary>
+        public void KickImpact(Vector3 worldFrom) => Kick(worldFrom, kickImpact);
+
+        /// <summary>Kick for a Core hit (wired from VFXDirector.PlayCoreHit).</summary>
+        public void KickCoreHit(Vector3 worldFrom) => Kick(worldFrom, kickCoreHit);
+
+        /// <summary>
+        /// Larger kick for a splash explosion (wired from VFXDirector.PlayExplosion),
+        /// plus the optional micro hit-stop through GameManager's interrupt-safe
+        /// TimeDip (R3) when enabled.
+        /// </summary>
+        public void KickExplosion(Vector3 worldFrom)
+        {
+            Kick(worldFrom, kickExplosion);
+            if (enableHitStop && Corehold.Core.GameManager.Instance != null)
+                Corehold.Core.GameManager.Instance.TimeDip(hitStopScale, hitStopSeconds);
+        }
+
         private void LateUpdate()
         {
             if (!_hasRest)
@@ -152,7 +236,9 @@ namespace Corehold.Systems
                 return;
             }
 
-            if (_trauma <= 0.0001f)
+            bool kicking = _kickOffset.sqrMagnitude > 0.000001f;
+
+            if (_trauma <= 0.0001f && !kicking)
             {
                 // Idle: keep the rest pose current so external repositioning sticks,
                 // and make sure we are sitting exactly on it.
@@ -161,27 +247,49 @@ namespace Corehold.Systems
                 return;
             }
 
-            // Shake amount rises with the square of trauma so low trauma is gentle
-            // and only a rare high-trauma event throws the camera hard.
-            float shake = _trauma * _trauma;
-            float t = Time.unscaledTime * frequency;
+            float fx = Mathf.Clamp01(effectScale); // accessibility (R5): 0 = off
 
-            // Perlin noise in [-1, 1] per axis, decorrelated by seed.
-            float nx = Mathf.PerlinNoise(_seedX, t) * 2f - 1f;
-            float ny = Mathf.PerlinNoise(_seedY, t) * 2f - 1f;
-            float nz = Mathf.PerlinNoise(_seedZ, t) * 2f - 1f;
-            float nr = Mathf.PerlinNoise(_seedRot, t) * 2f - 1f;
+            // Trauma shake (Core hits / footfalls). Shake amount rises with the
+            // square of trauma so low trauma is gentle and only a rare
+            // high-trauma event throws the camera hard.
+            Vector3 offset = Vector3.zero;
+            Quaternion wobble = Quaternion.identity;
+            if (_trauma > 0.0001f)
+            {
+                float shake = _trauma * _trauma;
+                float t = Time.unscaledTime * frequency;
 
-            Vector3 offset = new Vector3(nx, ny, nz) * (maxPositionShake * shake);
-            float roll = nr * (maxRotationShake * shake);
+                // Perlin noise in [-1, 1] per axis, decorrelated by seed.
+                float nx = Mathf.PerlinNoise(_seedX, t) * 2f - 1f;
+                float ny = Mathf.PerlinNoise(_seedY, t) * 2f - 1f;
+                float nz = Mathf.PerlinNoise(_seedZ, t) * 2f - 1f;
+                float nr = Mathf.PerlinNoise(_seedRot, t) * 2f - 1f;
 
-            transform.localPosition = _restPosition + offset;
-            transform.localRotation = _restRotation * Quaternion.Euler(ny * maxRotationShake * shake, nx * maxRotationShake * shake, roll);
+                offset = new Vector3(nx, ny, nz) * (maxPositionShake * shake);
+                wobble = Quaternion.Euler(ny * maxRotationShake * shake,
+                                          nx * maxRotationShake * shake,
+                                          nr * (maxRotationShake * shake));
 
-            // Decay (unscaled — the 2× toggle and pause must not change recovery).
-            _trauma = Mathf.Max(0f, _trauma - traumaDecayPerSecond * Time.unscaledDeltaTime);
+                // Decay (unscaled — the 2× toggle and pause must not change recovery).
+                _trauma = Mathf.Max(0f, _trauma - traumaDecayPerSecond * Time.unscaledDeltaTime);
+            }
 
-            if (_trauma <= 0.0001f)
+            // Compose: rest + (trauma noise + directional kick), both accessibility
+            // scaled, all additive over the captured rest pose (framing-safe).
+            transform.localPosition = _restPosition + (offset + _kickOffset) * fx;
+            transform.localRotation = _restRotation *
+                Quaternion.Slerp(Quaternion.identity, wobble, fx);
+
+            // Kick: rapid exponential settle back to the framed position (R5) —
+            // deterministic decay, no random jitter on the way home.
+            if (kicking)
+            {
+                _kickOffset *= Mathf.Exp(-kickDecayPerSecond * Time.unscaledDeltaTime);
+                if (_kickOffset.sqrMagnitude < 0.000001f)
+                    _kickOffset = Vector3.zero;
+            }
+
+            if (_trauma <= 0.0001f && _kickOffset == Vector3.zero)
             {
                 // Settle back exactly onto the rest pose to avoid drift.
                 _trauma = 0f;
