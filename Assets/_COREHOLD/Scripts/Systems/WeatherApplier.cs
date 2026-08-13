@@ -57,6 +57,25 @@ namespace Corehold.Systems
         private GameObject _precipitation;
         private Material _precipitationMaterial;
 
+        // Which source the live layer was built from (null = the procedural one).
+        // Tracked so switching presets rebuilds instead of reusing the wrong object.
+        private GameObject _precipitationSource;
+        private bool _precipitationBuilt;
+
+        /// <summary>Alpha layers a preset may spend (R14). An authored prefab exceeding this is warned about, not silently accepted.</summary>
+        private const int MaxAlphaLayers = 3;
+
+        // The applier drives its OWN global Volume rather than editing the scene's.
+        // URP blends volumes by priority and a higher-priority profile overrides only
+        // the properties it declares, so the base profile's Bloom and Tonemapping
+        // survive — replacing the scene profile outright would kill the HDR tracer
+        // glow that VFXDirector's bolts depend on. Weight 0 means no contribution at
+        // all, which is what keeps the null preset pixel-identical.
+        private UnityEngine.Rendering.Volume _gradeVolume;
+
+        /// <summary>Priority headroom placed above the scene's existing volumes.</summary>
+        private const int GradePriorityOffset = 10;
+
         private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int ColorId = Shader.PropertyToID("_Color");
 
@@ -94,7 +113,35 @@ namespace Corehold.Systems
             _baseFogMode = RenderSettings.fogMode;
             _baseFogColor = RenderSettings.fogColor;
             _baseFogDensity = RenderSettings.fogDensity;
+
+            EnsureGradeVolume();
             _baselineCaptured = true;
+        }
+
+        /// <summary>
+        /// Create the applier's own global Volume, sitting above every existing
+        /// volume in priority so its overrides win, but starting at weight 0 so it
+        /// contributes nothing until a preset asks for a grade.
+        /// </summary>
+        private void EnsureGradeVolume()
+        {
+            if (_gradeVolume != null)
+                return;
+
+            int highest = int.MinValue;
+            foreach (var v in FindObjectsByType<UnityEngine.Rendering.Volume>(FindObjectsSortMode.None))
+            {
+                if (v != null && v.priority > highest)
+                    highest = (int)v.priority;
+            }
+            if (highest == int.MinValue)
+                highest = 0;
+
+            _gradeVolume = gameObject.AddComponent<UnityEngine.Rendering.Volume>();
+            _gradeVolume.isGlobal = true;
+            _gradeVolume.priority = highest + GradePriorityOffset;
+            _gradeVolume.weight = 0f;
+            _gradeVolume.sharedProfile = null;
         }
 
         private void RestoreBaseline()
@@ -106,6 +153,14 @@ namespace Corehold.Systems
             RenderSettings.fogColor = _baseFogColor;
             RenderSettings.fogDensity = _baseFogDensity;
             TintTargets(Color.white);
+
+            // Stand the grade down entirely — weight 0 contributes nothing, so the
+            // scene falls back to its own volumes exactly.
+            if (_gradeVolume != null)
+            {
+                _gradeVolume.weight = 0f;
+                _gradeVolume.sharedProfile = null;
+            }
         }
 
         /// <summary>
@@ -142,6 +197,15 @@ namespace Corehold.Systems
 
             if (next.overrideGroundTint)
                 TintTargets(next.groundTint);
+
+            // sharedProfile, not profile: assigning the asset directly avoids
+            // instantiating a runtime copy per apply (the same reason ground tinting
+            // goes through a property block rather than renderer.material).
+            if (next.overridePostProfile && next.postProfile != null && _gradeVolume != null)
+            {
+                _gradeVolume.sharedProfile = next.postProfile;
+                _gradeVolume.weight = Mathf.Clamp01(next.postWeight);
+            }
 
             BuildOrUpdatePrecipitation(next);
         }
@@ -218,10 +282,25 @@ namespace Corehold.Systems
             if (cam == null)
                 return;
 
+            // Rebuild when the SOURCE changes — procedural ⇄ prefab, or a different
+            // prefab. Apply() is public, so R23's night variant or a generated map
+            // picking from a pool can swap presets at any time, and reusing the
+            // previous layer's object would leave an authored prefab unspawned or a
+            // procedural system stale.
+            if (_precipitationBuilt && _precipitationSource != p.precipitationPrefab && _precipitation != null)
+            {
+                DestroyObject(_precipitation);
+                _precipitation = null;
+            }
+
             if (_precipitation == null)
+            {
                 _precipitation = p.precipitationPrefab != null
                     ? Instantiate(p.precipitationPrefab)
                     : new GameObject("Precipitation");
+                _precipitationSource = p.precipitationPrefab;
+                _precipitationBuilt = true;
+            }
 
             _precipitation.transform.SetParent(cam.transform, false);
             // Sit the volume in front of the camera so it fills the view without
@@ -231,9 +310,30 @@ namespace Corehold.Systems
             SetPrecipitationActive(true);
 
             if (p.precipitationPrefab != null)
-                return; // an authored prefab configures itself
+            {
+                // An authored prefab (CFXR or otherwise) configures itself — but it
+                // still has to live inside R14's overdraw budget, and a kit effect
+                // built from half a dozen stacked systems will blow it silently.
+                // Count once, at apply, and say so rather than shipping the cost.
+                int layers = _precipitation.GetComponentsInChildren<ParticleSystem>(true).Length;
+                if (layers > MaxAlphaLayers)
+                {
+                    Debug.LogWarning(
+                        $"[Weather] '{p.name}' uses an authored prefab with {layers} particle systems — " +
+                        $"R14 budgets {MaxAlphaLayers} alpha layers. Disable the extra sub-systems or " +
+                        "author a lighter prefab; overdraw is what costs the 907×510 legibility bar.", this);
+                }
+                return;
+            }
 
             ConfigureProceduralParticles(_precipitation, p, cam);
+        }
+
+        /// <summary>Destroy that works whether the applier is driven in play mode or from an editor tool.</summary>
+        private static void DestroyObject(Object o)
+        {
+            if (Application.isPlaying) Destroy(o);
+            else DestroyImmediate(o);
         }
 
         private void ConfigureProceduralParticles(GameObject host, WeatherPreset p, Camera cam)

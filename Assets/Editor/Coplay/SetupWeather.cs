@@ -4,6 +4,8 @@ using Corehold.Systems;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 /// <summary>
@@ -83,6 +85,12 @@ public static class SetupWeather
         p.windDirection = new Vector3(0.35f, 0f, -1f);
         p.windStrength = 3.5f;
 
+        p.overridePostProfile = true;
+        p.postProfile = AuthorGrade(WeatherDir + "/Weather_Rain_Post.asset",
+                                    saturation: -15f, contrast: 5f, temperature: -12f,
+                                    filter: new Color(0.92f, 0.96f, 1.00f), log: log);
+        p.postWeight = 1f;
+
         EditorUtility.SetDirty(p);
         log.AppendLine($"[ok] Rain authored — 1 alpha layer, rate {p.precipitationRate:0}, alpha {p.particleColor.a:0.00}");
         return p;
@@ -116,9 +124,48 @@ public static class SetupWeather
         p.windDirection = new Vector3(1f, 0.05f, -0.35f);
         p.windStrength = 5f;
 
+        p.overridePostProfile = true;
+        p.postProfile = AuthorGrade(WeatherDir + "/Weather_Dust_Post.asset",
+                                    saturation: -5f, contrast: 8f, temperature: 18f,
+                                    filter: new Color(1.00f, 0.96f, 0.88f), log: log);
+        p.postWeight = 1f;
+
         EditorUtility.SetDirty(p);
         log.AppendLine($"[ok] Dust authored — 1 alpha layer, rate {p.precipitationRate:0}, alpha {p.particleColor.a:0.00}");
         return p;
+    }
+
+    /// <summary>
+    /// Author a grading profile carrying ONLY the overrides weather should move.
+    /// It is layered additively over the scene's base profile by the applier, so
+    /// declaring nothing else is what lets Bloom and Tonemapping survive — a
+    /// profile that redeclared them would fight the base look.
+    /// </summary>
+    private static VolumeProfile AuthorGrade(string path, float saturation, float contrast,
+                                             float temperature, Color filter, StringBuilder log)
+    {
+        var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(path);
+        if (profile == null)
+        {
+            profile = ScriptableObject.CreateInstance<VolumeProfile>();
+            AssetDatabase.CreateAsset(profile, path);
+            log.AppendLine($"[ok] created {path}");
+        }
+
+        if (!profile.TryGet(out ColorAdjustments colour))
+            colour = profile.Add<ColorAdjustments>(true);
+        colour.active = true;
+        colour.saturation.overrideState = true; colour.saturation.value = saturation;
+        colour.contrast.overrideState = true;   colour.contrast.value = contrast;
+        colour.colorFilter.overrideState = true; colour.colorFilter.value = filter;
+
+        if (!profile.TryGet(out WhiteBalance balance))
+            balance = profile.Add<WhiteBalance>(true);
+        balance.active = true;
+        balance.temperature.overrideState = true; balance.temperature.value = temperature;
+
+        EditorUtility.SetDirty(profile);
+        return profile;
     }
 
     private static WeatherPreset LoadOrCreate(string path, StringBuilder log)

@@ -228,6 +228,36 @@ Create a `WeatherPreset` ScriptableObject (ambient tint, fog, precipitation type
 
 ---
 
+#### R13b — Ground surface channel *(specced, not built)*
+
+**Why this and not a weather package.** At a fixed 38° overhead view the ground plane is roughly **90% of the frame**, which makes ground surface the highest-leverage visual lever in the project — higher than any sky, cloud or atmospheric feature, all of which are invisible here because the top of the frustum sits 20.5° *below* horizontal. A rain preset that visibly wets the ground pays off; one that adds volumetric clouds cannot.
+
+**Two channels, mirroring patterns already in the file.**
+
+1. **Scalar surface response — via `MaterialPropertyBlock`**, exactly like the existing ground tint:
+   - `overrideGroundSurface` (bool), `groundSmoothness` (0–1), `groundMetallic` (0–1), all `[TUNE]`.
+   - Applies to the same resolved tint targets, so Floor and the R11 silhouette band stay coherent.
+   - Free at runtime: URP Lit already shades these; only the scalar changes.
+2. **Authored surface swap — via `sharedMaterial`**, exactly like the R13 post-profile channel:
+   - `groundMaterial` (optional `Material`), applied to the **Floor renderer only** (the silhouette band is separate geometry with its own read).
+   - Captured and restored alongside every other channel, so the null preset stays pixel-identical.
+   - `sharedMaterial`, never `material` — assigning a different shared *asset* is not instancing; touching `.material` would instance per object and leak.
+
+**The constraint that forces two channels rather than one.** A `MaterialPropertyBlock` can modulate properties a material already exposes, but **cannot enable shader keywords**. If the ground material has no normal map assigned, no property block can add one — `_NORMALMAP` is per-material state. So scalars go through the block, and anything needing new maps (normal, detail, ripple) requires the authored-material swap. Animated ripples belong **inside** that authored material (scrolling UVs or a Shader Graph); the preset selects a surface, it does not animate one.
+
+**Cost and risk, both real on this target.**
+- The swap material shades ~90% of the frame, so extra samplers are paid on nearly every pixel. Reuse the base albedo where possible and measure on device before shipping — this is the one channel that can plausibly move frame time on WebGL/mobile.
+- Raising smoothness creates a specular response, and with a fixed camera and a fixed directional light that becomes a **stationary hot sweep** rather than something the player can look away from. Cap it, and treat 907×510 as the gate rather than an afterthought.
+- Directional shadows are disabled (GDD §5.5), so wetness will read flatter than reference images from packages that assume shadowing.
+
+**Presets to extend (R14).** Rain: raise smoothness, cool the tint, optional wet material with ripples. Dust: lower smoothness, warm the tint, matte film. Both already carry the tint half.
+
+**Generator (R25/R28).** No extra wiring — the channel travels inside the preset, and `weatherPool` selection already picks the whole thing. The applier must keep capturing whatever the scene's ground material *is* rather than assuming the shipped one, since a generated map may ship its own.
+
+**Done when:** Rain visibly wets the ground and Dust visibly dries it; clearing a preset restores the original shared material and block state exactly (null preset pixel-identical); **no material instance is ever created** (no `(Instance)` in any renderer's material name after repeated apply/clear cycles); frame time on the mobile target is within a stated budget with the swap active; and legibility holds at 907×510 with the specular sweep at its brightest.
+
+---
+
 ### R14 — Rain + Dust presets (S Spectacle)
 `Pin: @VFXDirector.cs @GameManager.cs`
 Author two `WeatherPreset` assets — Rain and Dust — using CFXR where appropriate, each with ≤3 alpha layers of overdraw. Verify both hold the **907×510 legibility bar** (enemies and turret states remain clearly readable through the effect).
