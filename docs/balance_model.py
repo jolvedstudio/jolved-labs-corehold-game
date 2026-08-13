@@ -190,6 +190,18 @@ PADS = {
 
 # ---- Rules (Level_RefineryDelta.asset + WaveManager.cs) ---------------------
 
+# ---- Adopted geometry (roadmap R10) ----------------------------------------
+#
+# The model's STANDING baseline is the spline geometry, matching PathRoute's
+# useSpline default (ON since R9). These are the lengths R9's gate measured on
+# the live map; the pre-spline polyline was 149.985 m on both routes, still
+# reachable with --polyline for comparison. Re-measure and update these two
+# numbers whenever route geometry changes — they are a model input, not a
+# derived value. Margins were verified insensitive to Route_North anywhere in
+# 153.89-154.52 m (wave 10 lands at 1.07 throughout), so the pending merge
+# re-pin does not require a refresh.
+SPLINE_ROUTE_LENGTHS = {0: 153.742, 1: 154.518}
+
 STARTING_SALVAGE = 300
 CORE_INTEGRITY = 20
 HP_GROWTH_PER_WAVE = 0.18
@@ -655,7 +667,7 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
 #  Report
 # =============================================================================
 
-def run_model(difficulty: str, measured_lengths: dict = None):
+def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = False):
     geom = Geometry()
     # Sanity: the live map (fails loudly if the embedded data drifts).
     assert len(geom.pads) == 8, "expected the 8 shipped hardpoints"
@@ -664,8 +676,11 @@ def run_model(difficulty: str, measured_lengths: dict = None):
         assert 145.0 <= r.polyline_length <= 155.0, \
             f"{r.name} polyline {r.polyline_length:.1f} m off the ~150 m live map"
 
-    if measured_lengths:
-        geom.apply_measured_lengths(measured_lengths)
+    # Spline geometry is the standing baseline (R10); --polyline recovers the
+    # pre-spline map, and an explicit override wins over both.
+    lengths = None if polyline else (measured_lengths or SPLINE_ROUTE_LENGTHS)
+    if lengths:
+        geom.apply_measured_lengths(lengths)
 
     built: dict = {}
     salvage = round(STARTING_SALVAGE * DIFFICULTY_ECO_MULT[difficulty])
@@ -711,7 +726,8 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     w(f"geometry: Route_West {geom.routes[0].length:.3f} m, "
       f"Route_North {geom.routes[1].length:.3f} m, "
       f"air corridor {geom.air_length():.2f} m, {len(geom.pads)} pads"
-      + ("  [MEASURED spline lengths — R10]" if scaled else "  [polyline baseline]"))
+      + ("  [spline geometry — the adopted baseline, R10]" if scaled
+         else "  [pre-spline polyline — comparison only]"))
     w("")
     w(f"{'wv':>2} {'requiredHP':>10} {'deliverable':>11} {'margin':>6} "
       f"{'worst-group':>16} {'live':>4} {'salv-pre':>8} {'income':>6}  flags / builds")
@@ -808,19 +824,21 @@ def main(argv=None) -> int:
     ap.add_argument("--difficulty", choices=list(DIFFICULTY_HP_MULT),
                     default="normal")
     ap.add_argument("--measured-lengths", metavar="WEST,NORTH", type=parse_measured,
-                    help="measured ground-route lengths in metres (R9's gate report) — "
-                         "the model then reports the per-wave margin delta vs the polyline baseline")
+                    help="override the adopted ground-route lengths in metres — "
+                         "the model then reports the per-wave margin delta vs the polyline")
+    ap.add_argument("--polyline", action="store_true",
+                    help="run the PRE-SPLINE polyline geometry (149.985 m routes) for comparison")
     ap.add_argument("--report", metavar="PATH",
                     help="also write the table to this file")
     ap.add_argument("--json", metavar="PATH",
                     help="also dump rows as JSON (for delta tooling, R10)")
     args = ap.parse_args(argv)
 
-    geom, rows, build_log = run_model(args.difficulty, args.measured_lengths)
+    geom, rows, build_log = run_model(args.difficulty, args.measured_lengths, args.polyline)
     report = format_report(args.difficulty, geom, rows, build_log)
 
     if args.measured_lengths:
-        _, base_rows, _ = run_model(args.difficulty)
+        _, base_rows, _ = run_model(args.difficulty, polyline=True)
         report += "\n\n" + format_delta_table(
             args.difficulty, base_rows, rows, args.measured_lengths, geom)
 
@@ -831,7 +849,7 @@ def main(argv=None) -> int:
         # run()/run(veteran)/run(nightmare) printout. Normal is the gate. Any
         # measured geometry applies to every tier, so the file describes one map.
         sections = [report if d == args.difficulty else
-                    format_report(d, *run_model(d, args.measured_lengths))
+                    format_report(d, *run_model(d, args.measured_lengths, args.polyline))
                     for d in ("normal", "veteran", "nightmare")]
         with open(args.report, "w") as f:
             f.write(("\n\n" + "=" * 78 + "\n\n").join(sections) + "\n")

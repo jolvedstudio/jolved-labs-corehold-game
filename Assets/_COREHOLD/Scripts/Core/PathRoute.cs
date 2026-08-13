@@ -45,8 +45,8 @@ namespace Corehold.Core
         [SerializeField] private float spacingBuffer = 0.4f;
 
         [Header("Spline backbone (roadmap R6)")]
-        [Tooltip("When ON, the route is evaluated as a smooth spline through the waypoints (AutoSmooth knots) instead of straight segments. Length and SamplePosition both change, and route geometry is balance-load-bearing — re-run the balance model after flipping this (roadmap R10).")]
-        [SerializeField] private bool useSpline = false;
+        [Tooltip("When ON, the route is evaluated as a smooth spline through the waypoints (AutoSmooth knots) instead of straight segments. DEFAULT ON since R9 — the balance model is baselined on the resulting spline lengths (R10), so turning it off puts a route out of step with the model. Route geometry is balance-load-bearing: re-run docs/balance_model.py after changing this.")]
+        [SerializeField] private bool useSpline = true;
 
         [Tooltip("Arc-length table resolution: samples per knot interval. Higher = finer distance→position mapping. Rebuilt only when the waypoints actually move, so this costs nothing per frame.")]
         [SerializeField] private int samplesPerCurve = 16;
