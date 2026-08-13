@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using Corehold.Core;
 using Corehold.Enemies;
+using TMPro;
 using UnityEngine;
 
 namespace Corehold.UI
@@ -61,6 +63,16 @@ namespace Corehold.UI
         [SerializeField] private Color barFillColor = new Color(0.3f, 0.9f, 0.4f, 1f);
         [SerializeField] private Color barFillLowColor = new Color(1f, 0.35f, 0.25f, 1f);
 
+        [Header("Kill-streak combo labels (R2)")]
+        [Tooltip("[TUNE] Seconds a combo label stays up (unscaled, like the HUD tweens).")]
+        [SerializeField] private float comboLifetime = 0.9f;
+
+        [Tooltip("[TUNE] Metres per second the combo label drifts upward while fading.")]
+        [SerializeField] private float comboRiseSpeed = 1.4f;
+
+        [Tooltip("[TUNE] World-space font size of the combo label (legibility bar: readable at 907×510).")]
+        [SerializeField] private float comboFontSize = 5f;
+
         private Camera _cam;
         private Transform _root;
         private Mesh _quad;
@@ -95,6 +107,20 @@ namespace Corehold.UI
         private static readonly int ColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int ColorIdLegacy = Shader.PropertyToID("_Color");
 
+        // Pooled world-space kill-streak combo labels (R2). Same doctrine as the
+        // bars/pips: one manager, one LateUpdate, pooled, no per-label component.
+        private sealed class ComboLabel
+        {
+            public GameObject go;
+            public Transform tr;
+            public TextMeshPro tmp;
+            public float age;
+        }
+
+        private readonly List<ComboLabel> _comboActive = new List<ComboLabel>();
+        private readonly Stack<ComboLabel> _comboPool = new Stack<ComboLabel>();
+        private GameManager _gm;
+
         private void Awake()
         {
             _cam = Camera.main;
@@ -105,6 +131,30 @@ namespace Corehold.UI
             var rootGo = new GameObject("Overlays");
             rootGo.transform.SetParent(transform, false);
             _root = rootGo.transform;
+        }
+
+        private void OnEnable()
+        {
+            _gm = GameManager.Instance;
+            if (_gm != null)
+                _gm.OnStreakChanged += HandleStreakChanged;
+        }
+
+        private void Start()
+        {
+            // Late-bind in case GameManager was not ready during OnEnable.
+            if (_gm == null)
+            {
+                _gm = GameManager.Instance;
+                if (_gm != null)
+                    _gm.OnStreakChanged += HandleStreakChanged;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (_gm != null)
+                _gm.OnStreakChanged -= HandleStreakChanged;
         }
 
         private void LateUpdate()
@@ -150,6 +200,27 @@ namespace Corehold.UI
             // 3. Reclaim overlays whose enemy is gone.
             for (int i = 0; i < _toRemove.Count; i++)
                 Release(_toRemove[i]);
+
+            // 4. Tick the combo labels (R2): rise, fade, billboard — unscaled so
+            // the 2× toggle does not distort the readout (GDD §9.6).
+            for (int i = _comboActive.Count - 1; i >= 0; i--)
+            {
+                ComboLabel label = _comboActive[i];
+                label.age += Time.unscaledDeltaTime;
+                if (label.age >= comboLifetime)
+                {
+                    label.go.SetActive(false);
+                    _comboPool.Push(label);
+                    _comboActive.RemoveAt(i);
+                    continue;
+                }
+                label.tr.position += Vector3.up * (comboRiseSpeed * Time.unscaledDeltaTime);
+                label.tr.rotation = face;
+                float alpha = 1f - Mathf.Clamp01(label.age / comboLifetime);
+                Color c = label.tmp.color;
+                c.a = alpha;
+                label.tmp.color = c;
+            }
 
             // Turret health bars are handled by a self-contained WorldHealthBar
             // component attached in Tower.Build — not tracked here.
@@ -239,6 +310,51 @@ namespace Corehold.UI
                     _pool.Push(o);
                 }
             }
+        }
+
+        // ----- Kill-streak combo labels (R2) -----
+
+        private void HandleStreakChanged(int streak, int bonus, Vector3 worldPos)
+        {
+            ComboLabel label = _comboPool.Count > 0 ? _comboPool.Pop() : BuildComboLabel();
+            label.age = 0f;
+            label.go.SetActive(true);
+            label.tr.position = worldPos + Vector3.up * (heightAboveHit + pipGap + 0.6f);
+
+            var theme = UITheme.Instance;
+            // Cyan → amber as the streak deepens, so a long streak reads hotter.
+            Color cool = theme != null ? theme.cyan : Color.cyan;
+            Color hot = theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f);
+            label.tmp.color = Color.Lerp(cool, hot, Mathf.Clamp01((streak - 2) / 6f));
+            label.tmp.text = bonus > 0 ? $"×{streak}  +{bonus}" : $"×{streak}";
+
+            _comboActive.Add(label);
+        }
+
+        private ComboLabel BuildComboLabel()
+        {
+            var label = new ComboLabel();
+            label.go = new GameObject("ComboLabel");
+            label.go.transform.SetParent(_root, false);
+            label.tr = label.go.transform;
+
+            label.tmp = label.go.AddComponent<TextMeshPro>();
+            label.tmp.fontSize = comboFontSize;
+            label.tmp.alignment = TextAlignmentOptions.Center;
+            label.tmp.textWrappingMode = TextWrappingModes.NoWrap;
+            var theme = UITheme.Instance;
+            if (theme != null && theme.font != null)
+                label.tmp.font = theme.font;
+            label.tmp.fontStyle = FontStyles.Bold;
+            label.tmp.sortingOrder = 100; // above the pips/bars
+
+            var mr = label.go.GetComponent<MeshRenderer>();
+            if (mr != null)
+            {
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+            }
+            return label;
         }
 
         private static Color ArmourColor(Data.ArmourType armour)

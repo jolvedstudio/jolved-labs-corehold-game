@@ -378,9 +378,10 @@ namespace Corehold.Enemies
             if (Corehold.Systems.AudioDirector.Instance != null)
                 Corehold.Systems.AudioDirector.Instance.PlayEnemyDeath(definition);
 
-            // Award salvage bounty to the player (GDD §7.3).
+            // Award salvage bounty to the player (GDD §7.3), routed through the
+            // kill-streak path (R2) so rapid kills escalate the payout.
             if (GameManager.Instance != null && bounty > 0)
-                GameManager.Instance.AddSalvage(bounty);
+                GameManager.Instance.AddKillSalvage(bounty, HitPoint);
 
             // Raise OnDied immediately so EnemyAnimatorBridge can fire the Die
             // trigger and start the death animation (GDD §6.3). The GameObject is

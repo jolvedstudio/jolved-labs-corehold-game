@@ -340,15 +340,26 @@ namespace Corehold.Systems
             return Play(e, position, forward);
         }
 
-        /// <summary>Impact spark where a shot strikes a unit (GDD §11).</summary>
-        public CFXR_Effect PlayImpact(Vector3 position) => Play(Effect.ImpactSpark, position);
+        /// <summary>
+        /// Impact spark where a shot strikes a unit (GDD §11), plus the standard
+        /// small screen kick (R5 — CameraShake owns intensity and accessibility).
+        /// </summary>
+        public CFXR_Effect PlayImpact(Vector3 position)
+        {
+            if (CameraShake.Instance != null)
+                CameraShake.Instance.KickImpact(position);
+            return Play(Effect.ImpactSpark, position);
+        }
 
         /// <summary>
         /// Splash explosion sized by radius: the smaller effect below the threshold,
         /// the larger one at or above it (GDD §11 — "two explosion sizes for splash").
+        /// Explosions carry the larger screen kick of the R5 impact standard.
         /// </summary>
         public CFXR_Effect PlayExplosion(Vector3 position, float splashRadius)
         {
+            if (CameraShake.Instance != null)
+                CameraShake.Instance.KickExplosion(position);
             Effect e = splashRadius >= LargeSplashThreshold ? Effect.ExplosionLarge : Effect.ExplosionSmall;
             return Play(e, position);
         }
@@ -356,8 +367,17 @@ namespace Corehold.Systems
         /// <summary>Death burst when an enemy dies (GDD §11).</summary>
         public CFXR_Effect PlayEnemyDeath(Vector3 position) => Play(Effect.EnemyDeath, position);
 
-        /// <summary>Flash on the Core when it takes a leak hit (GDD §11).</summary>
-        public CFXR_Effect PlayCoreHit(Vector3 position) => Play(Effect.CoreHit, position);
+        /// <summary>
+        /// Flash on the Core when it takes a leak hit (GDD §11), with the medium
+        /// screen kick (R5). The trauma shake for Core hits stays where it was
+        /// (Enemy.ReachCore → ShakeCoreHit); this is the sharper directional nudge.
+        /// </summary>
+        public CFXR_Effect PlayCoreHit(Vector3 position)
+        {
+            if (CameraShake.Instance != null)
+                CameraShake.Instance.KickCoreHit(position);
+            return Play(Effect.CoreHit, position);
+        }
 
         /// <summary>Puff when a turret is built on a hardpoint (GDD §11).</summary>
         public CFXR_Effect PlayBuildPuff(Vector3 position) => Play(Effect.BuildPuff, position);

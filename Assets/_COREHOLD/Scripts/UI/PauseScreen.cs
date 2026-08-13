@@ -49,6 +49,11 @@ namespace Corehold.UI
 
         public void Show()
         {
+            // End any running time dip first (R3) so we capture the TRUE game
+            // speed — otherwise resume would inherit the dipped 0.3×.
+            if (Corehold.Core.GameManager.Instance != null)
+                Corehold.Core.GameManager.Instance.CancelTimeDip();
+
             _prevTimeScale = Time.timeScale > 0.01f ? Time.timeScale : 1f;
             Time.timeScale = 0f;
             if (root != null) root.SetActive(true);

@@ -62,6 +62,19 @@ namespace Corehold.UI
         [Header("Preview cell template")]
         [SerializeField] private GameObject previewCellTemplate; // has icon Image, count TMP, pip Image
 
+        [Header("Close call (R3)")]
+        [Tooltip("[TUNE] Show CLOSE CALL when a wave completes with core integrity at or below this (0 disables).")]
+        [SerializeField] private int closeCallIntegrityThreshold = 5;
+
+        [Tooltip("[TUNE] Time.timeScale during the last-kill slow-mo dip.")]
+        [SerializeField] private float closeCallDipScale = 0.30f;
+
+        [Tooltip("[TUNE] Unscaled seconds the slow-mo dip lasts.")]
+        [SerializeField] private float closeCallDipSeconds = 0.35f;
+
+        [Tooltip("[TUNE] Unscaled seconds the CLOSE CALL banner stays on screen (including fades).")]
+        [SerializeField] private float closeCallBannerSeconds = 1.6f;
+
         private GameManager _gm;
         private readonly List<Image> _segments = new List<Image>();
         private readonly List<GameObject> _previewCells = new List<GameObject>();
@@ -90,6 +103,7 @@ namespace Corehold.UI
             {
                 waveManager.OnWaveStarted += HandleWaveChanged;
                 waveManager.OnWaveComplete += HandleWaveChanged;
+                waveManager.OnWaveComplete += HandleWaveCompleteCloseCall;
                 waveManager.OnLiveCountChanged += HandleLiveCountChanged;
             }
 
@@ -110,6 +124,7 @@ namespace Corehold.UI
             {
                 waveManager.OnWaveStarted -= HandleWaveChanged;
                 waveManager.OnWaveComplete -= HandleWaveChanged;
+                waveManager.OnWaveComplete -= HandleWaveCompleteCloseCall;
                 waveManager.OnLiveCountChanged -= HandleLiveCountChanged;
             }
             if (startWaveButton != null) startWaveButton.onClick.RemoveListener(OnStartWave);
@@ -272,6 +287,114 @@ namespace Corehold.UI
         private void HandleStateChanged(GameState state)
         {
             RefreshStartButton();
+        }
+
+        // ----- Close call (R3) -----
+
+        private GameObject _closeCallBanner;
+        private CanvasGroup _closeCallGroup;
+        private TMP_Text _closeCallText;
+        private Coroutine _closeCallRoutine;
+
+        /// <summary>
+        /// R3: when the field clears with the Core nearly lost, stamp the moment —
+        /// a CLOSE CALL banner, a sting, and a brief slow-mo on that last kill
+        /// (the dip is owned by GameManager and is interrupt-safe).
+        /// </summary>
+        private void HandleWaveCompleteCloseCall(int waveNumber)
+        {
+            if (closeCallIntegrityThreshold <= 0 || _gm == null)
+                return;
+            if (_gm.Integrity <= 0 || _gm.Integrity > closeCallIntegrityThreshold)
+                return;
+
+            if (AudioDirector.Instance != null)
+                AudioDirector.Instance.Play(AudioDirector.Sfx.CloseCall);
+
+            _gm.TimeDip(closeCallDipScale, closeCallDipSeconds);
+
+            if (_closeCallRoutine != null)
+                StopCoroutine(_closeCallRoutine);
+            _closeCallRoutine = StartCoroutine(CloseCallBannerRoutine());
+        }
+
+        private void EnsureCloseCallBanner()
+        {
+            if (_closeCallBanner != null)
+                return;
+
+            _closeCallBanner = new GameObject("CloseCallBanner",
+                typeof(RectTransform), typeof(CanvasGroup));
+            var rt = (RectTransform)_closeCallBanner.transform;
+            rt.SetParent(transform, false);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.70f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(640f, 96f);
+
+            _closeCallGroup = _closeCallBanner.GetComponent<CanvasGroup>();
+            _closeCallGroup.blocksRaycasts = false;
+            _closeCallGroup.interactable = false;
+
+            var textGo = new GameObject("Label", typeof(RectTransform));
+            var textRt = (RectTransform)textGo.transform;
+            textRt.SetParent(rt, false);
+            textRt.anchorMin = Vector2.zero;
+            textRt.anchorMax = Vector2.one;
+            textRt.offsetMin = textRt.offsetMax = Vector2.zero;
+
+            _closeCallText = textGo.AddComponent<TextMeshProUGUI>();
+            _closeCallText.text = "CLOSE CALL";
+            _closeCallText.alignment = TextAlignmentOptions.Center;
+            _closeCallText.fontStyle = FontStyles.Bold;
+            _closeCallText.fontSize = theme != null ? theme.fontSizeLarge * 1.6f : 54f;
+            _closeCallText.color = theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f);
+            if (theme != null && theme.font != null)
+                _closeCallText.font = theme.font;
+
+            _closeCallBanner.SetActive(false);
+        }
+
+        private IEnumerator CloseCallBannerRoutine()
+        {
+            EnsureCloseCallBanner();
+            _closeCallBanner.SetActive(true);
+
+            var rt = (RectTransform)_closeCallBanner.transform;
+            float total = Mathf.Max(0.5f, closeCallBannerSeconds);
+            const float inDur = 0.14f;
+            float outDur = Mathf.Min(0.45f, total * 0.35f);
+            float hold = total - inDur - outDur;
+
+            // Pop in (unscaled — the dip must not slow its own banner).
+            float t = 0f;
+            while (t < inDur)
+            {
+                t += Time.unscaledDeltaTime;
+                float k = Mathf.Clamp01(t / inDur);
+                _closeCallGroup.alpha = k;
+                rt.localScale = Vector3.one * Mathf.Lerp(1.18f, 1f, k);
+                yield return null;
+            }
+            _closeCallGroup.alpha = 1f;
+            rt.localScale = Vector3.one;
+
+            t = 0f;
+            while (t < hold)
+            {
+                t += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            t = 0f;
+            while (t < outDur)
+            {
+                t += Time.unscaledDeltaTime;
+                _closeCallGroup.alpha = 1f - Mathf.Clamp01(t / outDur);
+                yield return null;
+            }
+
+            _closeCallBanner.SetActive(false);
+            _closeCallRoutine = null;
         }
 
         private void RefreshWave()

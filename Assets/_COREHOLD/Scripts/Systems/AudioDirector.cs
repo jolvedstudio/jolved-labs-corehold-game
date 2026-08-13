@@ -71,7 +71,11 @@ namespace Corehold.Systems
             /// <summary>Turret placed on a hardpoint (build puff).</summary>
             Build,
             /// <summary>Core alarm when the Core takes a leak hit (Creepy Cat).</summary>
-            CoreAlarm
+            CoreAlarm,
+            /// <summary>Kill-streak step (R2) — replayed with a rising pitch scale as the streak grows. APPEND-ONLY: enum values are serialized by index in the scene.</summary>
+            StreakStep,
+            /// <summary>"CLOSE CALL" sting when a wave ends with the Core nearly lost (R3).</summary>
+            CloseCall
         }
 
         [System.Serializable]
@@ -121,6 +125,8 @@ namespace Corehold.Systems
             new SfxEntry { id = Sfx.UIClick,     volume = 0.8f, pitchSpread = 0f },
             new SfxEntry { id = Sfx.Build,       volume = 0.8f, pitchSpread = 0f },
             new SfxEntry { id = Sfx.CoreAlarm,   volume = 1.0f, pitchSpread = 0f },
+            new SfxEntry { id = Sfx.StreakStep,  volume = 0.8f, pitchSpread = 0f },
+            new SfxEntry { id = Sfx.CloseCall,   volume = 0.9f, pitchSpread = 0f },
         };
 
         [Header("Turret rotation loop (GDD §10)")]
@@ -330,7 +336,15 @@ namespace Corehold.Systems
         public void Play(Sfx id) => Play(id, 1f);
 
         /// <summary>Play a one-shot with an extra volume scale (0..1+).</summary>
-        public void Play(Sfx id, float volumeScale)
+        public void Play(Sfx id, float volumeScale) => Play(id, volumeScale, 1f);
+
+        /// <summary>
+        /// Play a one-shot with an extra volume scale AND a pitch scale (R2 —
+        /// the kill-streak step rises in pitch per step). The pitch scale
+        /// multiplies the entry's ±spread random pitch and is clamped to a
+        /// musical range so a runaway streak never chipmunks the mix.
+        /// </summary>
+        public void Play(Sfx id, float volumeScale, float pitchScale)
         {
             if (!_clips.TryGetValue(id, out SfxEntry entry) || entry.clip == null)
                 return;
@@ -360,8 +374,8 @@ namespace Corehold.Systems
                 return;
 
             voice.clip = entry.clip;
-            voice.volume = Mathf.Clamp01(entry.volume) * SfxGain;
-            voice.pitch = RandomPitch(entry.pitchSpread);
+            voice.volume = Mathf.Clamp01(entry.volume * Mathf.Max(0f, volumeScale)) * SfxGain;
+            voice.pitch = Mathf.Clamp(RandomPitch(entry.pitchSpread) * pitchScale, 0.5f, 2.5f);
             voice.Play();
         }
 
