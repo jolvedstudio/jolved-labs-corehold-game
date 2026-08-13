@@ -254,7 +254,17 @@ public static class GenerationPipeline
     private static StageResult StProtected(Context ctx)
     {
         LevelBlueprint b = ctx.blueprint;
-        ctx.layout = b.parityLayout ? ShippedLayout.Get(b) : null;
+        string synthReport = null;
+        ctx.layout = b.parityLayout
+            ? ShippedLayout.Get(b)
+            : RouteSynthesizer.Synthesize(b, out synthReport);
+
+        // A null layout is a blueprint problem, not a seed problem — the
+        // synthesizer says which field/foldWidth/target constraint is violated.
+        if (ctx.layout == null)
+            return StageResult.Fail("route synthesis refused this blueprint:\n" + synthReport);
+        if (synthReport != null)
+            Debug.Log("[R27] " + synthReport);
 
         // The level container lives under _Level, named for the blueprint —
         // "RefineryLevel" only for the parity map, which must mirror the scene.
@@ -275,10 +285,6 @@ public static class GenerationPipeline
 
     private static StageResult StRoutes(Context ctx)
     {
-        if (ctx.layout == null)
-            return StageResult.Fail("route synthesis is R27 — only parity blueprints generate until it lands. " +
-                                    "Tick parityLayout on this blueprint, or wait for the synthesizer.");
-
         var log = new StringBuilder();
         var routesRoot = new GameObject("Routes");
         routesRoot.transform.SetParent(ctx.levelContainer, false);

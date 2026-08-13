@@ -97,44 +97,64 @@ public static class GenerationGates
             sampled.Add((route, pts, dist));
         }
 
+        // A merge is a DESIGNED pinch: one route's approach folds onto the
+        // shared tail, and the lane band legitimately self-overlaps around the
+        // join — the SHIPPED map pinches to ~2.5 m there. Both separation
+        // checks therefore exempt the merge zone; everything outside it is a
+        // real violation.
+        bool hasMerge = sampled.Count == 2;
+        Vector3 mergePoint = hasMerge ? FindMergePoint(routes[0], routes[1]) : Vector3.zero;
+
         foreach (var (route, pts, dist) in sampled)
         {
             float worst = float.MaxValue;
             float worstAt = 0f;
             for (int i = 0; i < pts.Count; i++)
+            {
+                if (hasMerge && HorizontalDistance(pts[i], mergePoint) < MergeExclusion)
+                    continue;
                 for (int j = i + 1; j < pts.Count; j++)
                 {
                     if (dist[j] - dist[i] < SelfArcWindow)
                         continue;
+                    if (hasMerge && HorizontalDistance(pts[j], mergePoint) < MergeExclusion)
+                        continue;
                     float d = HorizontalDistance(pts[i], pts[j]);
                     if (d < worst) { worst = d; worstAt = dist[i]; }
                 }
+            }
             if (worst < MinRouteSeparation)
                 problems.AppendLine($"  • {route.name} approaches itself at {worst:0.##} m " +
                                     $"(≥{MinRouteSeparation:0.##} m required) near arc {worstAt:0.#} m — " +
                                     "two lane bands would overlap");
         }
 
-        if (sampled.Count == 2)
+        if (hasMerge)
         {
-            Vector3 merge = FindMergePoint(routes[0], routes[1]);
+            // Samples past the merge lie on the SHARED tail — identical
+            // geometry on both routes, but sampled at different arc phases, so
+            // a coincidence epsilon misses them by up to a full step. Exclude
+            // shared-tail pairs by ARC POSITION instead: a pair only counts
+            // when at least one sample is on an un-shared approach leg.
+            float mergeArcA = ArcDistanceAtPoint(routes[0], mergePoint);
+            float mergeArcB = ArcDistanceAtPoint(routes[1], mergePoint);
+
             float worst = float.MaxValue;
             Vector3 worstAtA = Vector3.zero;
             for (int i = 0; i < sampled[0].pts.Count; i++)
             {
                 Vector3 a = sampled[0].pts[i];
-                if (HorizontalDistance(a, merge) < MergeExclusion)
+                if (HorizontalDistance(a, mergePoint) < MergeExclusion)
                     continue;
                 for (int j = 0; j < sampled[1].pts.Count; j++)
                 {
                     Vector3 b = sampled[1].pts[j];
-                    if (HorizontalDistance(b, merge) < MergeExclusion)
+                    if (HorizontalDistance(b, mergePoint) < MergeExclusion)
                         continue;
-                    // The shared tail is identical geometry on both routes —
-                    // exclude coincident samples, they are the same lane.
+                    if (sampled[0].dist[i] >= mergeArcA - 0.5f &&
+                        sampled[1].dist[j] >= mergeArcB - 0.5f)
+                        continue;                       // both on the shared tail
                     float d = HorizontalDistance(a, b);
-                    if (d < 0.05f)
-                        continue;
                     if (d < worst) { worst = d; worstAtA = a; }
                 }
             }
@@ -150,6 +170,19 @@ public static class GenerationGates
         summary = $"lengths in ±5% of {target:0.#} m; margins held; " +
                   $"no approach under {MinRouteSeparation:0.##} m";
         return null;
+    }
+
+    /// <summary>Arc distance along a route of the knot at (or nearest) a world point.</summary>
+    private static float ArcDistanceAtPoint(PathRoute route, Vector3 point)
+    {
+        int best = 0;
+        float bestSq = float.MaxValue;
+        for (int i = 0; i < route.PointCount; i++)
+        {
+            float sq = (route.GetPoint(i) - point).sqrMagnitude;
+            if (sq < bestSq) { bestSq = sq; best = i; }
+        }
+        return route.DistanceAlongAt(best);
     }
 
     /// <summary>First knot (walking back from the core) where the two routes coincide.</summary>
