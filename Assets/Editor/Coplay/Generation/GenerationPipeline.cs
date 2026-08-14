@@ -496,7 +496,7 @@ public static class GenerationPipeline
         // primary-only when a shared tail carries every shared span, all of
         // them when the approaches are disjoint. Gate 2 must measure what
         // selection promised, or the census fails for bookkeeping reasons.
-        PathRoute[] scoringRoutes = ctx.layout.sharedTail
+        Corehold.Core.PathRoute[] scoringRoutes = ctx.layout.sharedTail
             ? new[] { ctx.routes[0] }
             : ctx.routes.ToArray();
         bool satisfied = RefineryDeltaBlockout.BuildHardpoints(
