@@ -25,10 +25,23 @@ namespace Corehold.Data
         /// assigned from MEASURED coverage, never from intent (R28): a pad is
         /// Premium because it scored 4+ covered spans, not because it was labelled
         /// one. The shipped map is 3 / 2 / 2 / 1.
+        ///
+        /// <b>This is the only pad count in the blueprint.</b> There is no separate
+        /// total field: a total and a breakdown that must agree will eventually
+        /// disagree, and the disagreement blocks generation over a number nothing
+        /// reads. The total is <see cref="Total"/>, and <see cref="WithTotal"/>
+        /// turns "I want N pads" back into a mix.
         /// </summary>
         [System.Serializable]
         public struct PadClassMix
         {
+            /// <summary>
+            /// Premium pads the coverage rule demands (R28's gate: three pads at
+            /// 4+ covered spans). The blueprint validator, the gate and
+            /// <see cref="WithTotal"/> all read it here so the floor is one number.
+            /// </summary>
+            public const int MinPremium = 3;
+
             [Tooltip("Pads covering 4+ spans. The coverage rule needs at least THREE, so a blueprint below that can never pass the gate.")]
             public int premium;
 
@@ -41,8 +54,54 @@ namespace Corehold.Data
             [Tooltip("Siege Mortar homes — set back, sparse close coverage inside the 20 m ring / 6 m dead zone.")]
             public int overwatch;
 
-            /// <summary>Total pads this mix asks for.</summary>
+            /// <summary>Total pads this mix asks for — the map's hardpoint count.</summary>
             public int Total => premium + standard + rear + overwatch;
+
+            /// <summary>
+            /// This mix re-spread to <paramref name="wanted"/> pads, so a designer
+            /// can drive the total directly and get a valid breakdown back.
+            ///
+            /// The rule is stated rather than clever, because a silent
+            /// redistribution that surprises you is worse than one you can predict:
+            /// growth lands entirely on <b>Standard</b>, the only class with no
+            /// structural precondition (Premium needs geometry that scores 4+ spans,
+            /// Rear needs the final approach, Overwatch needs a ≥12 m fold). Shrink
+            /// takes from Standard first, then Overwatch, then Rear, and only then
+            /// from Premium — which never drops below <see cref="MinPremium"/>,
+            /// since a mix under it can never pass the coverage gate. A total below
+            /// that floor is clamped up to it for the same reason.
+            /// </summary>
+            public PadClassMix WithTotal(int wanted)
+            {
+                PadClassMix m = this;
+                m.premium = Mathf.Max(m.premium, MinPremium);
+                m.standard = Mathf.Max(m.standard, 0);
+                m.rear = Mathf.Max(m.rear, 0);
+                m.overwatch = Mathf.Max(m.overwatch, 0);
+
+                int delta = Mathf.Max(wanted, MinPremium) - m.Total;
+                if (delta >= 0)
+                {
+                    m.standard += delta;
+                    return m;
+                }
+
+                int owed = -delta;
+                TakeFrom(ref m.standard, 0, ref owed);
+                TakeFrom(ref m.overwatch, 0, ref owed);
+                TakeFrom(ref m.rear, 0, ref owed);
+                TakeFrom(ref m.premium, MinPremium, ref owed);
+                return m;
+            }
+
+            private static void TakeFrom(ref int slot, int floor, ref int owed)
+            {
+                int take = Mathf.Min(owed, slot - floor);
+                if (take <= 0)
+                    return;
+                slot -= take;
+                owed -= take;
+            }
         }
 
         [Header("Determinism")]
@@ -81,11 +140,14 @@ namespace Corehold.Data
         public bool airCorridor = true;
 
         [Header("Hardpoints (R28)")]
-        [Tooltip("Total pads to select. Must equal the class mix total.")]
-        public int hardpointCount = 8;
-
-        [Tooltip("How those pads break down by class. Premium must be ≥3 or the coverage rule is unsatisfiable.")]
+        [Tooltip("The pad set, by class — and the map's pad COUNT, which is just their sum. " +
+                 "Premium must be ≥3 or the coverage rule is unsatisfiable. To drive the total " +
+                 "instead, use the Level Generator window's 'Total pads' field: it re-spreads " +
+                 "the mix for you rather than storing a second number to keep in sync.")]
         public PadClassMix classMix = new PadClassMix { premium = 3, standard = 2, rear = 2, overwatch = 1 };
+
+        /// <summary>Pads this map will have. The mix is the authority; this is its sum.</summary>
+        public int HardpointCount => classMix.Total;
 
         [Header("Dressing & atmosphere")]
         [Tooltip("Themes this level may be dressed in. The seed picks one, so a single blueprint yields visually distinct maps. ONE entry pins the theme. Entries carry the footprint radius and height the clearance and occlusion tests need.")]

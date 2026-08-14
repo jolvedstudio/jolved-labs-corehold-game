@@ -52,6 +52,7 @@ Top to bottom:
   - **Rebuild shipped map** (`parityLayout` on) — reproduce Refinery Delta exactly. The seed varies nothing; the gates verify rather than shape. This is the **regression test**: run it after any generator change to prove the pipeline still reproduces the live map.
   - **Generate new map** (`parityLayout` off) — synthesize routes, hardpoints and dressing from the seed. **This is what the generator is for.**
 - **Seed** — with **Seed +1** and **Random** buttons. Changing it clears stale results; edits are undoable. Disabled in parity mode, where it does nothing.
+- **Hardpoints** — **Total pads** plus the per-class breakdown (P/S/R/O). The blueprint stores *only* the breakdown; the total is its sum, so the two can never disagree. Type a new total and the mix **re-spreads itself**: growth goes to **Standard** (the only class with no structural precondition — Premium needs geometry scoring 4+ spans, Rear needs the final approach, Overwatch needs a ≥12 m fold), shrink comes off Standard, then Overwatch, then Rear, and Premium never drops below 3 because the coverage rule needs three pads at 4+ spans. Asking for more pads is a *request*: if the geometry can't host them, gate 2 refuses and names the class that came up short. Disabled in parity mode, where the pad set is the shipped one.
 - **This seed draws** — a preview of the theme, weather, and ground *this exact seed* will pick from the pools, before you spend any time generating.
 - **Validation** — live errors/warnings for the blueprint. Errors disable Generate: the pipeline refuses to start on an invalid blueprint rather than emit a half-right scene.
 - **Generate** — labelled with the stage and gate count. During the run a **cancelable progress bar** shows stage n/18 plus sub-stage detail (candidate scoring, model elapsed time). **Cancel is safe**: it routes through the same discard as a gate failure and leaves nothing behind.
@@ -121,8 +122,7 @@ Both apply to **generated** dressing. Parity dressing is the shipped set a human
 | `foldWidth` | Hairpin pocket width — **hard constraint**. <7.5 m: no pad fits the pocket (validation error). >20 m: Arc Node can't reach both legs (error). <12 m with an Overwatch in the mix: warning — the Mortar pad will sit outside the folds. | 10–11 m shipped; field default 11 |
 | `groundSpawnLegs` | 1 or 2 entrance legs. 1-leg maps get a warning: shipped wave tables send groups to spawner 1. | 2 |
 | `airCorridor` | Straight air lane to the Core. | on |
-| `hardpointCount` | Must equal the class-mix total (validated). | 8 |
-| `classMix` | Premium/Standard/Rear/Overwatch counts. **Premium < 3 is a validation error** — the coverage rule needs three pads at 4+ spans. | 3/2/2/1 |
+| `classMix` | Premium/Standard/Rear/Overwatch counts — **and the pad count, which is their sum.** There is no separate total field. **Premium < 3 is a validation error** — the coverage rule needs three pads at 4+ spans. | 3/2/2/1 (8 pads) |
 | `envPackPool` | Theme candidates; the seed picks one. **One entry = pinned theme.** Every pack in the pool is validated, not just the drawn one. | see §8 |
 | `weatherPool` | **Override only.** Empty = the drawn theme's own pool decides (an ice map can't draw desert dust). Empty in both = the authored look, pixel-identical. | empty |
 | `rulesTemplate` | LevelDefinition cloned as the emitted rules. Generated maps get solved growth + derived cap on the clone; the template itself is never touched. | `Level_RefineryDelta` |

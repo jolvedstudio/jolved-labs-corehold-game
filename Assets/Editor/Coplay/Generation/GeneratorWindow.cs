@@ -60,6 +60,7 @@ public class GeneratorWindow : EditorWindow
         DrawBlueprintSection();
         if (_blueprint != null)
         {
+            DrawPads();
             DrawDrawPreview();
             DrawValidation(out bool blocked);
             DrawGenerate(blocked);
@@ -159,6 +160,79 @@ public class GeneratorWindow : EditorWindow
                   "a refused seed costs nothing.",
             EditorStyles.wordWrappedMiniLabel);
         EditorGUILayout.Space(2f);
+    }
+
+    /// <summary>
+    /// Pad count and class mix, with the total as a LIVE control rather than a
+    /// stored field.
+    ///
+    /// The blueprint carries the mix only. Typing a total here re-spreads it
+    /// (<see cref="LevelBlueprint.PadClassMix.WithTotal"/>) and writes the mix
+    /// back, so "10 pads" is a thing you can ask for without a second number
+    /// existing to fall out of step with the breakdown — which is what the old
+    /// hardpointCount field did, blocking generation over a value nothing read.
+    /// </summary>
+    private void DrawPads()
+    {
+        EditorGUILayout.Space(4f);
+        EditorGUILayout.LabelField("Hardpoints", EditorStyles.boldLabel);
+
+        // Parity pads are the shipped set, so the mix is a fixed census there —
+        // editing it would only make gate 2 disagree with the map it rebuilt.
+        using (new EditorGUI.DisabledScope(_blueprint.parityLayout))
+        {
+            LevelBlueprint.PadClassMix mix = _blueprint.classMix;
+
+            EditorGUI.BeginChangeCheck();
+            int total = EditorGUILayout.IntField(
+                new GUIContent("Total pads",
+                    "How many pads the map gets. Raising it adds Standard pads; lowering it takes " +
+                    "from Standard, then Overwatch, then Rear. Premium never drops below " +
+                    LevelBlueprint.PadClassMix.MinPremium + " — the coverage rule needs that many at 4+ spans."),
+                mix.Total);
+            if (EditorGUI.EndChangeCheck() && total != mix.Total)
+            {
+                ApplyMix(mix.WithTotal(total), "Change pad count");
+                mix = _blueprint.classMix;               // the per-class fields below show the new spread now
+            }
+
+            EditorGUI.BeginChangeCheck();
+            LevelBlueprint.PadClassMix edited = mix;
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.PrefixLabel(new GUIContent("By class",
+                    "Premium (4+ covered spans) / Standard (2–3) / Rear (final approach + air leg) / " +
+                    "Overwatch (Mortar homes, set back). Classes are assigned from MEASURED coverage — " +
+                    "this asks for a count, the generator proves it."));
+                float labels = EditorGUIUtility.labelWidth;
+                EditorGUIUtility.labelWidth = 18f;
+                edited.premium = EditorGUILayout.IntField("P", mix.premium);
+                edited.standard = EditorGUILayout.IntField("S", mix.standard);
+                edited.rear = EditorGUILayout.IntField("R", mix.rear);
+                edited.overwatch = EditorGUILayout.IntField("O", mix.overwatch);
+                EditorGUIUtility.labelWidth = labels;
+            }
+            bool classEdited = EditorGUI.EndChangeCheck() &&
+                (edited.premium != mix.premium || edited.standard != mix.standard ||
+                 edited.rear != mix.rear || edited.overwatch != mix.overwatch);
+            if (classEdited)
+                ApplyMix(edited, "Change class mix");
+        }
+
+        EditorGUILayout.LabelField(
+            _blueprint.parityLayout
+                ? "Parity rebuilds the shipped 8 pads (3P/2S/2R/1O); the mix is the census the gate checks."
+                : "The mix is the pad count — there is no separate total to keep in sync. More pads only " +
+                  "generate if the geometry can host them; if it can't, gate 2 refuses and names the class.",
+            EditorStyles.wordWrappedMiniLabel);
+    }
+
+    private void ApplyMix(LevelBlueprint.PadClassMix mix, string undoLabel)
+    {
+        Undo.RecordObject(_blueprint, undoLabel);
+        _blueprint.classMix = mix;
+        EditorUtility.SetDirty(_blueprint);
+        _ran = false;                                        // stale results would describe another map
     }
 
     private void DrawDrawPreview()

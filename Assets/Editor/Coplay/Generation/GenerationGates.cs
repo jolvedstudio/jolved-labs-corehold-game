@@ -315,8 +315,10 @@ public static class GenerationGates
                                     $"{covered} span(s) — needs ≥{need}");
         }
 
-        if (premiumAtFour < 3)
-            problems.AppendLine($"  • only {premiumAtFour} Premium pad(s) at ≥4 spans — the rule needs 3");
+        const int minPremium = LevelBlueprint.PadClassMix.MinPremium;
+        if (premiumAtFour < minPremium)
+            problems.AppendLine($"  • only {premiumAtFour} Premium pad(s) at ≥4 spans — " +
+                                $"the rule needs {minPremium}");
 
         var mix = blueprint.classMix;
         CheckCensus(census, byClass, HardpointCoverageGizmo.PadClass.Premium, mix.premium, problems);
