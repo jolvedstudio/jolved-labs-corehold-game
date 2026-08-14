@@ -266,6 +266,97 @@ public class GeneratorWindow : EditorWindow
             EditorGUILayout.HelpBox(e, MessageType.Error);
         foreach (string w in warnings)
             EditorGUILayout.HelpBox(w, MessageType.Warning);
+
+        DrawFixes(ref blocked);
+    }
+
+    /// <summary>Advisor state, recomputed only when the blueprint actually changes.</summary>
+    private int _fixKey;
+    private string _diagnosis;
+    private List<GenerationAdvisor.Fix> _fixes = new List<GenerationAdvisor.Fix>();
+
+    /// <summary>
+    /// The preflight panel: does this blueprint generate, and if not, what one
+    /// change would make it?
+    ///
+    /// It runs the real synthesizer on throwaway copies, which is cheap but not
+    /// free, so it recomputes on a CHANGE KEY rather than every repaint — an
+    /// editor window repaints on mouse movement, and a search per frame would
+    /// make the whole window feel broken.
+    /// </summary>
+    private void DrawFixes(ref bool blocked)
+    {
+        int key = FixKey(_blueprint);
+        if (key != _fixKey)
+        {
+            _fixKey = key;
+            _fixes = GenerationAdvisor.Suggest(_blueprint, out _diagnosis);
+        }
+
+        if (string.IsNullOrEmpty(_diagnosis) && _fixes.Count == 0)
+            return;
+
+        if (!string.IsNullOrEmpty(_diagnosis))
+        {
+            // A structural refusal blocks Generate the same way a validation error
+            // does. Letting the button run a pipeline that cannot reach stage 7 is
+            // a slower way of saying the same thing.
+            blocked = true;
+            EditorGUILayout.HelpBox("This blueprint cannot generate on any seed:\n\n" + _diagnosis,
+                                    MessageType.Error);
+        }
+
+        if (_fixes.Count == 0)
+            return;
+
+        EditorGUILayout.LabelField(_fixes.Count == 1 ? "Suggested fix" : "Suggested fixes",
+                                   EditorStyles.boldLabel);
+        GenerationAdvisor.Fix clicked = null;
+        foreach (GenerationAdvisor.Fix fix in _fixes)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField(fix.why, EditorStyles.wordWrappedMiniLabel);
+                if (GUILayout.Button(fix.label))
+                    clicked = fix;
+            }
+        }
+
+        // Applied AFTER the loop: mutating the blueprint mid-draw changes what the
+        // rest of this pass wants to lay out, and IMGUI does not forgive that.
+        if (clicked != null)
+        {
+            Undo.RecordObject(_blueprint, clicked.label);
+            clicked.apply(_blueprint);
+            EditorUtility.SetDirty(_blueprint);
+            _ran = false;
+            _fixKey = 0;                      // re-diagnose against the edited blueprint
+            Repaint();
+        }
+    }
+
+    /// <summary>
+    /// Everything the advisor's answer depends on, in one int. Deliberately not
+    /// the seed: a structural refusal is the same on every seed, which is the
+    /// whole reason the advisor exists.
+    /// </summary>
+    private static int FixKey(LevelBlueprint b)
+    {
+        if (b == null)
+            return 0;
+        unchecked
+        {
+            int h = b.GetInstanceID();
+            h = h * 31 + b.topology.GetHashCode();
+            h = h * 31 + b.parityLayout.GetHashCode();
+            h = h * 31 + b.playfieldSize.GetHashCode();
+            h = h * 31 + b.protectedNormalizedPos.GetHashCode();
+            h = h * 31 + b.routeLengthTarget.GetHashCode();
+            h = h * 31 + b.foldWidth.GetHashCode();
+            h = h * 31 + b.classMix.premium * 7 + b.classMix.standard * 11 +
+                         b.classMix.rear * 13 + b.classMix.overwatch * 17;
+            return h;
+        }
     }
 
     private void DrawGenerate(bool blocked)
