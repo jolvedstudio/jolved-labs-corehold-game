@@ -130,8 +130,10 @@ namespace Corehold.Data
         [Tooltip("Target spline length in metres, hit within ±5% by iterating hairpin anchors. The shipped routes measure 153.7 / 154.5 m as splines, which is the geometry the balance model is baselined on.")]
         public float routeLengthTarget = 154f;
 
-        [Tooltip("Hairpin pocket width in metres — a HARD synthesis constraint, not an aesthetic one. Below 7.5 m no pad clears the 3.75 m envelope from the pocket centre; above ~20 m the shortest-ranged turret (Arc Node, 10 m) cannot reach both legs; a Mortar pocket needs ≥12 m or both legs sit inside its 6 m dead zone. The shipped folds are 10 and 11 m.")]
-        [Range(7.5f, 20f)] public float foldWidth = 11f;
+        [Tooltip("Hairpin pocket width in metres — a HARD synthesis constraint, not an aesthetic one. Below 7.5 m no pad clears the 3.75 m envelope from the pocket centre; above ~20 m the shortest-ranged turret (Arc Node, 10 m) cannot reach both legs; a Mortar pocket needs ≥12 m or both legs sit inside its 6 m dead zone. The shipped folds are 10 and 11 m, " +
+                 "but the DEFAULT here is 12: the default class mix asks for an Overwatch pad, and 11 would " +
+                 "warn about it on every new blueprint. Parity authors 11 explicitly.")]
+        [Range(7.5f, 20f)] public float foldWidth = 12f;
 
         [Tooltip("Ground entrance legs merging into the shared tail (1-2). Two legs inherit the AutoSmooth merge divergence and REQUIRE R7's world-space tangent pin.")]
         [Range(1, 2)] public int groundSpawnLegs = 2;

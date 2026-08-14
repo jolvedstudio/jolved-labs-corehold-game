@@ -97,6 +97,16 @@ namespace Corehold.Enemies
         public void SetLeakDamage(float value) => leakDamage = Mathf.Max(0f, value);
 
         /// <summary>
+        /// Wave this enemy was spawned for (1-based). Recorded so the chain cap can
+        /// count DISTINCT waves on the field — "two waves in flight" is a statement
+        /// about waves, and a live-enemy count cannot answer it.
+        /// </summary>
+        public int WaveNumber { get; private set; }
+
+        /// <summary>Set the owning wave (called at spawn).</summary>
+        public void SetWaveNumber(int value) => WaveNumber = Mathf.Max(1, value);
+
+        /// <summary>
         /// True if this enemy flies (GDD §6.1). Ground-only turrets skip air units.
         /// Set from the EnemyDefinition at spawn via <see cref="SetIsAir"/>.
         /// </summary>

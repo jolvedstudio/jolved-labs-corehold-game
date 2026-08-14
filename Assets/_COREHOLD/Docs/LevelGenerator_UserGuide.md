@@ -119,7 +119,7 @@ Both apply to **generated** dressing. Parity dressing is the shipped set a human
 | `protectedPrefab` | What you're defending. Empty = shipped platform stack. | warning if empty |
 | `protectedNormalizedPos` | Core position, 0–1 from the field's SW corner. | (0.765, 0.413) → world (34.5, −6.5) |
 | `routeLengthTarget` | Spline length the synthesis fits to ±5%. Balance-load-bearing. | 154 m |
-| `foldWidth` | Hairpin pocket width — **hard constraint**. <7.5 m: no pad fits the pocket (validation error). >20 m: Arc Node can't reach both legs (error). <12 m with an Overwatch in the mix: warning — the Mortar pad will sit outside the folds. | 10–11 m shipped; field default 11 |
+| `foldWidth` | Hairpin pocket width — **hard constraint**. <7.5 m: no pad fits the pocket (validation error). >20 m: Arc Node can't reach both legs (error). <12 m with an Overwatch in the mix: warning — the Mortar pad will sit outside the folds. | 10–11 m shipped; field default **12** (the default mix asks for an Overwatch pad, which needs ≥12) |
 | `groundSpawnLegs` | 1 or 2 entrance legs. 1-leg maps get a warning: shipped wave tables send groups to spawner 1. | 2 |
 | `airCorridor` | Straight air lane to the Core. | on |
 | `classMix` | Premium/Standard/Rear/Overwatch counts — **and the pad count, which is their sum.** There is no separate total field. **Premium < 3 is a validation error** — the coverage rule needs three pads at 4+ spans. | 3/2/2/1 (8 pads) |
