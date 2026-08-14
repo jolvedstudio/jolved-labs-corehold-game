@@ -103,9 +103,12 @@ namespace Corehold.Towers
 
         /// <summary>
         /// Combined damage-per-volley actually dealt (before the damage/armour
-        /// multiplier), summed across every mount and scaled by any aura damage buff.
+        /// multiplier), summed across every mount and scaled by any aura damage
+        /// buff and the tower's veterancy rank (R21).
         /// </summary>
-        public float Damage => HasTier ? CurrentTier.TotalDamagePerVolley * (1f + DamageBonus) : 0f;
+        public float Damage => HasTier
+            ? CurrentTier.TotalDamagePerVolley * (1f + DamageBonus) * VeterancyMultiplier
+            : 0f;
 
         /// <summary>Combined shots-per-second across every mount, scaled by any aura fire-rate buff.</summary>
         public float FireRate => HasTier ? CurrentTier.TotalFireRate * (1f + FireRateBonus) : 0f;
@@ -113,6 +116,9 @@ namespace Corehold.Towers
         // Aura buff fractions, sourced from the owning Tower (0 when none present).
         private float DamageBonus => _tower != null ? _tower.CurrentModifiers.damageBonus : 0f;
         private float FireRateBonus => _tower != null ? _tower.CurrentModifiers.fireRateBonus : 0f;
+
+        // Veterancy damage multiplier from the owning Tower (R21; 1 when none present).
+        private float VeterancyMultiplier => _tower != null ? _tower.VeterancyDamageMultiplier : 1f;
 
         private void Awake()
         {
@@ -248,7 +254,7 @@ namespace Corehold.Towers
             if (_barrelSpin != null)
                 _barrelSpin.NotifyFired();
 
-            float effectiveDamage = weapon.damage * (1f + DamageBonus);
+            float effectiveDamage = weapon.damage * (1f + DamageBonus) * VeterancyMultiplier;
             float effectiveFireRate = weapon.fireRate * (1f + FireRateBonus);
             Color trace = weapon.tracerColor.a > 0f ? weapon.tracerColor : tracerColor;
 
@@ -278,7 +284,7 @@ namespace Corehold.Towers
                 fireTier.splashRadius = weapon.splashRadius;
                 fireTier.projectilePrefab = weapon.projectilePrefab;
                 fireTier.projectileSpeed = weapon.projectileSpeed;
-                Projectile.Spawn(origin, target, fireTier, definition.damageType);
+                Projectile.Spawn(origin, target, fireTier, definition.damageType, _tower);
             }
             else if (weapon.chainTargets > 1)
             {
@@ -398,6 +404,9 @@ namespace Corehold.Towers
         /// <summary>
         /// Apply damage to one enemy with the damage-vs-armour multiplier (GDD §7.1),
         /// reusing the shared table wired at boot. Returns the final damage dealt.
+        /// A hit that flips the enemy from alive to dead credits the owning tower's
+        /// veterancy (R21) — attribution lives at the damage site, so Enemy never
+        /// has to know what a Tower is.
         /// </summary>
         private float ApplyDamage(Enemy enemy, float baseDamage)
         {
@@ -405,7 +414,10 @@ namespace Corehold.Towers
                 ? Projectile.SharedDamageTable.Multiplier(definition.damageType, enemy.ArmourType)
                 : 1f;
             float dealt = baseDamage * mult;
+            bool wasAlive = enemy.IsAlive;
             enemy.TakeDamage(dealt);
+            if (wasAlive && !enemy.IsAlive && _tower != null)
+                _tower.RegisterKill();
             return dealt;
         }
     }
