@@ -33,13 +33,17 @@ This is the sanity path. Do it once before anything else.
 
 You just rebuilt Refinery Delta through the full gated pipeline. The scene is at `Assets/_COREHOLD/Scenes/Generated/`, its rules asset at `Assets/_COREHOLD/Data/Levels/Generated/`.
 
-## 3. Quick start B — your first generated map (5 minutes)
+## 3. Quick start B — your first generated map (2 minutes)
 
-1. In the Project window: **duplicate `Blueprint_RefineryDelta`** (Ctrl+D), rename it — the name feeds the scene and asset filenames.
-2. In the Generator window, switch the mode to **Generate new map**. That toolbar is *the* switch between "rebuild the shipped map" and "synthesize from the seed" (it writes `parityLayout` on the blueprint, so it sticks with the asset).
-3. Pick a **seed** (any integer). Leave everything else at shipped values for a first run.
-4. Select your blueprint in the Generator window → **Generate**.
-5. Didn't like it, or a gate refused the seed? **Seed +1 → Generate.** Reseeding is free and is the intended loop — see §10.
+1. In the Generator window, open **Create a new map**.
+2. Give it a **name**, pick a **shape** (see §4), pick a **theme** if you have one, pick a **pace**.
+3. **Create map** → **Generate**.
+
+That is the whole flow. The four choices are all a new map needs; everything else is defaulted to values that work, the Core is placed where your chosen shape needs it, and the seed is pre-picked to one that actually synthesizes — so a new map opens ready to generate rather than on a refusal you didn't cause.
+
+**Do not duplicate `Blueprint_RefineryDelta` to start a new map.** It carries the shipped Core position, which is right for a corridor and wrong for anything that surrounds the Core, and you will meet a refusal about approach rings for a field you never chose.
+
+Didn't like the result, or a gate refused the seed? **Seed +1 → Generate.** Reseeding is free and is the intended loop — see §10.
 
 ---
 

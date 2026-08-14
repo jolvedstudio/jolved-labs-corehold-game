@@ -81,6 +81,8 @@ public class GeneratorWindow : EditorWindow
         _blueprint = (LevelBlueprint)EditorGUILayout.ObjectField(
             "Level Blueprint", _blueprint, typeof(LevelBlueprint), false);
 
+        DrawNewMap();
+
         if (_blueprint == null)
         {
             EditorGUILayout.HelpBox(
@@ -268,6 +270,110 @@ public class GeneratorWindow : EditorWindow
             EditorGUILayout.HelpBox(w, MessageType.Warning);
 
         DrawFixes(ref blocked);
+    }
+
+    // ------------------------------------------------------------ new map
+
+    private bool _newMapOpen;
+    private string _newMapName = "";
+    private LevelBlueprint.ApproachTopology _newMapTopology = LevelBlueprint.ApproachTopology.Siege;
+    private EnvPack _newMapTheme;
+    private int _newMapPace = 1;
+
+    private static readonly string[] PaceLabels = { "Short", "Standard", "Long" };
+    private static readonly float[] PaceMetres = { 120f, 154f, 185f };
+
+    /// <summary>
+    /// Author a NEW map from four choices, instead of duplicating the parity
+    /// blueprint and editing it.
+    ///
+    /// Duplicating is how every hand-made blueprint so far has started, and it is
+    /// why they arrive broken: the parity asset carries the shipped Core at
+    /// (0.765, 0.413), which is correct for a corridor and wrong for anything that
+    /// surrounds the Core. The designer then meets a refusal about approach rings
+    /// for a field they never chose. Authoring per topology puts the Core where
+    /// that topology needs it, and the map starts valid.
+    /// </summary>
+    private void DrawNewMap()
+    {
+        _newMapOpen = EditorGUILayout.Foldout(_newMapOpen, "Create a new map", true);
+        if (!_newMapOpen)
+            return;
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            _newMapName = EditorGUILayout.TextField(
+                new GUIContent("Name", "Feeds the blueprint, scene and rules-asset filenames."), _newMapName);
+            _newMapTopology = (LevelBlueprint.ApproachTopology)EditorGUILayout.EnumPopup(
+                new GUIContent("Shape", "Where the attackers come from. The Core is placed to suit it."),
+                _newMapTopology);
+            _newMapTheme = (EnvPack)EditorGUILayout.ObjectField(
+                new GUIContent("Theme", "The art set this map is dressed in. Optional — leave empty for greybox."),
+                _newMapTheme, typeof(EnvPack), false);
+            _newMapPace = GUILayout.Toolbar(_newMapPace, PaceLabels);
+            EditorGUILayout.LabelField(
+                $"Route length {PaceMetres[_newMapPace]:0} m — how long each attacker walks under fire. " +
+                "Enemy health growth is re-solved against whichever you pick, so all three are balanced.",
+                EditorStyles.wordWrappedMiniLabel);
+
+            using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(_newMapName)))
+            {
+                if (GUILayout.Button("Create map", GUILayout.Height(24f)))
+                    CreateNewMap();
+            }
+        }
+    }
+
+    private void CreateNewMap()
+    {
+        const string dir = "Assets/_COREHOLD/Data/Blueprints";
+        if (!AssetDatabase.IsValidFolder(dir))
+            AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "Blueprints");
+
+        string safe = _newMapName.Trim().Replace(" ", "");
+        string path = AssetDatabase.GenerateUniqueAssetPath($"{dir}/Blueprint_{safe}.asset");
+
+        var bp = ScriptableObject.CreateInstance<LevelBlueprint>();
+        bp.parityLayout = false;
+        bp.topology = _newMapTopology;
+        bp.routeLengthTarget = PaceMetres[_newMapPace];
+        bp.foldWidth = 12f;
+        bp.airCorridor = true;
+        bp.playfieldSize = new Vector2(130f, 75f);
+
+        // The Core goes where the SHAPE needs it. A surrounded Core has to be
+        // central or its approach ring is cut short by the nearest field edge;
+        // a corridor Core sits east, where the shipped map puts it.
+        bp.protectedNormalizedPos = bp.IsSiege
+            ? new Vector2(0.5f, 0.5f)
+            : new Vector2(0.765f, 0.413f);
+
+        bp.classMix = new LevelBlueprint.PadClassMix { premium = 3, standard = 2, rear = 2, overwatch = 1 };
+        if (_newMapTheme != null)
+            bp.envPackPool = new[] { _newMapTheme };
+        bp.rulesTemplate = AssetDatabase.LoadAssetAtPath<LevelDefinition>(
+            "Assets/_COREHOLD/Data/Levels/Level_RefineryDelta.asset");
+
+        // Seed the search rather than the map: pick the first seed that actually
+        // synthesizes, so a new map opens ready to generate instead of opening on
+        // a refusal the designer did not cause.
+        bp.randomSeed = 1;
+        for (int s = 1; s <= 64; s++)
+        {
+            bp.randomSeed = s;
+            if (RouteSynthesizer.Synthesize(bp, out _) != null)
+                break;
+        }
+
+        AssetDatabase.CreateAsset(bp, path);
+        AssetDatabase.SaveAssets();
+
+        _blueprint = bp;
+        _newMapOpen = false;
+        _newMapName = "";
+        _fixKey = 0;
+        _ran = false;
+        Selection.activeObject = bp;
     }
 
     /// <summary>Advisor state, recomputed only when the blueprint actually changes.</summary>

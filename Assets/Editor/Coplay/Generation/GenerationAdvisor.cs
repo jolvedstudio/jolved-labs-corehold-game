@@ -119,11 +119,36 @@ public static class GenerationAdvisor
             });
         }
 
+        TryThemeFixes(b, fixes);
+
         // ---- can it actually synthesize? --------------------------------------
         if (TrySynthesize(b, out string refusal))
             return fixes;                       // geometry is fine; anything above still stands
 
-        diagnosis = refusal;
+        // Is this seed's geometry unlucky, or is the blueprint impossible? The
+        // question has to be ANSWERED rather than assumed: siege draws its entry
+        // bearings from the seed, and the bearings set the lead-in, the fitted
+        // sweep and therefore the separation. A refusal is genuinely seed-dependent
+        // more often than it looks, and telling a designer "this cannot work" when
+        // Seed +1 would have fixed it is the worse of the two mistakes.
+        int worked = CountWorkingSeeds(b, out int workingSeed);
+        if (worked > 0)
+        {
+            diagnosis = $"Seed {b.randomSeed} does not work here — {refusal}\n\n" +
+                        $"This is bad luck rather than a bad blueprint: {worked} of {SeedSweep} nearby seeds " +
+                        "do work.";
+            fixes.Add(new Fix
+            {
+                label = $"Use seed {workingSeed}",
+                why = $"The nearest seed that generates. Nothing else about your map changes — the seed only " +
+                      "decides where the approaches enter and how the dressing falls.",
+                apply = bp => bp.randomSeed = workingSeed,
+            });
+            return fixes;
+        }
+
+        diagnosis = refusal + $"\n\nNone of {SeedSweep} nearby seeds worked either, so this is the blueprint " +
+                              "rather than the draw — reseeding will not help.";
 
         // Ordered by how little design intent each one spends. Centring the Core
         // on a map whose whole premise is "attackers surround the Core" costs
@@ -141,7 +166,130 @@ public static class GenerationAdvisor
         return fixes;
     }
 
+    /// <summary>Seeds tried when deciding whether a refusal is bad luck or a bad blueprint.</summary>
+    private const int SeedSweep = 16;
+
+    /// <summary>
+    /// How many of the next <see cref="SeedSweep"/> seeds synthesize, and the
+    /// first one that does. Walks upward from the current seed because that is
+    /// what Seed +1 does — the answer should match the button the designer would
+    /// otherwise press by hand, sixteen times.
+    /// </summary>
+    private static int CountWorkingSeeds(LevelBlueprint b, out int firstWorking)
+    {
+        firstWorking = b.randomSeed;
+        int worked = 0;
+        for (int i = 1; i <= SeedSweep; i++)
+        {
+            int candidate = b.randomSeed + i;
+            if (!Works(b, bp => bp.randomSeed = candidate))
+                continue;
+            if (worked == 0)
+                firstWorking = candidate;
+            worked++;
+        }
+        return worked;
+    }
+
     // ------------------------------------------------------------- candidates
+
+    /// <summary>
+    /// Theme problems, which are the other half of what stops a map being made —
+    /// and unlike geometry, most of them are one call to an existing tool.
+    /// </summary>
+    private static void TryThemeFixes(LevelBlueprint b, List<Fix> fixes)
+    {
+        if (b.envPackPool == null || b.envPackPool.Length == 0)
+        {
+            // A project with exactly one theme has an unambiguous answer.
+            string[] guids = AssetDatabase.FindAssets("t:EnvPack");
+            if (guids.Length == 1)
+            {
+                var only = AssetDatabase.LoadAssetAtPath<EnvPack>(AssetDatabase.GUIDToAssetPath(guids[0]));
+                if (only != null)
+                    fixes.Add(new Fix
+                    {
+                        label = $"Use theme '{only.name}'",
+                        why = "This map has no theme, so it would generate as untextured greybox. " +
+                              $"'{only.name}' is the only theme in the project.",
+                        apply = bp => bp.envPackPool = new[] { only },
+                    });
+            }
+            return;
+        }
+
+        foreach (EnvPack pack in b.envPackPool)
+        {
+            if (pack == null)
+                continue;
+
+            if (pack.CountInvalid() > 0)
+            {
+                EnvPack captured = pack;
+                fixes.Add(new Fix
+                {
+                    label = $"Measure '{pack.name}'",
+                    why = $"{pack.CountInvalid()} prop(s) in this theme have no measured size or no role. The " +
+                          "generator needs both to keep props off the routes and out of sight lines, so it " +
+                          "refuses rather than place them blind. Measuring fills the numbers in from the " +
+                          "prefabs themselves.",
+                    apply = _ =>
+                    {
+                        Selection.activeObject = captured;   // the tool reads the selection
+                        EnvPackTools.MeasureSelected();
+                    },
+                });
+            }
+
+            if (pack.CountInRole(EnvPack.PropRole.Silhouette) == 0 &&
+                pack.CountInRole(EnvPack.PropRole.Landmark) > 0)
+            {
+                EnvPack captured = pack;
+                fixes.Add(new Fix
+                {
+                    label = $"Borrow silhouettes from '{pack.name}' landmarks",
+                    why = "The far band behind the playfield has nothing to put in it, so the horizon will be " +
+                          "bare. The two tallest landmarks in this same theme are copied into the silhouette " +
+                          "role — they stay landmarks too, and it is the theme's own art rather than another " +
+                          "theme's, which is what would make a desert map look like a refinery.",
+                    apply = _ => PromoteTallestToSilhouette(captured, 2),
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Copies the tallest Landmark entries into the Silhouette role. Copies rather
+    /// than moves: a landmark is still wanted on the playfield, and the far band
+    /// only needs the same shape at distance.
+    /// </summary>
+    private static void PromoteTallestToSilhouette(EnvPack pack, int count)
+    {
+        if (pack?.entries == null)
+            return;
+
+        var landmarks = new List<EnvPack.Entry>();
+        foreach (EnvPack.Entry e in pack.entries)
+            if (e.prefab != null && e.role == EnvPack.PropRole.Landmark)
+                landmarks.Add(e);
+        if (landmarks.Count == 0)
+            return;
+
+        landmarks.Sort((x, y) => y.height.CompareTo(x.height));
+
+        var grown = new List<EnvPack.Entry>(pack.entries);
+        for (int i = 0; i < Mathf.Min(count, landmarks.Count); i++)
+        {
+            EnvPack.Entry copy = landmarks[i];
+            copy.role = EnvPack.PropRole.Silhouette;
+            grown.Add(copy);
+        }
+
+        Undo.RecordObject(pack, "Borrow silhouettes");
+        pack.entries = grown.ToArray();
+        EditorUtility.SetDirty(pack);
+        AssetDatabase.SaveAssets();
+    }
 
     private static void TryCentreCore(LevelBlueprint b, List<Fix> fixes)
     {
