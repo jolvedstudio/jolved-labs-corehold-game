@@ -149,7 +149,8 @@ namespace Corehold.Towers
             bool currentInRange =
                 _current != null &&
                 _current.IsAlive &&
-                InRange((_current.HitPoint - origin).sqrMagnitude, rangeSqr, minRangeSqr) &&
+                InRange((_current.HitPoint - origin).sqrMagnitude, rangeSqr, minRangeSqr,
+                        _current.AcquisitionDistanceScale) &&
                 CanTarget(_current);
 
             if (!currentInRange)
@@ -169,7 +170,7 @@ namespace Corehold.Towers
                     continue;
 
                 float distSqr = (e.HitPoint - origin).sqrMagnitude;
-                if (!InRange(distSqr, rangeSqr, minRangeSqr))
+                if (!InRange(distSqr, rangeSqr, minRangeSqr, e.AcquisitionDistanceScale))
                     continue;
 
                 float score = Score(e, distSqr);
@@ -186,10 +187,18 @@ namespace Corehold.Towers
                 SetTarget(best);
         }
 
-        /// <summary>Inside the annulus [minRange, range] (both squared, min may be 0).</summary>
-        private static bool InRange(float distSqr, float rangeSqr, float minRangeSqr)
+        /// <summary>
+        /// Inside the annulus [minRange, range] (all squared, min may be 0).
+        /// <paramref name="distanceScale"/> (R20 Blackout) inflates the distance for
+        /// the MAX-range comparison only — an unlit unit is seen at half range, but
+        /// the min-range dead zone stays physical (darkness must never let a Mortar
+        /// fire inside its own dead zone).
+        /// </summary>
+        private static bool InRange(float distSqr, float rangeSqr, float minRangeSqr,
+            float distanceScale = 1f)
         {
-            return distSqr <= rangeSqr && distSqr >= minRangeSqr;
+            float scaledSqr = distSqr * distanceScale * distanceScale;
+            return scaledSqr <= rangeSqr && distSqr >= minRangeSqr;
         }
 
         /// <summary>Air-target gate (GDD §7.2). Ground-only turrets skip air enemies.</summary>

@@ -23,6 +23,8 @@ namespace Corehold.Systems
     ///   K      kill all live enemies
     ///   S      stun all live enemies 3 s (R18 test — Colossus resists 25%)
     ///   L      slow all live enemies 50% for 3 s (R18 test)
+    ///   T      cycle forced wave mutators for waves started AFTER the press
+    ///          (R20 test: None → Storm → Convoy → Overcharge → Blackout → All)
     ///   1/2/3  set difficulty (Normal / Veteran / Nightmare)
     ///   F1     toggle the OnGUI overlay
     /// </summary>
@@ -57,6 +59,8 @@ namespace Corehold.Systems
                 StunAllEnemies();
             if (kb.lKey.wasPressedThisFrame)
                 SlowAllEnemies();
+            if (kb.tKey.wasPressedThisFrame)
+                CycleForcedMutators();
             if (kb.digit1Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Normal);
             if (kb.digit2Key.wasPressedThisFrame)
@@ -166,6 +170,36 @@ namespace Corehold.Systems
                 if (e != null && e.IsAlive) { e.ApplySlow(3f, 0.5f); hit++; }
             }
             Debug.Log($"[DebugConsole] Slowed {hit} live enemies 50% for 3 s (R18).");
+        }
+
+        /// <summary>
+        /// R20 test: cycle a forced mutator set, OR-ed into every wave started
+        /// after the press (already-spawned units keep their stamps).
+        /// </summary>
+        private void CycleForcedMutators()
+        {
+            var wm = FindFirstObjectByType<WaveManager>();
+            if (wm == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WaveManager to force mutators on.");
+                return;
+            }
+
+            var cycle = new[]
+            {
+                Corehold.Data.WaveMutator.None,
+                Corehold.Data.WaveMutator.Storm,
+                Corehold.Data.WaveMutator.Convoy,
+                Corehold.Data.WaveMutator.Overcharge,
+                Corehold.Data.WaveMutator.Blackout,
+                Corehold.Data.WaveMutator.Storm | Corehold.Data.WaveMutator.Convoy |
+                Corehold.Data.WaveMutator.Overcharge | Corehold.Data.WaveMutator.Blackout,
+            };
+
+            int at = System.Array.IndexOf(cycle, wm.DebugForceMutators);
+            wm.DebugForceMutators = cycle[(at + 1) % cycle.Length];
+            Debug.Log($"[DebugConsole] Forced wave mutators: {wm.DebugForceMutators} " +
+                      "(applies to waves started from now; T again to cycle).");
         }
 
         private void SetDifficulty(Difficulty d)

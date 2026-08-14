@@ -29,6 +29,9 @@ namespace Corehold.Core
     ///     being a pacing choice: every remaining wave lands as a single pile.
     ///   • Applies the wave HP scalar 1.0 + 0.18·(wave − 1) and the difficulty
     ///     multipliers (§8.2) at spawn time.
+    ///   • Applies the wave's optional <see cref="WaveMutator"/> flags (R20) at
+    ///     spawn: Storm air speed, Convoy single-lane funnelling, Overcharge
+    ///     HP/bounty, Blackout acquisition stamps. Vanilla when the field is None.
     ///
     /// <see cref="GameManager"/> stays in the Wave state until the live count is
     /// zero AND no wave remains unstarted in the queue.
@@ -75,6 +78,19 @@ namespace Corehold.Core
 
         [Tooltip("Largest body radius any spawnable enemy has, used for the conservative derived-capacity calculation. Set to your biggest unit's radius.")]
         [SerializeField] private float largestBodyRadius = 1.2f;
+
+        [Header("Wave mutators (R20) — applied at spawn when a wave carries the flag")]
+        [Tooltip("[TUNE] Storm: speed multiplier for AIR units of a Storm wave (1.3 = +30%).")]
+        [SerializeField] private float stormAirSpeedMultiplier = 1.3f;
+
+        [Tooltip("[TUNE] Overcharge: HP multiplier for every unit of the wave (1.3 = +30%).")]
+        [SerializeField] private float overchargeHpMultiplier = 1.3f;
+
+        [Tooltip("[TUNE] Overcharge: bounty multiplier for every unit of the wave (1.5 = +50%).")]
+        [SerializeField] private float overchargeBountyMultiplier = 1.5f;
+
+        [Tooltip("[TUNE] Blackout: acquisition-distance multiplier stamped on unlit units (2 = towers see them at half range). Floodlights (R24) restore full range inside their radius.")]
+        [SerializeField] private float blackoutAcquisitionDistanceScale = 2f;
 
         // ----- Runtime rule values (resolved from the level or the fallbacks) -----
         private int _maxLiveEnemies = 14;
@@ -192,6 +208,25 @@ namespace Corehold.Core
             if (w == null || index < 0 || index >= w.Length)
                 return null;
             return w[index];
+        }
+
+        /// <summary>
+        /// Debug/test override (DebugConsole `T`): OR-ed into every wave's mutators
+        /// at start and at each spawn. Not serialized — resets with the domain.
+        /// </summary>
+        public WaveMutator DebugForceMutators { get; set; } = WaveMutator.None;
+
+        /// <summary>
+        /// The mutators in force for a 1-based wave number: the authored flags on
+        /// its WaveDefinition plus any debug override. Derived from the wave number
+        /// (never threaded through spawn state) so pending-queue spawns admitted
+        /// seconds later still read the same answer.
+        /// </summary>
+        public WaveMutator MutatorsForWave(int waveNumber)
+        {
+            WaveDefinition w = GetWave(waveNumber - 1);
+            WaveMutator m = w != null ? w.mutators : WaveMutator.None;
+            return m | DebugForceMutators;
         }
 
         /// <summary>True while any wave still has enemies alive or unspawned in the queue.</summary>
@@ -446,6 +481,11 @@ namespace Corehold.Core
             if (wave == null || wave.groups == null)
                 return;
 
+            // Convoy (R20): every ground group of the wave funnels into ONE
+            // approach — the first ground group's resolved spawner wins for all.
+            bool convoy = (MutatorsForWave(waveNumber) & WaveMutator.Convoy) != 0;
+            int convoySpawner = -1;
+
             int groundOrdinal = 0;
             foreach (var group in wave.groups)
             {
@@ -458,12 +498,21 @@ namespace Corehold.Core
                 // the same approach from always going first. Air is left alone —
                 // it has one spawner and the tables address it correctly.
                 int spawnerIndex = group.spawnerIndex;
-                if (_spreadGroundGroups && !(group.enemy != null && group.enemy.isAir))
+                bool isAirGroup = group.enemy != null && group.enemy.isAir;
+                if (_spreadGroundGroups && !isAirGroup)
                 {
                     int[] ground = GroundSpawnerIndices();
                     if (ground.Length > 0)
                         spawnerIndex = ground[(groundOrdinal + waveNumber) % ground.Length];
                     groundOrdinal++;
+                }
+
+                if (convoy && !isAirGroup)
+                {
+                    if (convoySpawner < 0)
+                        convoySpawner = spawnerIndex;
+                    else
+                        spawnerIndex = convoySpawner;
                 }
 
                 _activeSpawnGroups++;
@@ -604,14 +653,26 @@ namespace Corehold.Core
         {
             enemy.Configure(def);
 
+            // Mutators in force for this unit's wave (R20). Derived here, at the
+            // moment of the actual spawn, so pending-queue admissions match.
+            WaveMutator mutators = MutatorsForWave(waveNumber);
+
             // Route the mover: ground units walk the spawner's route; air units
             // fly straight from the spawner to the Core (EnemyMover reads isAir).
+            // Convoy rides Configure so the single-lane decision precedes the
+            // mover's re-registration with RouteTraffic.
             var mover = enemy.Mover;
             if (mover != null)
             {
                 PathRoute route = spawner != null ? spawner.Route : null;
                 Transform core = spawner != null ? spawner.CoreTarget : null;
-                mover.Configure(def, route, core);
+                bool convoy = (mutators & WaveMutator.Convoy) != 0 && !def.isAir;
+                mover.Configure(def, route, core, convoy);
+
+                // Storm (R20): air units of the wave fly faster, through the wave
+                // multiplier slot so enrage/status effects still compose.
+                if ((mutators & WaveMutator.Storm) != 0 && def.isAir)
+                    mover.WaveSpeedMultiplier = stormAirSpeedMultiplier;
             }
 
             var bridge = enemy.GetComponent<EnemyAnimatorBridge>();
@@ -619,6 +680,11 @@ namespace Corehold.Core
                 bridge.SetDefinition(def);
 
             enemy.SetWaveNumber(waveNumber);
+
+            // Blackout (R20): unlit units count distance double at acquisition.
+            bool overcharge = (mutators & WaveMutator.Overcharge) != 0;
+            enemy.SetAcquisitionDistanceScale(
+                (mutators & WaveMutator.Blackout) != 0 ? blackoutAcquisitionDistanceScale : 1f);
 
             // Wave HP scalar (GDD §8.2): 1 + growth·(wave − 1).
             float waveScalar = 1f + _hpGrowthPerWave * (waveNumber - 1);
@@ -628,11 +694,17 @@ namespace Corehold.Core
             float hpMul = DifficultyHpMultiplier(diff);
             float ecoMul = DifficultyEconomyMultiplier(diff);
 
+            // Overcharge (R20): more HP in, more bounty out.
             float finalHp = def.baseHealth * waveScalar * hpMul;
+            if (overcharge)
+                finalHp *= overchargeHpMultiplier;
             enemy.SetMaxHealth(finalHp);
 
             // Bounty scales with the economy multiplier; leak damage does not (GDD §8.2).
-            enemy.SetBounty(Mathf.RoundToInt(def.bounty * ecoMul));
+            float bounty = def.bounty * ecoMul;
+            if (overcharge)
+                bounty *= overchargeBountyMultiplier;
+            enemy.SetBounty(Mathf.RoundToInt(bounty));
             enemy.SetLeakDamage(def.leakDamage);
         }
 
