@@ -483,7 +483,8 @@ public static class GenerationPipeline
             // R28: clearance-filtered candidates, scored by the real validator,
             // classified from measurement, picked deterministically.
             pads = HardpointSelector.Select(ctx.blueprint, ctx.routes,
-                                            ctx.layout.corePos, out string selReport);
+                                            ctx.layout.corePos, ctx.layout.sharedTail,
+                                            out string selReport);
             if (pads == null)
                 return StageResult.Fail(selReport);
             Debug.Log("[R28] Hardpoint selection:\n" + selReport);
@@ -491,10 +492,15 @@ public static class GenerationPipeline
         }
 
         var log = new StringBuilder();
-        // The gizmo de-duplicates shared spans, and both routes share the snake,
-        // so pads are checked against the primary route — the shipped convention.
+        // Pads are wired to the SAME route set the selector scored against —
+        // primary-only when a shared tail carries every shared span, all of
+        // them when the approaches are disjoint. Gate 2 must measure what
+        // selection promised, or the census fails for bookkeeping reasons.
+        PathRoute[] scoringRoutes = ctx.layout.sharedTail
+            ? new[] { ctx.routes[0] }
+            : ctx.routes.ToArray();
         bool satisfied = RefineryDeltaBlockout.BuildHardpoints(
-            ctx.levelContainer, ctx.routes[0], pads, log);
+            ctx.levelContainer, scoringRoutes, pads, log);
 
         // A TowerHardpoint has no renderer of its own, so without this the build
         // pads are INVISIBLE and the player cannot see where to build. The disc

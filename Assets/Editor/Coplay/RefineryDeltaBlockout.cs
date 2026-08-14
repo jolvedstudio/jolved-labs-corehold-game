@@ -367,7 +367,11 @@ public static class RefineryDeltaBlockout
     /// coverage rule held (every pad ≥2 spans, ≥3 Premium at ≥4). The generation
     /// pipeline supplies its own pad list; the menu build uses the blockout's.
     /// </summary>
+    /// <summary>Single-route overload — the shipped/corridor convention (shared tail).</summary>
     internal static bool BuildHardpoints(Transform parent, PathRoute route, IList<HP> hps, StringBuilder log)
+        => BuildHardpoints(parent, new[] { route }, hps, log);
+
+    internal static bool BuildHardpoints(Transform parent, PathRoute[] routes, IList<HP> hps, StringBuilder log)
     {
         var hpRoot = new GameObject("Hardpoints");
         hpRoot.transform.SetParent(parent, false);
@@ -388,7 +392,13 @@ public static class RefineryDeltaBlockout
             var gz = go.AddComponent<Corehold.Towers.HardpointCoverageGizmo>();
             gz.intendedTurret = h.kind;
             gz.padClass = h.cls;
-            gz.routes = new[] { route };
+            // The same route set the selector SCORED against, so gate 2 measures
+            // what selection promised. One route when a shared tail carries every
+            // shared span (the shipped convention); all of them when the
+            // approaches are disjoint — a siege pad covering three approaches
+            // credited with one third of its coverage is how siege maps came out
+            // "hosting 1 Premium pad".
+            gz.routes = routes;
 
             int covered = gz.CountCoveredSegments();
             bool isPrem = h.cls == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium;
