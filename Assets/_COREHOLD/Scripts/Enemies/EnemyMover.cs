@@ -28,6 +28,8 @@ namespace Corehold.Enemies
     /// Special behaviours (GDD §6.2) affect only the DESIRED speed / animation:
     ///   • Roller two-phase — drops base speed at the phase fraction, fires OnPhaseChange.
     ///   • Colossus enrage — SpeedMultiplier boost.
+    ///   • Status effects (R18) — StatusSpeedMultiplier, a second slot composed with
+    ///     the enrage multiplier so the two never overwrite each other.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Enemy))]
@@ -67,6 +69,7 @@ namespace Corehold.Enemies
 
         private float _baseSpeed;      // moveSpeed captured at Configure/OnEnable, before multipliers
         private float _speedMultiplier = 1f;
+        private float _statusSpeedMultiplier = 1f;
         private bool _phaseChanged;    // Roller: has the second-phase change fired yet?
 
         private float _renderLaneOffset; // fixed lateral offset (m) this unit renders at
@@ -85,8 +88,8 @@ namespace Corehold.Enemies
         /// <summary>Raised once when the Roller reaches its phase-change fraction (GDD §6.2).</summary>
         public event Action OnPhaseChange;
 
-        /// <summary>Effective movement speed in m/s: base speed × current multiplier.</summary>
-        public float MoveSpeed => _baseSpeed * _speedMultiplier;
+        /// <summary>Effective movement speed in m/s: base speed × enrage × status multipliers.</summary>
+        public float MoveSpeed => _baseSpeed * _speedMultiplier * _statusSpeedMultiplier;
 
         /// <summary>
         /// Desired speed used by the traffic scheduler. Never below
@@ -107,6 +110,19 @@ namespace Corehold.Enemies
         {
             get => _speedMultiplier;
             set => _speedMultiplier = Mathf.Max(0.01f, value);
+        }
+
+        /// <summary>
+        /// Status-effect multiplier slot (R18 stun/slow), owned by
+        /// <see cref="Enemy"/>'s status list and composed with the enrage
+        /// <see cref="SpeedMultiplier"/> rather than sharing its slot. 0 is legal:
+        /// <see cref="DesiredSpeed"/> still floors at minDesiredSpeed, so a stunned
+        /// unit crawls instead of stopping and the car-following chain stays live.
+        /// </summary>
+        public float StatusSpeedMultiplier
+        {
+            get => _statusSpeedMultiplier;
+            set => _statusSpeedMultiplier = Mathf.Clamp(value, 0f, 10f);
         }
 
         /// <summary>True while this unit flies straight to the Core (GDD §5.2).</summary>
@@ -217,6 +233,7 @@ namespace Corehold.Enemies
             _velocity = Vector3.zero;
             _phaseChanged = false;
             _speedMultiplier = 1f;
+            _statusSpeedMultiplier = 1f;
             _baseSpeed = moveSpeed;
             _renderLaneOffset = 0f;
 

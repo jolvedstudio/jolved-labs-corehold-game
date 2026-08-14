@@ -156,8 +156,13 @@ namespace Corehold.Enemies
 
         private float ResolveMoveSpeed()
         {
-            if (mover != null && mover.MoveSpeed > 0.0001f)
-                return mover.MoveSpeed;
+            // DesiredSpeed, not MoveSpeed: under a stun/slow (R18) the multiplier
+            // side collapses toward zero and the unit travels at the clamped
+            // crawl floor — the clip must play at THAT pace, or the feet slide
+            // at full walk speed on a crawling body. For an unaffected unit the
+            // two values are identical.
+            if (mover != null)
+                return mover.DesiredSpeed;
             if (definition != null && definition.moveSpeed > 0.0001f)
                 return definition.moveSpeed;
             return moveSpeedFallback;

@@ -83,5 +83,9 @@ namespace Corehold.Data
 
         [Tooltip("Speed multiplier applied when enraged (e.g. 1.4 = +40%).")]
         public float enrageSpeedMultiplier;
+
+        [Header("Status effects (R18)")]
+        [Tooltip("Fraction (0..1) of any incoming STUN duration this unit shrugs off. 0.25 = stuns last 25% less (the Colossus). Slows are unaffected.")]
+        [Range(0f, 1f)] public float stunResistance;
     }
 }

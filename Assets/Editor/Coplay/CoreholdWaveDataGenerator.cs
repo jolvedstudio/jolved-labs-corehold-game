@@ -63,6 +63,8 @@ namespace Corehold.EditorTools
                     // Colossus enrage (GDD §6.2): +40% speed below 50% health.
                     def.enrageAtHealthFraction = 0.5f;
                     def.enrageSpeedMultiplier = 1.4f;
+                    // R18: the boss shrugs off a quarter of any stun's duration.
+                    def.stunResistance = 0.25f;
                 });
 
             // ----- Wave definitions (GDD §8.1, spawnerIndex per §12.2) -----
@@ -189,6 +191,7 @@ namespace Corehold.EditorTools
             def.secondPhaseSpeed = 0f;
             def.enrageAtHealthFraction = 0f;
             def.enrageSpeedMultiplier = 0f;
+            def.stunResistance = 0f;
             configure?.Invoke(def);
 
             // Link the prefab if one exists.
