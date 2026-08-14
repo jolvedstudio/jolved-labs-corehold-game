@@ -368,6 +368,46 @@ namespace Corehold.Enemies
         {
             IsAlive = false;
 
+            // Everything between here and OnDied is COSMETIC or economic — VFX,
+            // audio, the salvage payout and the HUD it drives. None of it may be
+            // allowed to skip the bookkeeping below, and until this try/catch
+            // existed it could: a MissingReferenceException thrown by the kill-
+            // streak label left OnDied unraised, so the WaveManager never removed
+            // this enemy from its live list. The corpse stayed on the books
+            // forever — the wave could not complete and the chain lock never
+            // released, over a dead text label. A subsystem that draws numbers
+            // must not be able to strand a unit.
+            try
+            {
+                DieEffects();
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogException(e, this);
+            }
+
+            // Bookkeeping. Raised even if the effects above threw, because THIS
+            // is what tells the WaveManager the unit is gone (GDD §8.1) and what
+            // starts the death animation (GDD §6.3).
+            try
+            {
+                OnDied?.Invoke(this);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogException(e, this);
+            }
+
+            if (deathAnimDuration > 0f && isActiveAndEnabled)
+                StartCoroutine(DeactivateAfterDeath());
+            else
+                gameObject.SetActive(false);
+        }
+
+        /// <summary>The death's cosmetics and payout — best-effort, see <see cref="Die"/>.</summary>
+        private void DieEffects()
+        {
+
             // Death burst + a visible explosion (GDD §11), pooled through the
             // VFXDirector. The explosion guarantees a clearly readable death even for
             // enemies whose animator has no Die clip (e.g. the drone). Hide the body
@@ -392,16 +432,6 @@ namespace Corehold.Enemies
             // kill-streak path (R2) so rapid kills escalate the payout.
             if (GameManager.Instance != null && bounty > 0)
                 GameManager.Instance.AddKillSalvage(bounty, HitPoint);
-
-            // Raise OnDied immediately so EnemyAnimatorBridge can fire the Die
-            // trigger and start the death animation (GDD §6.3). The GameObject is
-            // then deactivated after the death clip has had time to play.
-            OnDied?.Invoke(this);
-
-            if (deathAnimDuration > 0f && isActiveAndEnabled)
-                StartCoroutine(DeactivateAfterDeath());
-            else
-                gameObject.SetActive(false);
         }
 
         /// <summary>

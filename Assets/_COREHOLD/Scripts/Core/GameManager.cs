@@ -267,7 +267,19 @@ namespace Corehold.Core
                     Corehold.Systems.AudioDirector.Instance.Play(
                         Corehold.Systems.AudioDirector.Sfx.StreakStep, 1f, pitch);
                 }
-                OnStreakChanged?.Invoke(CurrentStreak, bonus, worldPos);
+                // Contained here as well as at the call site: this event exists to
+                // draw a number over a corpse, and a fault in whatever is drawing
+                // it must not propagate back into the kill that raised it. The
+                // salvage is already banked above, so a throwing listener costs a
+                // log line and its own label — nothing else.
+                try
+                {
+                    OnStreakChanged?.Invoke(CurrentStreak, bonus, worldPos);
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogException(e);
+                }
             }
         }
 

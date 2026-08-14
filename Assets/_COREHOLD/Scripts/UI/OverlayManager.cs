@@ -199,9 +199,12 @@ namespace Corehold.UI
             for (int i = _comboActive.Count - 1; i >= 0; i--)
             {
                 ComboLabel label = _comboActive[i];
-                if (label.go == null)
+                if (!Usable(label))
                 {
                     // Destroyed externally mid-flight — drop it, never pool it.
+                    // Whole-label test for the same reason as the spawn path: a
+                    // label with a live GameObject and a dead Transform would be
+                    // pooled here and then throw on reuse.
                     _comboActive.RemoveAt(i);
                     continue;
                 }
@@ -330,16 +333,27 @@ namespace Corehold.UI
             // hierarchy edits during play). A destroyed GameObject compares ==
             // null while the C# wrapper survives in the pool — discard those and
             // rebuild instead of touching a dead Transform.
+            //
+            // ALL THREE references are checked, not just the GameObject. Checking
+            // only `go` is what shipped, and the field still threw
+            // MissingReferenceException on `tr` during heavy chaining — a label
+            // whose GameObject answered "alive" while its Transform was gone. I
+            // could not reproduce which reference dies first, and that is exactly
+            // the reason to validate the whole label rather than the one field I
+            // happened to guess: a partially-dead label is not reusable, and the
+            // cost of finding out is an exception thrown from inside Enemy.Die().
             ComboLabel label = null;
             while (_comboPool.Count > 0)
             {
                 label = _comboPool.Pop();
-                if (label.go != null)
+                if (Usable(label))
                     break;
                 label = null;
             }
             if (label == null)
                 label = BuildComboLabel();
+            if (!Usable(label))
+                return;                 // rebuild itself failed — drop the label, never the kill
 
             label.age = 0f;
             label.go.SetActive(true);
@@ -354,6 +368,15 @@ namespace Corehold.UI
 
             _comboActive.Add(label);
         }
+
+        /// <summary>
+        /// Every reference a combo label needs, alive. Unity's <c>==</c> reports
+        /// destroyed objects as null, so this is a liveness test rather than a
+        /// null test — and it covers the Transform and the text component, not
+        /// just the GameObject that owns them.
+        /// </summary>
+        private static bool Usable(ComboLabel label) =>
+            label != null && label.go != null && label.tr != null && label.tmp != null;
 
         private ComboLabel BuildComboLabel()
         {

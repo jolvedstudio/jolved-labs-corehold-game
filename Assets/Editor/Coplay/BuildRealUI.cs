@@ -145,21 +145,25 @@ namespace CoreholdEditor
             // it hangs outside the frame — 170 of 340 px, off the left of the
             // screen.
             //
-            // The inset is 28, not the 16 the shipped scene was hand-set to: the
-            // panel sprite's own bevel runs about 20 px in, so a 16 px inset put
-            // the first lit segment on top of the frame rather than inside it. The
-            // right edge stays at 296 (28 + 268), which keeps the 8 px gap to the
-            // value label.
-            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(28, -8), new Vector2(268, 26));
+            // Inset 36: the panel sprite's bevel plus its inner glow run ~30 px in,
+            // and 28 still left the first lit segment kissing the frame. The right
+            // edge stays at 296 (36 + 260), which keeps the 8 px gap to the value.
+            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(36, -8), new Vector2(260, 26));
             segRoot.pivot = new Vector2(0f, 0.5f);
             var seghlg = segRoot.gameObject.AddComponent<Image>();
             seghlg.color = new Color(0, 0, 0, 0); // parent flashes; keep transparent
             var hl = segRoot.gameObject.AddComponent<HorizontalLayoutGroup>();
             hl.spacing = 2; hl.childControlWidth = true; hl.childControlHeight = true; hl.childForceExpandWidth = true; hl.childForceExpandHeight = true;
-            // segment template
+            // segment template — a generated rounded sprite rather than the bare
+            // square an Image with no sprite draws. Generated because every kit
+            // sprite lives under git-ignored Assets/Vendor/, so referencing one
+            // would break on any machine without the kit; white, so HUDController's
+            // per-segment tint keeps working.
             var segTemplate = new GameObject("SegTemplate", typeof(Image));
             segTemplate.transform.SetParent(segRoot, false);
             var segImg = segTemplate.GetComponent<Image>();
+            segImg.sprite = EnsureRoundedSprite();
+            segImg.type = Image.Type.Sliced;
             segImg.color = Cyan;
             segTemplate.SetActive(false);
             var integVal = MakeText(tl, "Value", "20/20", _large, TextAlignmentOptions.Right,
@@ -676,6 +680,58 @@ namespace CoreholdEditor
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
             return canvas;
+        }
+
+        /// <summary>
+        /// A small white rounded-rect sprite, generated into the project on first
+        /// use. 16×16 with a 4.5 px corner radius and 5 px slice borders, which
+        /// survives being sliced down to the ~11 px-wide integrity segments (a
+        /// border larger than half the target rect makes sliced corners overlap).
+        /// </summary>
+        static Sprite EnsureRoundedSprite()
+        {
+            const string dir = "Assets/_COREHOLD/Art/UI";
+            const string path = dir + "/UI_RoundedFill.png";
+
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+            if (existing != null)
+                return existing;
+
+            if (!AssetDatabase.IsValidFolder(dir))
+                AssetDatabase.CreateFolder("Assets/_COREHOLD/Art", "UI");
+
+            const int size = 16;
+            const float radius = 4.5f;
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    // Signed distance to a rounded rect centred in the texture,
+                    // with a 1-px anti-aliased edge.
+                    float px = Mathf.Abs(x + 0.5f - size * 0.5f) - (size * 0.5f - radius);
+                    float py = Mathf.Abs(y + 0.5f - size * 0.5f) - (size * 0.5f - radius);
+                    float dist = new Vector2(Mathf.Max(px, 0f), Mathf.Max(py, 0f)).magnitude - radius
+                                 + Mathf.Min(Mathf.Max(px, py), 0f);
+                    float a = Mathf.Clamp01(0.5f - dist);
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                }
+            }
+            tex.Apply();
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+
+            var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+            importer.textureType = TextureImporterType.Sprite;
+            importer.spriteImportMode = SpriteImportMode.Single;
+            importer.spriteBorder = new Vector4(5f, 5f, 5f, 5f);
+            importer.alphaIsTransparency = true;
+            importer.mipmapEnabled = false;
+            importer.filterMode = FilterMode.Bilinear;
+            importer.SaveAndReimport();
+
+            return AssetDatabase.LoadAssetAtPath<Sprite>(path);
         }
 
         static RectTransform MakeRect(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 anchoredPos, Vector2 size)
