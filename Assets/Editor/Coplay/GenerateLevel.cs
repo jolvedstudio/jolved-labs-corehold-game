@@ -25,7 +25,7 @@ public static class GenerateLevel
     private const float ClearanceEnvelope = 3.75f;
 
     /// <summary>The coverage rule needs at least this many pads covering 4+ spans.</summary>
-    private const int MinPremiumPads = 3;
+    private const int MinPremiumPads = LevelBlueprint.PadClassMix.MinPremium;
 
     /// <summary>
     /// Headless one-shot: run the SAME pipeline the Level Generator window drives
@@ -101,7 +101,6 @@ public static class GenerateLevel
         bp.foldWidth = 11f;                                       // shipped folds are 10 and 11 m
         bp.groundSpawnLegs = 2;
         bp.airCorridor = true;
-        bp.hardpointCount = 8;
         bp.classMix = new LevelBlueprint.PadClassMix
         {
             premium = 3, standard = 2, rear = 2, overwatch = 1
@@ -166,10 +165,12 @@ public static class GenerateLevel
         if (b.groundSpawnLegs < 1 || b.groundSpawnLegs > 2)
             errors.Add($"groundSpawnLegs must be 1 or 2 (is {b.groundSpawnLegs}).");
 
-        if (b.hardpointCount != b.classMix.Total)
-            errors.Add($"hardpointCount {b.hardpointCount} does not match the class mix total " +
-                       $"{b.classMix.Total} ({b.classMix.premium}P/{b.classMix.standard}S/" +
-                       $"{b.classMix.rear}R/{b.classMix.overwatch}O).");
+        // The mix IS the pad count — there is no second total to disagree with it.
+        // What can still be wrong is a negative slot, which reads as a smaller map
+        // rather than as the mistake it is.
+        if (b.classMix.standard < 0 || b.classMix.rear < 0 || b.classMix.overwatch < 0)
+            errors.Add($"classMix has a negative count ({b.classMix.premium}P/{b.classMix.standard}S/" +
+                       $"{b.classMix.rear}R/{b.classMix.overwatch}O) — it would silently shrink the map.");
 
         if (b.classMix.premium < MinPremiumPads)
             errors.Add($"classMix.premium is {b.classMix.premium} — the coverage rule requires at least " +
@@ -228,7 +229,7 @@ public static class GenerateLevel
         log.AppendLine($"seed {b.randomSeed} · field {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m · " +
                        $"routes {b.groundSpawnLegs} ground + {(b.airCorridor ? "air" : "no air")} · " +
                        $"target {b.routeLengthTarget:0.#} m · folds {b.foldWidth:0.#} m · " +
-                       $"{b.hardpointCount} pads ({b.classMix.premium}P/{b.classMix.standard}S/" +
+                       $"{b.HardpointCount} pads ({b.classMix.premium}P/{b.classMix.standard}S/" +
                        $"{b.classMix.rear}R/{b.classMix.overwatch}O)");
         log.AppendLine();
         log.AppendLine("Pipeline (stage order is load-bearing — see the P6 preamble):");
