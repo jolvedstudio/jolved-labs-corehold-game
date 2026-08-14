@@ -145,10 +145,11 @@ namespace CoreholdEditor
             // it hangs outside the frame — 170 of 340 px, off the left of the
             // screen.
             //
-            // Inset 36: the panel sprite's bevel plus its inner glow run ~30 px in,
-            // and 28 still left the first lit segment kissing the frame. The right
-            // edge stays at 296 (36 + 260), which keeps the 8 px gap to the value.
-            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(36, -8), new Vector2(260, 26));
+            // Inset 44 and raised to −4: sized against the shipped panel sprite's
+            // cavity by screenshot iteration — the frame's bevel and inner glow
+            // eat more left margin than any guess survived. The right edge stays
+            // at 296 (44 + 252), keeping the 8 px gap to the value label.
+            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(44, -4), new Vector2(252, 26));
             segRoot.pivot = new Vector2(0f, 0.5f);
             var seghlg = segRoot.gameObject.AddComponent<Image>();
             seghlg.color = new Color(0, 0, 0, 0); // parent flashes; keep transparent
@@ -201,6 +202,30 @@ namespace CoreholdEditor
             var pauseBtn = MakeIconButton(canvas.transform, "PauseButton", theme.pauseIcon, theme,
                 new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 24), new Vector2(72, 72));
 
+            // ---- Bottom-left, above pause: Strike Wing ability (R19) ----
+            var strikeBtn = MakeButton(canvas.transform, "StrikeWingButton", "STRIKE 120", theme,
+                new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 112), new Vector2(190, 76));
+            // Radial cooldown sweep over the face; the label re-tops it below.
+            var strikeCd = MakeRect(strikeBtn, "CooldownFill", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            strikeCd.offsetMin = Vector2.zero; strikeCd.offsetMax = Vector2.zero;
+            var strikeCdImg = strikeCd.gameObject.AddComponent<Image>();
+            strikeCdImg.sprite = EnsureRoundedSprite();
+            strikeCdImg.type = Image.Type.Filled;
+            strikeCdImg.fillMethod = Image.FillMethod.Radial360;
+            strikeCdImg.fillOrigin = (int)Image.Origin360.Top;
+            strikeCdImg.fillClockwise = false;
+            strikeCdImg.fillAmount = 0f;
+            strikeCdImg.color = new Color(0.02f, 0.04f, 0.06f, 0.62f);
+            strikeCdImg.raycastTarget = false;
+            var strikeLabel = strikeBtn.GetComponentInChildren<TMP_Text>();
+            strikeLabel.transform.SetAsLastSibling(); // keep text above the sweep
+            var strikeCtl = strikeBtn.gameObject.AddComponent<StrikeWingButton>();
+            var strikeSo = new SerializedObject(strikeCtl);
+            SetRef(strikeSo, "button", strikeBtn.GetComponent<Button>());
+            SetRef(strikeSo, "label", strikeLabel);
+            SetRef(strikeSo, "cooldownFill", strikeCdImg);
+            strikeSo.ApplyModifiedPropertiesWithoutUndo();
+
             // ---- Colossus bar (top, hidden by default) ----
             var bossRoot = MakeRect(canvas.transform, "ColossusBar", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -160), new Vector2(900, 40));
             var bossBg = bossRoot.gameObject.AddComponent<Image>();
@@ -234,7 +259,7 @@ namespace CoreholdEditor
             SetRef(so, "previewCellTemplate", previewCell);
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            sb.AppendLine("Built Canvas_HUD (integrity/wave/salvage/start/speed/pause/boss).");
+            sb.AppendLine("Built Canvas_HUD (integrity/wave/salvage/start/speed/pause/strike/boss).");
             return hud;
         }
 

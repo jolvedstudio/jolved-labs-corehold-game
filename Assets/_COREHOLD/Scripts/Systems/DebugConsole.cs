@@ -21,6 +21,8 @@ namespace Corehold.Systems
     ///   M      grant 1000 salvage
     ///   I      toggle core invulnerability
     ///   K      kill all live enemies
+    ///   S      stun all live enemies 3 s (R18 test — Colossus resists 25%)
+    ///   L      slow all live enemies 50% for 3 s (R18 test)
     ///   1/2/3  set difficulty (Normal / Veteran / Nightmare)
     ///   F1     toggle the OnGUI overlay
     /// </summary>
@@ -51,6 +53,10 @@ namespace Corehold.Systems
                 ToggleCoreInvulnerability();
             if (kb.kKey.wasPressedThisFrame)
                 KillAllEnemies();
+            if (kb.sKey.wasPressedThisFrame)
+                StunAllEnemies();
+            if (kb.lKey.wasPressedThisFrame)
+                SlowAllEnemies();
             if (kb.digit1Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Normal);
             if (kb.digit2Key.wasPressedThisFrame)
@@ -138,6 +144,28 @@ namespace Corehold.Systems
                 }
             }
             Debug.Log($"[DebugConsole] Killed {killed} live enemies.");
+        }
+
+        private void StunAllEnemies()
+        {
+            int hit = 0;
+            for (int i = 0; i < Enemy.Live.Count; i++)
+            {
+                var e = Enemy.Live[i];
+                if (e != null && e.IsAlive) { e.ApplyStun(3f); hit++; }
+            }
+            Debug.Log($"[DebugConsole] Stunned {hit} live enemies for 3 s (R18; Colossus takes 2.25 s).");
+        }
+
+        private void SlowAllEnemies()
+        {
+            int hit = 0;
+            for (int i = 0; i < Enemy.Live.Count; i++)
+            {
+                var e = Enemy.Live[i];
+                if (e != null && e.IsAlive) { e.ApplySlow(3f, 0.5f); hit++; }
+            }
+            Debug.Log($"[DebugConsole] Slowed {hit} live enemies 50% for 3 s (R18).");
         }
 
         private void SetDifficulty(Difficulty d)

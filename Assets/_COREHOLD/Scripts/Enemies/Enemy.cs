@@ -8,6 +8,18 @@ using UnityEngine;
 namespace Corehold.Enemies
 {
     /// <summary>
+    /// The two status effects a unit can carry (R18). Applied via
+    /// <see cref="Enemy.ApplyStatus"/>; refresh-not-stack per kind.
+    /// </summary>
+    public enum StatusKind
+    {
+        /// <summary>Drops the unit to the minDesiredSpeed crawl floor — never a hard halt.</summary>
+        Stun,
+        /// <summary>Scales speed by (1 − strength), e.g. strength 0.5 = half speed.</summary>
+        Slow
+    }
+
+    /// <summary>
     /// Runtime state for a single enemy unit: health and what happens when it
     /// dies or leaks (reaches the Core). Carries no collider and no Rigidbody —
     /// targeting is done through a live-enemy registry, not physics (GDD §7.4).
@@ -74,6 +86,22 @@ namespace Corehold.Enemies
         private EnemyMover _mover;
         private MaterialPropertyBlock _emissiveBlock;
         private bool _enraged;
+
+        // ----- Status effects (R18) -----
+
+        /// <summary>Seconds between pooled status-VFX pulses while an effect runs.</summary>
+        private const float StatusVfxPulseSeconds = 1.0f;
+
+        /// <summary>One active status. Refresh-not-stack: at most one entry per kind.</summary>
+        private struct ActiveStatus
+        {
+            public StatusKind kind;
+            public float strength;    // Slow: fraction of speed removed. Stun: unused.
+            public float endTime;     // Time.time at which the effect expires.
+            public float nextPulseAt; // Time.time of the next status-VFX pulse.
+        }
+
+        private readonly List<ActiveStatus> _statuses = new List<ActiveStatus>(4);
 
         /// <summary>Current runtime health. Set to maxHealth on enable/spawn.</summary>
         public float CurrentHealth { get; private set; }
@@ -192,6 +220,7 @@ namespace Corehold.Enemies
                 _mover = GetComponent<EnemyMover>();
             ResetHealth();
             ResetEnrage();
+            ClearStatuses();
             // Re-enable renderers hidden by the death sequence when reused from pool.
             foreach (var r in GetComponentsInChildren<Renderer>(true))
                 r.enabled = true;
@@ -313,6 +342,136 @@ namespace Corehold.Enemies
                 _emissiveBlock.SetColor(EmissionColorId, emission);
                 r.SetPropertyBlock(_emissiveBlock);
             }
+        }
+
+        // ================================================================================
+        //  Status effects (R18)
+        // ================================================================================
+
+        /// <summary>True while a stun is active (the unit is at the crawl floor).</summary>
+        public bool IsStunned => HasStatus(StatusKind.Stun);
+
+        /// <summary>True if a status of the given kind is currently active.</summary>
+        public bool HasStatus(StatusKind kind)
+        {
+            for (int i = 0; i < _statuses.Count; i++)
+                if (_statuses[i].kind == kind)
+                    return true;
+            return false;
+        }
+
+        /// <summary>Stun for <paramref name="duration"/> seconds (crawl floor, not a halt).</summary>
+        public void ApplyStun(float duration) => ApplyStatus(StatusKind.Stun, duration, 1f);
+
+        /// <summary>Slow by <paramref name="strength"/> (0.5 = half speed) for the duration.</summary>
+        public void ApplySlow(float duration, float strength) =>
+            ApplyStatus(StatusKind.Slow, duration, strength);
+
+        /// <summary>
+        /// Apply a status effect. Refresh-not-stack: a second application of the
+        /// same kind REPLACES the existing entry (duration restarts, strength is
+        /// the new value) — two 50% slows never compound into 75%. Different kinds
+        /// DO compose multiplicatively through the mover's status slot. Stun
+        /// durations are shortened by <see cref="EnemyDefinition.stunResistance"/>
+        /// (Colossus 0.25 → 25% shorter). The stored base speed is never touched —
+        /// everything acts through <see cref="EnemyMover.StatusSpeedMultiplier"/>,
+        /// whose DesiredSpeed floor guarantees the unit still crawls (liveness).
+        /// </summary>
+        public void ApplyStatus(StatusKind kind, float duration, float strength)
+        {
+            if (!IsAlive || duration <= 0f)
+                return;
+
+            if (kind == StatusKind.Stun && definition != null)
+                duration *= 1f - Mathf.Clamp01(definition.stunResistance);
+            if (duration <= 0f)
+                return;
+
+            float now = Time.time;
+            var entry = new ActiveStatus
+            {
+                kind = kind,
+                strength = Mathf.Clamp01(strength),
+                endTime = now + duration,
+                nextPulseAt = now + StatusVfxPulseSeconds
+            };
+
+            int existing = -1;
+            for (int i = 0; i < _statuses.Count; i++)
+                if (_statuses[i].kind == kind) { existing = i; break; }
+
+            if (existing >= 0)
+                _statuses[existing] = entry;
+            else
+                _statuses.Add(entry);
+
+            PlayStatusVfx(kind);
+            ApplyStatusSpeed();
+        }
+
+        private void Update()
+        {
+            if (_statuses.Count == 0)
+                return;
+
+            float now = Time.time;
+            bool changed = false;
+            for (int i = _statuses.Count - 1; i >= 0; i--)
+            {
+                var s = _statuses[i];
+                if (now >= s.endTime)
+                {
+                    _statuses.RemoveAt(i);
+                    changed = true;
+                    continue;
+                }
+                // Re-fire the pooled one-shot while the status runs so a 3 s stun
+                // reads as an ongoing state, without any looping-effect machinery.
+                if (IsAlive && now >= s.nextPulseAt)
+                {
+                    s.nextPulseAt = now + StatusVfxPulseSeconds;
+                    _statuses[i] = s;
+                    PlayStatusVfx(s.kind);
+                }
+            }
+
+            if (changed)
+                ApplyStatusSpeed();
+        }
+
+        /// <summary>Recompute the mover's status slot from the active list.</summary>
+        private void ApplyStatusSpeed()
+        {
+            float mult = 1f;
+            for (int i = 0; i < _statuses.Count; i++)
+            {
+                var s = _statuses[i];
+                mult *= s.kind == StatusKind.Stun ? 0f : 1f - s.strength;
+            }
+
+            if (_mover == null)
+                _mover = GetComponent<EnemyMover>();
+            if (_mover != null)
+                _mover.StatusSpeedMultiplier = mult;
+        }
+
+        private void PlayStatusVfx(StatusKind kind)
+        {
+            var vfx = Corehold.Systems.VFXDirector.Instance;
+            if (vfx == null)
+                return;
+            if (kind == StatusKind.Stun)
+                vfx.PlayStun(HitPoint);
+            else
+                vfx.PlaySlow(HitPoint);
+        }
+
+        /// <summary>Drop all statuses and restore the mover's status slot to 1 (pool reuse).</summary>
+        private void ClearStatuses()
+        {
+            _statuses.Clear();
+            if (_mover != null)
+                _mover.StatusSpeedMultiplier = 1f;
         }
 
         /// <summary>Called by EnemyMover when the enemy passes the last waypoint.</summary>

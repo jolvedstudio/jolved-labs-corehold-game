@@ -31,7 +31,10 @@ namespace CoreholdEditor
             EnsureGlowTexture(sb);
             var glowSprite = AssetDatabase.LoadAssetAtPath<Texture2D>(GlowTexPath);
 
-            foreach (var pad in Object.FindObjectsByType<TowerHardpoint>(FindObjectsSortMode.None))
+            // ACTIVE scene only. FindObjectsByType walks every loaded scene, and
+            // when the generator drives this with another scene open, that would
+            // quietly add auras to a scene nobody asked to edit.
+            foreach (var pad in SceneQuery.InActiveScene<TowerHardpoint>())
             {
                 Color c = ColorForPad(pad.name);
                 var mat = GetOrCreateGlowMat(c, glowSprite);
@@ -69,7 +72,11 @@ namespace CoreholdEditor
 
             var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
             UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
-            UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
+            // The pipeline owns its save stage; saving here mid-generation would
+            // fire a modal dialog on the untitled scene (and once, historically,
+            // saved OVER Game.unity). Menu use still saves.
+            if (!GenerationDriven.Active)
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
 
             Debug.Log("[COREHOLD] HardpointAura:\n" + sb);

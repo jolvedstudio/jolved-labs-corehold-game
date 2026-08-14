@@ -93,6 +93,8 @@ namespace Corehold.Systems
             // Leave the editor's scene state as we found it.
             if (_baselineCaptured)
                 RestoreBaseline();
+            if (Application.isPlaying && AudioDirector.Instance != null)
+                AudioDirector.Instance.StopWeatherLoop();
             if (_precipitationMaterial != null)
                 Destroy(_precipitationMaterial);
         }
@@ -178,6 +180,8 @@ namespace Corehold.Systems
             if (next == null)
             {
                 SetPrecipitationActive(false);
+                if (Application.isPlaying && AudioDirector.Instance != null)
+                    AudioDirector.Instance.StopWeatherLoop();
                 return;
             }
 
@@ -208,6 +212,19 @@ namespace Corehold.Systems
             }
 
             BuildOrUpdatePrecipitation(next);
+
+            // Ambience: the preset's authored loop, or a synthesized one when no
+            // clip is assigned — weather that can be heard with zero audio assets.
+            if (Application.isPlaying && AudioDirector.Instance != null)
+            {
+                if (next.precipitation == WeatherPreset.Precipitation.None || next.ambientVolume <= 0f)
+                    AudioDirector.Instance.StopWeatherLoop();
+                else
+                    AudioDirector.Instance.PlayWeatherLoop(
+                        next.ambientLoop,
+                        next.precipitation == WeatherPreset.Precipitation.Rain,
+                        next.ambientVolume);
+            }
         }
 
         /// <summary>Clear back to the authored look.</summary>
@@ -340,50 +357,50 @@ namespace Corehold.Systems
         private Vector3 _prefabBaseScale = Vector3.one;
 
         /// <summary>
-        /// Anchor an authored precipitation prefab in WORLD space: centred over the
-        /// camera's ground footprint, upright, spawning from above the highest
-        /// thing the camera can see, and scaled out until its emitters cover the
-        /// footprint. Then pre-simulated, because a correctly-placed rain volume
-        /// that starts empty spends its first seconds visibly raining only at the
-        /// top of the screen.
+        /// Place an authored precipitation prefab as a WORLD-UPRIGHT screen layer
+        /// at the same 12 m the procedural sheet uses.
+        ///
+        /// The previous approach — spanning the camera's whole GROUND footprint —
+        /// asked a rain kit to cover 100×60 m from 40 m up, and kit prefabs are
+        /// authored for ~10 m of fall: drops died mid-air, which on screen read as
+        /// rain that starts and vanishes in the middle of the view. At 12 m the
+        /// visible window is only ~8 m tall, so an authored fall crosses ALL of it:
+        /// drops enter above the top edge and are still falling when they leave the
+        /// bottom — full-screen by construction, using the prefab's own lifetimes.
+        ///
+        /// World-upright (yaw only), because inheriting the camera's 38° pitch is
+        /// what made the prefab rain sideways; parented AFTER posing, with the
+        /// world pose kept, so it follows the (fixed) camera without adopting its
+        /// rotation.
         /// </summary>
         private void PlaceAuthoredPrefab(Camera cam)
         {
+            const float layerDistance = 12f;
+
             _precipitation.transform.SetParent(null);
-            _precipitation.transform.rotation = Quaternion.identity;
+            _precipitation.transform.localScale = _prefabBaseScale;   // measure at authored scale
 
-            // Ground footprint: all four frustum corner rays hit the ground on this
-            // camera (it pitches 38° down with a 17.5° half-FOV, so even the top
-            // edge aims 20.5° below horizontal).
-            Vector3 origin = cam.transform.position;
-            float minX = float.MaxValue, maxX = float.MinValue;
-            float minZ = float.MaxValue, maxZ = float.MinValue;
-            foreach (Vector2 c in new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1), new Vector2(1, 1) })
-            {
-                Ray ray = cam.ViewportPointToRay(new Vector3(c.x, c.y, 1f));
-                if (ray.direction.y > -0.001f)
-                    continue;
-                float t = -ray.origin.y / ray.direction.y;
-                Vector3 hit = ray.origin + ray.direction * t;
-                minX = Mathf.Min(minX, hit.x); maxX = Mathf.Max(maxX, hit.x);
-                minZ = Mathf.Min(minZ, hit.z); maxZ = Mathf.Max(maxZ, hit.z);
-            }
-            if (minX > maxX)
-                return;                                   // camera looking at sky — leave the prefab authored
+            float halfH = layerDistance * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+            float halfW = halfH * Mathf.Max(cam.aspect, 20f / 9f);
 
-            var centre = new Vector3((minX + maxX) * 0.5f, origin.y + 2f, (minZ + maxZ) * 0.5f);
-            _precipitation.transform.position = centre;
+            Vector3 centre = cam.transform.position + cam.transform.forward * layerDistance;
+            // Emitter above the view's top edge at this distance (cam.up.y is the
+            // world-vertical share of screen-up on a pitched camera), plus margin.
+            float lift = halfH * Mathf.Max(0.2f, cam.transform.up.y) + 1.5f;
 
-            // Coverage: measure the prefab's own emitter footprint and scale the
-            // root until it spans the frustum. Shape modules follow transform
-            // scale, so this holds for the box/cone volumes rain kits use.
-            Vector2 need = new Vector2((maxX - minX) * 0.5f, (maxZ - minZ) * 0.5f);
+            _precipitation.transform.rotation = Quaternion.Euler(0f, cam.transform.eulerAngles.y, 0f);
+            _precipitation.transform.position = centre + Vector3.up * lift;
+
             Vector2 have = MeasureEmitterHalfExtent(_precipitation);
             float scale = 1f;
-            if (have.x > 0.25f && have.y > 0.25f)
-                scale = Mathf.Clamp(Mathf.Max(need.x / have.x, need.y / have.y), 1f, 40f);
+            if (have.x > 0.25f)
+                scale = Mathf.Clamp(halfW / have.x, 1f, 12f);
             _precipitation.transform.localScale = _prefabBaseScale * scale;
 
+            _precipitation.transform.SetParent(cam.transform, true);
+
+            // Pre-simulate so the column is falling through the whole window from
+            // frame one instead of raining only at the top for the first seconds.
             foreach (var ps in _precipitation.GetComponentsInChildren<ParticleSystem>(true))
             {
                 ps.Clear(false);

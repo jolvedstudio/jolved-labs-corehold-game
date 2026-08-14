@@ -75,7 +75,9 @@ namespace Corehold.Systems
             /// <summary>Kill-streak step (R2) — replayed with a rising pitch scale as the streak grows. APPEND-ONLY: enum values are serialized by index in the scene.</summary>
             StreakStep,
             /// <summary>"CLOSE CALL" sting when a wave ends with the Core nearly lost (R3).</summary>
-            CloseCall
+            CloseCall,
+            /// <summary>Strike Wing EM burst landing (R19).</summary>
+            StrikeWing
         }
 
         [System.Serializable]
@@ -127,6 +129,7 @@ namespace Corehold.Systems
             new SfxEntry { id = Sfx.CoreAlarm,   volume = 1.0f, pitchSpread = 0f },
             new SfxEntry { id = Sfx.StreakStep,  volume = 0.8f, pitchSpread = 0f },
             new SfxEntry { id = Sfx.CloseCall,   volume = 0.9f, pitchSpread = 0f },
+            new SfxEntry { id = Sfx.StrikeWing,  volume = 0.9f, pitchSpread = 0f },
         };
 
         [Header("Turret rotation loop (GDD §10)")]
@@ -285,6 +288,113 @@ namespace Corehold.Systems
             }
         }
 
+        // ================================================================================
+        //  Weather ambience loop (R14 follow-on)
+        // ================================================================================
+
+        private AudioSource _weatherSource;
+        private float _weatherBaseVolume;
+        private AudioClip _procRainLoop;
+        private AudioClip _procWindLoop;
+
+        /// <summary>
+        /// Start the weather ambience: the authored clip when one is assigned, else
+        /// a SYNTHESIZED loop — filtered noise shaped as rain hiss or a slow-gusting
+        /// wind — so weather is audible with zero audio assets. Volume rides the
+        /// music group gain, so mute and the volume sliders behave as expected.
+        /// </summary>
+        public void PlayWeatherLoop(AudioClip authored, bool rain, float volume)
+        {
+            if (_weatherSource == null)
+            {
+                var go = new GameObject("WeatherAmbience");
+                go.transform.SetParent(transform, false);
+                _weatherSource = go.AddComponent<AudioSource>();
+                _weatherSource.playOnAwake = false;
+                _weatherSource.loop = true;
+                _weatherSource.spatialBlend = 0f;
+            }
+
+            AudioClip clip = authored != null ? authored : ProceduralWeatherLoop(rain);
+            _weatherBaseVolume = Mathf.Clamp01(volume);
+            if (_weatherSource.clip != clip)
+            {
+                _weatherSource.clip = clip;
+                _weatherSource.Play();
+            }
+            else if (!_weatherSource.isPlaying)
+            {
+                _weatherSource.Play();
+            }
+            ApplyGroupVolumes();
+        }
+
+        /// <summary>Stop the weather ambience (preset cleared, scene torn down).</summary>
+        public void StopWeatherLoop()
+        {
+            if (_weatherSource != null)
+                _weatherSource.Stop();
+            _weatherBaseVolume = 0f;
+        }
+
+        /// <summary>
+        /// A seamless 4-second ambience loop, synthesized once and cached. Rain is
+        /// broadband noise low-passed to a hiss with a faint patter shimmer; wind is
+        /// heavily low-passed noise swelling on a slow gust cycle. The last quarter
+        /// second is crossfaded into the first so the loop point is inaudible.
+        /// Fixed seed: this is audio, not gameplay, but there is no reason for two
+        /// machines to sound different either.
+        /// </summary>
+        private AudioClip ProceduralWeatherLoop(bool rain)
+        {
+            AudioClip cached = rain ? _procRainLoop : _procWindLoop;
+            if (cached != null)
+                return cached;
+
+            const int rate = 32768;
+            const int seconds = 4;
+            int n = rate * seconds;
+            var data = new float[n];
+            var rng = new System.Random(rain ? 41213 : 90210);
+
+            float lp = 0f, lp2 = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                float white = (float)(rng.NextDouble() * 2.0 - 1.0);
+                if (rain)
+                {
+                    // One-pole low-pass ≈ 5 kHz: white → hiss. The 1.7 Hz wobble
+                    // keeps it organic instead of a flat broadcast-static tone.
+                    lp += 0.55f * (white - lp);
+                    float wobble = 1f + 0.12f * Mathf.Sin(2f * Mathf.PI * 1.7f * i / rate);
+                    data[i] = lp * 0.5f * wobble;
+                }
+                else
+                {
+                    // Two cascaded low-passes ≈ 350 Hz: white → wind body, swelling
+                    // on a 0.15 Hz gust cycle with a shallower 0.9 Hz flutter.
+                    lp += 0.065f * (white - lp);
+                    lp2 += 0.065f * (lp - lp2);
+                    float gust = 0.62f + 0.38f * Mathf.Sin(2f * Mathf.PI * 0.15f * i / rate);
+                    float flutter = 1f + 0.08f * Mathf.Sin(2f * Mathf.PI * 0.9f * i / rate);
+                    data[i] = lp2 * 2.4f * gust * flutter;
+                }
+            }
+
+            int fade = rate / 4;
+            for (int i = 0; i < fade; i++)
+            {
+                float t = i / (float)fade;
+                data[n - fade + i] = data[n - fade + i] * (1f - t) + data[i] * t;
+            }
+
+            var clip = AudioClip.Create(rain ? "WeatherLoop_Rain (synth)" : "WeatherLoop_Wind (synth)",
+                                        n, 1, rate, false);
+            clip.SetData(data, 0);
+            if (rain) _procRainLoop = clip; else _procWindLoop = clip;
+            return clip;
+        }
+
         private void BuildMusicSource()
         {
             var go = new GameObject("Music");
@@ -312,6 +422,9 @@ namespace Corehold.Systems
         {
             if (_musicSource != null)
                 _musicSource.volume = MusicGain;
+
+            if (_weatherSource != null)
+                _weatherSource.volume = MusicGain * _weatherBaseVolume;
 
             // Rotation-loop voices keep their own per-voice loudness (0 or full),
             // scaled by the SFX group gain — handled in SetRotationLoud each frame,
@@ -551,6 +664,9 @@ namespace Corehold.Systems
 
         /// <summary>Core alarm when the Core takes a leak hit (GDD §10).</summary>
         public void PlayCoreAlarm() => Play(Sfx.CoreAlarm);
+
+        /// <summary>Strike Wing EM burst landing (R19).</summary>
+        public void PlayStrikeWing() => Play(Sfx.StrikeWing);
 
         // ================================================================================
         //  Turret rotation loop (GDD §10) — nearest three to screen centre, while slewing

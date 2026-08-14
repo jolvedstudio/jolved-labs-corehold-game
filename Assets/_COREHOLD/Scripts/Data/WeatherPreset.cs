@@ -55,6 +55,13 @@ namespace Corehold.Data
         [Tooltip("[TUNE] Precipitation style. None keeps the particle layer switched off entirely.")]
         public Precipitation precipitation = Precipitation.None;
 
+        [Header("Ambience (GDD §10)")]
+        [Tooltip("Looping ambience for this weather. Leave EMPTY and a synthesized loop plays instead — rain hiss or wind, generated at runtime, so weather is audible with no audio assets. Assign a clip to replace it.")]
+        public AudioClip ambientLoop;
+
+        [Tooltip("Ambience loudness, scaled by the music group gain (mute silences it). 0 = this weather is silent.")]
+        [Range(0f, 1f)] public float ambientVolume = 0.35f;
+
         [Tooltip("Optional authored prefab (e.g. CFXR) to use instead of the procedural layer. Leave null to build the layer at runtime with no asset dependency.")]
         public GameObject precipitationPrefab;
 

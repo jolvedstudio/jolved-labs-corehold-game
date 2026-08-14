@@ -7,25 +7,54 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Editor setup for the COREHOLD VFXDirector (GDD §11). Creates (or updates) a
-/// VFXDirector GameObject in the Game scene and assigns the nine Cartoon FX
-/// Remaster prefabs to its serialized effect slots. Run once; safe to re-run.
+/// VFXDirector GameObject in the Game scene and assigns the Cartoon FX Remaster
+/// prefabs (twelve slots as of R19) to its serialized effect slots. Run once;
+/// safe to re-run — and MUST be re-run on scenes built before a slot was added,
+/// because a scene's serialized array keeps its old length until this rewrites it.
 /// </summary>
 public static class SetupVFXDirector
 {
     private const string ScenePath = "Assets/_COREHOLD/Scenes/Game.unity";
 
-    // Logical effect -> Cartoon FX Remaster prefab (GDD §11).
-    private static readonly (VFXDirector.Effect id, string path, int prewarm)[] Map =
+    private const string CfxrRoot = "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/";
+
+    // Logical effect -> Cartoon FX Remaster prefab CANDIDATES (GDD §11). The first
+    // path that loads wins. Every list ends on a path known to exist in the kit,
+    // so an earlier, nicer-looking candidate that this kit edition lacks degrades
+    // to a working effect instead of an empty slot.
+    private static readonly (VFXDirector.Effect id, string[] paths, int prewarm)[] Map =
     {
-        (VFXDirector.Effect.MuzzleKinetic,   "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Misc/CFXR Flash.prefab", 4),
-        (VFXDirector.Effect.MuzzleEnergy,    "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Electric/CFXR3 Hit Electric C (Air).prefab", 4),
-        (VFXDirector.Effect.MuzzleExplosive, "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Impacts/CFXR2 Ground Hit.prefab", 4),
-        (VFXDirector.Effect.ImpactSpark,     "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Impacts/CFXR Hit D 3D (Yellow).prefab", 8),
-        (VFXDirector.Effect.ExplosionSmall,  "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Explosions/CFXR Explosion 1.prefab", 4),
-        (VFXDirector.Effect.ExplosionLarge,  "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Explosions/CFXR3 Fire Explosion B.prefab", 4),
-        (VFXDirector.Effect.EnemyDeath,      "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Eerie/CFXR2 WW Enemy Explosion.prefab", 6),
-        (VFXDirector.Effect.CoreHit,         "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Impacts/CFXR Impact Glowing HDR (Blue).prefab", 2),
-        (VFXDirector.Effect.BuildPuff,       "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Misc/CFXR Magic Poof.prefab", 2),
+        (VFXDirector.Effect.MuzzleKinetic,   new[] { CfxrRoot + "Misc/CFXR Flash.prefab" }, 4),
+        (VFXDirector.Effect.MuzzleEnergy,    new[] { CfxrRoot + "Electric/CFXR3 Hit Electric C (Air).prefab" }, 4),
+        (VFXDirector.Effect.MuzzleExplosive, new[] { CfxrRoot + "Impacts/CFXR2 Ground Hit.prefab" }, 4),
+        (VFXDirector.Effect.ImpactSpark,     new[] { CfxrRoot + "Impacts/CFXR Hit D 3D (Yellow).prefab" }, 8),
+        (VFXDirector.Effect.ExplosionSmall,  new[] { CfxrRoot + "Explosions/CFXR Explosion 1.prefab" }, 4),
+        (VFXDirector.Effect.ExplosionLarge,  new[] { CfxrRoot + "Explosions/CFXR3 Fire Explosion B.prefab" }, 4),
+        (VFXDirector.Effect.EnemyDeath,      new[] { CfxrRoot + "Eerie/CFXR2 WW Enemy Explosion.prefab" }, 6),
+        (VFXDirector.Effect.CoreHit,         new[] { CfxrRoot + "Impacts/CFXR Impact Glowing HDR (Blue).prefab" }, 2),
+        (VFXDirector.Effect.BuildPuff,       new[] { CfxrRoot + "Misc/CFXR Magic Poof.prefab" }, 2),
+        // Status effects (R18). Stun = electric crackle (matches the R19 EM burst
+        // fiction); slow = a cold blue glow. Distinct silhouettes from each other
+        // and from the muzzle/impact effects above.
+        (VFXDirector.Effect.Stun,            new[]
+        {
+            CfxrRoot + "Electric/CFXR3 Hit Electric A (Air).prefab",
+            CfxrRoot + "Electric/CFXR3 Hit Electric B (Air).prefab",
+            CfxrRoot + "Electric/CFXR3 Hit Electric C (Air).prefab",
+        }, 6),
+        (VFXDirector.Effect.Slow,            new[]
+        {
+            CfxrRoot + "Ice/CFXR3 Hit Ice A (Air).prefab",
+            CfxrRoot + "Ice/CFXR3 Hit Ice.prefab",
+            CfxrRoot + "Impacts/CFXR Impact Glowing HDR (Blue).prefab",
+        }, 6),
+        // Strike Wing EM burst (R19) — a big electric pop; the director plays it
+        // scaled up to read at the 6 m ability radius.
+        (VFXDirector.Effect.StrikeWingBurst, new[]
+        {
+            CfxrRoot + "Electric/CFXR3 Hit Electric B (Air).prefab",
+            CfxrRoot + "Electric/CFXR3 Hit Electric C (Air).prefab",
+        }, 2),
     };
 
     // ---- Tracer configuration, as tuned in the shipped Game.unity ----------
@@ -62,9 +91,15 @@ public static class SetupVFXDirector
         for (int i = 0; i < Map.Length; i++)
         {
             var entry = Map[i];
-            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(entry.path);
+            GameObject prefab = null;
+            foreach (string path in entry.paths)
+            {
+                prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab != null)
+                    break;
+            }
             if (prefab == null)
-                missing.Add(entry.path);
+                missing.Add($"{entry.id}: none of [{string.Join(", ", entry.paths)}]");
 
             SerializedProperty element = effects.GetArrayElementAtIndex(i);
             element.FindPropertyRelative("id").enumValueIndex = (int)entry.id;

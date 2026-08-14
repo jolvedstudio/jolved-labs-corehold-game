@@ -8,11 +8,12 @@ namespace Corehold.Systems
     /// <summary>
     /// Central spawner for every one-shot visual effect in the game (GDD §11).
     ///
-    /// Nine pooled effects from Cartoon FX Remaster — three muzzle flashes (one per
-    /// damage type), an impact spark, two explosion sizes for splash weapons, an
-    /// enemy death burst, a Core hit flash and a build-placement puff — plus a
-    /// pooled hitscan tracer for the Autocannon and Arc Node. Missile and Mortar
-    /// have visible travel time and need no tracer.
+    /// Twelve pooled effects from Cartoon FX Remaster — three muzzle flashes (one
+    /// per damage type), an impact spark, two explosion sizes for splash weapons,
+    /// an enemy death burst, a Core hit flash, a build-placement puff, the two
+    /// status pulses (stun crackle / slow chill, R18) and the Strike Wing EM
+    /// burst (R19) — plus a pooled hitscan tracer for the Autocannon and Arc
+    /// Node. Missile and Mortar have visible travel time and need no tracer.
     ///
     /// Every effect is pooled through <see cref="CoreholdPool{T}"/>; nothing on a
     /// gameplay path calls Instantiate or Destroy during a wave (GDD §11). Instead
@@ -53,7 +54,13 @@ namespace Corehold.Systems
             /// <summary>Flash on the Core when it takes a leak hit.</summary>
             CoreHit,
             /// <summary>Puff played when a turret is built on a hardpoint.</summary>
-            BuildPuff
+            BuildPuff,
+            /// <summary>Crackle pulsed (~1/s) over a stunned unit (R18).</summary>
+            Stun,
+            /// <summary>Chill glow pulsed (~1/s) over a slowed unit (R18).</summary>
+            Slow,
+            /// <summary>Strike Wing EM burst at the telegraphed point (R19).</summary>
+            StrikeWingBurst
         }
 
         [System.Serializable]
@@ -82,6 +89,9 @@ namespace Corehold.Systems
             new EffectEntry { id = Effect.EnemyDeath,       prewarm = 6 },
             new EffectEntry { id = Effect.CoreHit,          prewarm = 2 },
             new EffectEntry { id = Effect.BuildPuff,        prewarm = 2 },
+            new EffectEntry { id = Effect.Stun,             prewarm = 6 },
+            new EffectEntry { id = Effect.Slow,             prewarm = 6 },
+            new EffectEntry { id = Effect.StrikeWingBurst,  prewarm = 2 },
         };
 
         [Header("Hitscan tracer (GDD §11) — Autocannon + Arc Node only")]
@@ -384,6 +394,27 @@ namespace Corehold.Systems
 
         /// <summary>Puff when a turret is built on a hardpoint (GDD §11).</summary>
         public CFXR_Effect PlayBuildPuff(Vector3 position) => Play(Effect.BuildPuff, position);
+
+        /// <summary>
+        /// Stun crackle over a unit (R18). One-shot; <see cref="Corehold.Enemies.Enemy"/>
+        /// re-fires it about once a second while the status runs, so the pool sees
+        /// only ordinary one-shots and no looping-effect lifetime management.
+        /// </summary>
+        public CFXR_Effect PlayStun(Vector3 position) => Play(Effect.Stun, position);
+
+        /// <summary>Slow chill glow over a unit (R18). Pulsed the same way as the stun.</summary>
+        public CFXR_Effect PlaySlow(Vector3 position) => Play(Effect.Slow, position);
+
+        /// <summary>
+        /// Strike Wing EM burst (R19): the pooled effect scaled up to read at the
+        /// 6 m ability radius, with the explosion-grade screen kick (R5).
+        /// </summary>
+        public CFXR_Effect PlayStrikeWingBurst(Vector3 position)
+        {
+            if (CameraShake.Instance != null)
+                CameraShake.Instance.KickExplosion(position);
+            return Play(Effect.StrikeWingBurst, position, Quaternion.identity, 2.2f);
+        }
 
         /// <summary>Splash radius (m) at or above which the larger explosion plays.</summary>
         public const float LargeSplashThreshold = 4f;

@@ -189,6 +189,7 @@ Vendor prefabs you can't move: add the role as an **asset label** (`Landmark`, `
 | "envPackPool is empty" warning | No theme assigned | Fine for greybox testing; assign packs for visuals |
 | Parity blueprint runs synthesis | Asset predates `parityLayout` | Re-run **Create Refinery Delta Blueprint** |
 | Missing-prefab warnings on parity dressing | `Assets/Vendor/` kit not installed on this machine | Cosmetic only; install the kit for visuals |
+| Dust motes look huge, or precipitation is sparse | Your `Weather_*.asset` presets predate the R14 retune — they live in your project, not the repo, so code changes never touch them | Re-run **Tools → COREHOLD → Scene Setup → Weather** once; it re-authors the presets in place |
 | Cancelled a run — leftovers? | None. Cancel routes through the same discard as a gate failure | — |
 
 ## 12. What the generator does *not* do yet
