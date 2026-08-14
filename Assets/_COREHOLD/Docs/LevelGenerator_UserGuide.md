@@ -94,7 +94,13 @@ Any ✗ triggers the **Discard** row: half-built scene closed unsaved, created a
 
 **GATE 2 — coverage (pads).** Judged by the actual `HardpointCoverageGizmo` components in the scene — the same validator the shipped map was authored with. Every pad ≥ 2 covered spans; every Premium ≥ 4; at least 3 Premium pads; the class census must equal the blueprint's mix.
 
-**GATE 2b — occlusion re-run (dressing).** The distance-based count can't see a 12 m tank parked between a pad and its route. Every pad is recounted through **sight lines**: muzzle (1.5 m) to target (1.0 m) against every placed prop's cylinder at its *placed* size. The Mortar is exempt (arcing shell). The placer already self-repairs — it deletes the prop blocking the most spans, up to 10 removals — so this gate only fails when dressing and pads genuinely cannot coexist on this seed.
+**GATE 2b — occlusion re-run (dressing).** Two different sight lines, both checked, because they answer different questions.
+
+*Does the pad still work?* The distance-based count can't see a 12 m tank parked between a pad and its route. Every pad is recounted through **turret sight lines**: muzzle (1.5 m) to target (1.0 m) against every placed prop's cylinder at its *placed* size. The Mortar is exempt (arcing shell). The placer self-repairs first — deleting the prop that blocks the most spans, up to 10 removals — so this only fails when dressing and pads genuinely cannot coexist on this seed.
+
+*Can the player see the pad?* The **camera sight line**, camera → pad, is a separate test. At the fixed 38° pitch a 12 m landmark hides roughly 15 m of ground behind it, well past the 6 m pad keep-out, so a prop can leave a pad fully functional and completely invisible. The placer refuses any position that would hide a pad, and this gate re-verifies it: a hidden pad fails the seed.
+
+Both apply to **generated** dressing. Parity dressing is the shipped set a human placed and the map was validated with, so it carries no `PlacedProp` markers and is reported as 0 occluders.
 
 **GATE 3 — model margins (balance).** The scene's real geometry (route lengths, pad positions and turrets) goes to `docs/balance_model.py`. For generated maps the model **solves** `hpGrowthPerWave` so the boss wave lands mid-band (~1.10); for parity it verifies the shipped 0.18. Every wave's margin must sit in the accepted band (≥1.00 all waves, boss ≤1.20). Out of band at the solved value means this geometry can't be balanced by growth alone — reseed.
 

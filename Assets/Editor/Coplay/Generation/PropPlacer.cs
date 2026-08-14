@@ -97,6 +97,12 @@ public static class PropPlacer
         var pads = SceneQuery.InActiveScene<HardpointCoverageGizmo>()
             .OrderBy(g => g.name, System.StringComparer.Ordinal).ToArray();
 
+        // The camera is FIXED (38° pitch), so whether a prop hides a pad from the
+        // player is decided at placement time and never changes. One reusable
+        // single-element list keeps the per-attempt test allocation-free.
+        Camera cam = SceneQuery.FirstInActiveScene<Camera>();
+        var probe = new List<HardpointCoverageGizmo.Occluder> { default };
+
         var dressing = new GameObject("Dressing");
         dressing.transform.SetParent(levelContainer, false);
 
@@ -139,7 +145,7 @@ public static class PropPlacer
                         : new Vector3(rng.Range(-halfW * 1.2f, halfW * 1.2f), 0f,
                                       blueprint.playfieldSize.y * 0.5f + rng.Range(8f, 22f));
 
-                    if (inField && !ClearOf(pos, radius, entry.allowInFold))
+                    if (inField && !ClearOf(pos, radius, height, entry.allowInFold))
                         continue;
                     if (!inField && !ClearOfProps(pos, radius))
                         continue;
@@ -166,7 +172,7 @@ public static class PropPlacer
             log.AppendLine($"  {role,-10} {placedCount}/{target} placed");
         }
 
-        bool ClearOf(Vector3 pos, float radius, bool allowInFold)
+        bool ClearOf(Vector3 pos, float radius, float height, bool allowInFold)
         {
             // Route clearance: lane band + widest body + this prop's own edge.
             float needRoute = LaneHalfWidth + MaxBodyRadius + radius + Margin;
@@ -182,6 +188,25 @@ public static class PropPlacer
 
             if (Flat(pos - corePos).magnitude < 10f + radius)
                 return false;
+
+            // CAMERA SIGHT LINE. Gate 2b protects the turret's view of the ROUTE;
+            // this protects the player's view of the PAD, which is a different
+            // line entirely. At 38° pitch a 12 m landmark hides ~15 m of ground
+            // behind it, so the 6 m keep-out alone cannot prevent a pad being
+            // covered on screen while every other check passes.
+            if (cam != null)
+            {
+                probe[0] = new HardpointCoverageGizmo.Occluder
+                { position = pos, radius = radius, height = height };
+
+                foreach (var pad in pads)
+                {
+                    Vector3 padPoint = pad.transform.position +
+                                       Vector3.up * HardpointCoverageGizmo.PadVisibleHeight;
+                    if (HardpointCoverageGizmo.LineBlocked(cam.transform.position, padPoint, probe))
+                        return false;
+                }
+            }
 
             return ClearOfProps(pos, radius);
         }

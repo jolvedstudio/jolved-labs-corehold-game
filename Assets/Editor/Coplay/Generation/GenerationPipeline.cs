@@ -691,23 +691,43 @@ public static class GenerationPipeline
             });
 
         var shortfalls = new List<string>();
+        var hidden = new List<string>();
+        Camera cam = SceneQuery.FirstInActiveScene<Camera>();
+
         foreach (var pad in SceneQuery.InActiveScene<Corehold.Towers.HardpointCoverageGizmo>())
         {
             int need = pad.padClass == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium ? 4 : 2;
             int have = pad.CountCoveredSpansOnCurve(occluders);
             if (have < need)
                 shortfalls.Add($"{pad.name}: {have}/{need} spans with sight lines applied");
+
+            // Two DIFFERENT sight lines, and both matter: the turret's view of
+            // the route (above) decides whether the pad works, the camera's view
+            // of the pad (here) decides whether the player can find it at all.
+            if (cam != null)
+            {
+                Vector3 padPoint = pad.transform.position +
+                                   Vector3.up * Corehold.Towers.HardpointCoverageGizmo.PadVisibleHeight;
+                if (Corehold.Towers.HardpointCoverageGizmo.LineBlocked(
+                        cam.transform.position, padPoint, occluders))
+                    hidden.Add(pad.name);
+            }
         }
 
         if (shortfalls.Count > 0)
             return StageResult.Fail("occlusion re-run failed:\n  • " + string.Join("\n  • ", shortfalls));
+
+        if (hidden.Count > 0)
+            return StageResult.Fail("pads hidden from the camera by dressing — the player cannot see " +
+                                    "where to build:\n  • " + string.Join("\n  • ", hidden));
 
         if (occluders.Count == 0)
             return StageResult.Ok(ctx.blueprint.parityLayout
                 ? "0 measured occluders (parity structures carry no PlacedProp markers — the validated shipped set)"
                 : "0 occluders placed — plain recount holds");
 
-        return StageResult.Ok($"all pads keep their class through {occluders.Count} occluder(s)");
+        return StageResult.Ok($"through {occluders.Count} occluder(s): every pad keeps its class, " +
+                              "and every pad is visible from the camera");
     }
 
     private static StageResult StWeather(Context ctx)
