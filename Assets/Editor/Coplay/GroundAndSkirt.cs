@@ -122,12 +122,15 @@ public static class GroundAndSkirt
 
     private static void FitFloor(Camera cam, StringBuilder log)
     {
-        var floor = SceneLookup.Find("Floor");
+        // NOT a name search: vendor prefabs contain meshes called "Floor", and
+        // matching one makes a prop "the ground" (see SceneQuery.FindGround).
+        var floor = SceneQuery.FindGround();
         if (floor == null)
         {
-            log.AppendLine("[warn] no 'Floor' object found.");
+            log.AppendLine("[warn] no ground found (no LevelGround marker, no root 'Floor').");
             return;
         }
+        log.AppendLine($"Ground object: '{floor.name}'");
 
         Vector2 half = RequiredHalfExtent(cam, out bool sawHorizon);
         if (sawHorizon)

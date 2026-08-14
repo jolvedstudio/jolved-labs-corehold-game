@@ -62,7 +62,7 @@ namespace CoreholdEditor
             var toMark = new HashSet<Transform>();
 
             // Explicit Floor object.
-            var floor = SceneLookup.Find("Floor");
+            var floor = SceneQuery.FindGround();   // marker/root, not any mesh named "Floor"
             if (floor != null) toMark.Add(floor.transform);
 
             foreach (var rootPath in StaticRoots)

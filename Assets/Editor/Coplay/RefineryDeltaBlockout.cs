@@ -180,12 +180,14 @@ public static class RefineryDeltaBlockout
 
     static void BuildFloor(Transform parent)
     {
-        var floor = SceneLookup.Find("Floor");
+        var floor = SceneQuery.FindGround();
         if (floor == null)
         {
             floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
             floor.name = "Floor";
         }
+        if (floor.GetComponent<Corehold.Systems.LevelGround>() == null)
+            floor.AddComponent<Corehold.Systems.LevelGround>().source = "primitive plane";
         floor.transform.position = Vector3.zero;
 
         // The ground must cover what the CAMERA sees, not the design box (R11).
