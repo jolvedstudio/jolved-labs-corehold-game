@@ -362,15 +362,18 @@ public static class RefineryDeltaBlockout
         => new HP { name = n, pos = p, kind = k, cls = c };
 
     /// <summary>
-    /// Build a pad set under <paramref name="parent"/>: pad object, floor prefab,
-    /// TowerHardpoint, coverage gizmo wired to the route. Returns true when the
-    /// coverage rule held (every pad ≥2 spans, ≥3 Premium at ≥4). The generation
-    /// pipeline supplies its own pad list; the menu build uses the blockout's.
+    /// Single-route overload — the shipped/corridor convention, where one merged
+    /// tail carries every shared span and counting both routes would double it.
     /// </summary>
-    /// <summary>Single-route overload — the shipped/corridor convention (shared tail).</summary>
     internal static bool BuildHardpoints(Transform parent, PathRoute route, IList<HP> hps, StringBuilder log)
         => BuildHardpoints(parent, new[] { route }, hps, log);
 
+    /// <summary>
+    /// Build a pad set under <paramref name="parent"/>: pad object, floor prefab,
+    /// TowerHardpoint, coverage gizmo wired to the routes. Returns true when the
+    /// coverage rule held (every pad ≥2 spans, ≥3 Premium at ≥4). The generation
+    /// pipeline supplies its own pad list; the menu build uses the blockout's.
+    /// </summary>
     internal static bool BuildHardpoints(Transform parent, PathRoute[] routes, IList<HP> hps, StringBuilder log)
     {
         var hpRoot = new GameObject("Hardpoints");
