@@ -134,7 +134,10 @@ namespace Corehold.Core
                 return;
 
             float radius = mover.BodyRadius;
-            bool wide = !track.isAir && track.laneCount > 1 && IsWide(track, radius);
+            // Convoy units (R20) go through the wide-body path deliberately: every
+            // lane occupied, centreline render — which IS single-file ordering.
+            bool wide = !track.isAir && track.laneCount > 1 &&
+                        (mover.ForceSingleLane || IsWide(track, radius));
 
             var entry = new Entry { track = track, wide = wide };
 

@@ -23,6 +23,9 @@ namespace Corehold.Systems
     ///   K      kill all live enemies
     ///   S      stun all live enemies 3 s (R18 test — Colossus resists 25%)
     ///   L      slow all live enemies 50% for 3 s (R18 test)
+    ///   T      cycle forced wave mutators for waves started AFTER the press
+    ///          (R20 test: None → Storm → Convoy → Overcharge → Blackout → All)
+    ///   N      toggle the night lighting variant (R23; needs the scaffold in-scene)
     ///   1/2/3  set difficulty (Normal / Veteran / Nightmare)
     ///   F1     toggle the OnGUI overlay
     /// </summary>
@@ -57,6 +60,10 @@ namespace Corehold.Systems
                 StunAllEnemies();
             if (kb.lKey.wasPressedThisFrame)
                 SlowAllEnemies();
+            if (kb.tKey.wasPressedThisFrame)
+                CycleForcedMutators();
+            if (kb.nKey.wasPressedThisFrame)
+                ToggleNight();
             if (kb.digit1Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Normal);
             if (kb.digit2Key.wasPressedThisFrame)
@@ -166,6 +173,51 @@ namespace Corehold.Systems
                 if (e != null && e.IsAlive) { e.ApplySlow(3f, 0.5f); hit++; }
             }
             Debug.Log($"[DebugConsole] Slowed {hit} live enemies 50% for 3 s (R18).");
+        }
+
+        /// <summary>
+        /// R20 test: cycle a forced mutator set, OR-ed into every wave started
+        /// after the press (already-spawned units keep their stamps).
+        /// </summary>
+        private void CycleForcedMutators()
+        {
+            var wm = FindFirstObjectByType<WaveManager>();
+            if (wm == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WaveManager to force mutators on.");
+                return;
+            }
+
+            var cycle = new[]
+            {
+                Corehold.Data.WaveMutator.None,
+                Corehold.Data.WaveMutator.Storm,
+                Corehold.Data.WaveMutator.Convoy,
+                Corehold.Data.WaveMutator.Overcharge,
+                Corehold.Data.WaveMutator.Blackout,
+                Corehold.Data.WaveMutator.Storm | Corehold.Data.WaveMutator.Convoy |
+                Corehold.Data.WaveMutator.Overcharge | Corehold.Data.WaveMutator.Blackout,
+            };
+
+            int at = System.Array.IndexOf(cycle, wm.DebugForceMutators);
+            wm.DebugForceMutators = cycle[(at + 1) % cycle.Length];
+            Debug.Log($"[DebugConsole] Forced wave mutators: {wm.DebugForceMutators} " +
+                      "(applies to waves started from now; T again to cycle).");
+        }
+
+        /// <summary>R23: flip the night lighting variant, if the scene carries one.</summary>
+        private void ToggleNight()
+        {
+            var night = NightVariant.Instance;
+            if (night == null)
+                night = FindFirstObjectByType<NightVariant>();
+            if (night == null)
+            {
+                Debug.LogWarning("[DebugConsole] No NightVariant in the scene — run " +
+                                 "Tools → COREHOLD → Scene Setup → Night Variant first.");
+                return;
+            }
+            night.Toggle();
         }
 
         private void SetDifficulty(Difficulty d)

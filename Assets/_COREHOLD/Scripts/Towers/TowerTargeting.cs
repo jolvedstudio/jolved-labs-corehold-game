@@ -149,7 +149,8 @@ namespace Corehold.Towers
             bool currentInRange =
                 _current != null &&
                 _current.IsAlive &&
-                InRange((_current.HitPoint - origin).sqrMagnitude, rangeSqr, minRangeSqr) &&
+                InRange((_current.HitPoint - origin).sqrMagnitude, rangeSqr, minRangeSqr,
+                        AcquisitionScale(_current)) &&
                 CanTarget(_current);
 
             if (!currentInRange)
@@ -169,7 +170,7 @@ namespace Corehold.Towers
                     continue;
 
                 float distSqr = (e.HitPoint - origin).sqrMagnitude;
-                if (!InRange(distSqr, rangeSqr, minRangeSqr))
+                if (!InRange(distSqr, rangeSqr, minRangeSqr, AcquisitionScale(e)))
                     continue;
 
                 float score = Score(e, distSqr);
@@ -186,10 +187,32 @@ namespace Corehold.Towers
                 SetTarget(best);
         }
 
-        /// <summary>Inside the annulus [minRange, range] (both squared, min may be 0).</summary>
-        private static bool InRange(float distSqr, float rangeSqr, float minRangeSqr)
+        /// <summary>
+        /// Inside the annulus [minRange, range] (all squared, min may be 0).
+        /// <paramref name="distanceScale"/> (R20 Blackout) inflates the distance for
+        /// the MAX-range comparison only — an unlit unit is seen at half range, but
+        /// the min-range dead zone stays physical (darkness must never let a Mortar
+        /// fire inside its own dead zone).
+        /// </summary>
+        private static bool InRange(float distSqr, float rangeSqr, float minRangeSqr,
+            float distanceScale = 1f)
         {
-            return distSqr <= rangeSqr && distSqr >= minRangeSqr;
+            float scaledSqr = distSqr * distanceScale * distanceScale;
+            return scaledSqr <= rangeSqr && distSqr >= minRangeSqr;
+        }
+
+        /// <summary>
+        /// The distance scale to use for this enemy's max-range comparison: its
+        /// Blackout stamp (R20) unless a Floodlight lights it (R24) — light
+        /// restores full range. Cheap by construction: unstamped units (scale 1)
+        /// never query the floodlight registry at all.
+        /// </summary>
+        private static float AcquisitionScale(Enemy e)
+        {
+            float s = e.AcquisitionDistanceScale;
+            if (s <= 1f)
+                return s;
+            return Floodlight.IsLit(e.HitPoint) ? 1f : s;
         }
 
         /// <summary>Air-target gate (GDD §7.2). Ground-only turrets skip air enemies.</summary>

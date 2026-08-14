@@ -70,6 +70,7 @@ namespace Corehold.Enemies
         private float _baseSpeed;      // moveSpeed captured at Configure/OnEnable, before multipliers
         private float _speedMultiplier = 1f;
         private float _statusSpeedMultiplier = 1f;
+        private float _waveSpeedMultiplier = 1f;
         private bool _phaseChanged;    // Roller: has the second-phase change fired yet?
 
         private float _renderLaneOffset; // fixed lateral offset (m) this unit renders at
@@ -88,8 +89,8 @@ namespace Corehold.Enemies
         /// <summary>Raised once when the Roller reaches its phase-change fraction (GDD §6.2).</summary>
         public event Action OnPhaseChange;
 
-        /// <summary>Effective movement speed in m/s: base speed × enrage × status multipliers.</summary>
-        public float MoveSpeed => _baseSpeed * _speedMultiplier * _statusSpeedMultiplier;
+        /// <summary>Effective movement speed in m/s: base × enrage × status × wave multipliers.</summary>
+        public float MoveSpeed => _baseSpeed * _speedMultiplier * _statusSpeedMultiplier * _waveSpeedMultiplier;
 
         /// <summary>
         /// Desired speed used by the traffic scheduler. Never below
@@ -124,6 +125,25 @@ namespace Corehold.Enemies
             get => _statusSpeedMultiplier;
             set => _statusSpeedMultiplier = Mathf.Clamp(value, 0f, 10f);
         }
+
+        /// <summary>
+        /// Wave-mutator multiplier slot (R20 Storm), stamped by the WaveManager at
+        /// spawn and reset on (re)configure. Its own slot so a Storm Wasp that gets
+        /// slowed or an enraging unit never has one system overwrite another.
+        /// </summary>
+        public float WaveSpeedMultiplier
+        {
+            get => _waveSpeedMultiplier;
+            set => _waveSpeedMultiplier = Mathf.Max(0.01f, value);
+        }
+
+        /// <summary>
+        /// Convoy mutator (R20): when true, RouteTraffic registers this unit through
+        /// its WIDE-BODY path — it occupies every lane of its track and rides the
+        /// centreline, which is exactly single-file (ordered, no overtaking).
+        /// Assigned via <see cref="Configure"/> so it is set BEFORE registration.
+        /// </summary>
+        public bool ForceSingleLane { get; private set; }
 
         /// <summary>True while this unit flies straight to the Core (GDD §5.2).</summary>
         public bool IsAir => _isAir;
@@ -187,8 +207,14 @@ namespace Corehold.Enemies
                 rt.Unregister(this);
         }
 
-        /// <summary>Assign definition, route and Core target at spawn, then reset.</summary>
-        public void Configure(EnemyDefinition def, PathRoute newRoute, Transform core = null)
+        /// <summary>
+        /// Assign definition, route and Core target at spawn, then reset.
+        /// <paramref name="forceSingleLane"/> (R20 Convoy) is a Configure input —
+        /// not a settable property — because registration happens INSIDE this call
+        /// and the lane decision must already know it.
+        /// </summary>
+        public void Configure(EnemyDefinition def, PathRoute newRoute, Transform core = null,
+            bool forceSingleLane = false)
         {
             definition = def;
             route = newRoute;
@@ -205,6 +231,7 @@ namespace Corehold.Enemies
                 rt.Unregister(this);
 
             ResetToStart();
+            ForceSingleLane = forceSingleLane;
 
             if (isActiveAndEnabled)
                 RouteTraffic.Instance.Register(this);
@@ -234,6 +261,8 @@ namespace Corehold.Enemies
             _phaseChanged = false;
             _speedMultiplier = 1f;
             _statusSpeedMultiplier = 1f;
+            _waveSpeedMultiplier = 1f;
+            ForceSingleLane = false;
             _baseSpeed = moveSpeed;
             _renderLaneOffset = 0f;
 

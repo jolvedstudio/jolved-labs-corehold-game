@@ -118,7 +118,8 @@ namespace Corehold.Towers
         /// projectile prefab and launch it. This is the entry point turrets use —
         /// never Instantiate. Returns null if the tier has no projectile prefab.
         /// </summary>
-        public static Projectile Spawn(Vector3 origin, Enemy target, TowerTier tier, DamageType type)
+        public static Projectile Spawn(Vector3 origin, Enemy target, TowerTier tier, DamageType type,
+            Tower owner = null)
         {
             var prefab = tier.projectilePrefab != null ? tier.projectilePrefab.GetComponent<Projectile>() : null;
             if (prefab == null)
@@ -130,7 +131,7 @@ namespace Corehold.Towers
             CoreholdPool<Projectile> pool = GetPool(prefab);
             Projectile p = pool.Get();
             p._owningPool = pool;
-            p.Launch(origin, target, tier, type);
+            p.Launch(origin, target, tier, type, owner);
             return p;
         }
 
@@ -139,6 +140,7 @@ namespace Corehold.Towers
         private Enemy _target;
         private TowerTier _tier;
         private DamageType _damageType;
+        private Tower _owner;   // veterancy kill credit (R21); may be null
 
         private Vector3 _startPos;      // launch muzzle position
         private Vector3 _interceptPos;  // solved intercept (updated while target lives)
@@ -152,13 +154,16 @@ namespace Corehold.Towers
 
         /// <summary>
         /// Launch toward a leading intercept of <paramref name="target"/> (GDD §7.2).
-        /// Signature is fixed by the ticket: origin, target, tier, damage type.
+        /// Signature is fixed by the ticket: origin, target, tier, damage type — the
+        /// optional <paramref name="owner"/> (R21 kill credit) is additive.
         /// </summary>
-        public void Launch(Vector3 origin, Enemy target, TowerTier tier, DamageType type)
+        public void Launch(Vector3 origin, Enemy target, TowerTier tier, DamageType type,
+            Tower owner = null)
         {
             _tier = tier;
             _damageType = type;
             _target = target;
+            _owner = owner;
 
             _speed = Mathf.Max(0.01f, tier.projectileSpeed);
             _startPos = origin;
@@ -367,13 +372,20 @@ namespace Corehold.Towers
             ReturnToPool();
         }
 
-        /// <summary>Apply tier damage to one enemy with the damage-table multiplier (GDD §7.1).</summary>
+        /// <summary>
+        /// Apply tier damage to one enemy with the damage-table multiplier (GDD §7.1).
+        /// A hit that flips the enemy from alive to dead credits the owning tower's
+        /// veterancy (R21) — every splash kill counts, not just the primary target.
+        /// </summary>
         private void ApplyDamage(Enemy e, float baseDamage)
         {
             float mult = SharedDamageTable != null
                 ? SharedDamageTable.Multiplier(_damageType, e.ArmourType)
                 : 1f;
+            bool wasAlive = e.IsAlive;
             e.TakeDamage(baseDamage * mult);
+            if (wasAlive && !e.IsAlive && _owner != null)
+                _owner.RegisterKill();
         }
 
         private static Enemy NearestEnemy(Vector3 point, float maxRadius)
@@ -399,6 +411,7 @@ namespace Corehold.Towers
         private void ReturnToPool()
         {
             _target = null;
+            _owner = null;
 
             if (_owningPool != null)
                 _owningPool.Release(this);

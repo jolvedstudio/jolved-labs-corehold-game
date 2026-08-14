@@ -1,13 +1,16 @@
 using System.Collections.Generic;
 using Corehold.Core;
 using Corehold.Enemies;
+using Corehold.Towers;
 using TMPro;
 using UnityEngine;
 
 namespace Corehold.UI
 {
     /// <summary>
-    /// World-space enemy overlays — health bars and armour pips (GDD §9.4).
+    /// World-space enemy overlays — health bars and armour pips (GDD §9.4) — plus
+    /// the kill-streak combo labels (R2) and turret veterancy chevrons (R21), all
+    /// under the same one-manager / one-loop / pooled doctrine.
     ///
     /// Two hard requirements from the ticket, both met here:
     ///
@@ -55,6 +58,13 @@ namespace Corehold.UI
         [SerializeField] private Color barBackColor = new Color(0.05f, 0.06f, 0.08f, 0.85f);
         [SerializeField] private Color barFillColor = new Color(0.3f, 0.9f, 0.4f, 1f);
         [SerializeField] private Color barFillLowColor = new Color(1f, 0.35f, 0.25f, 1f);
+
+        [Header("Turret veterancy chevrons (R21)")]
+        [Tooltip("[TUNE] World-space font size of the rank chevrons.")]
+        [SerializeField] private float rankFontSize = 4.5f;
+
+        [Tooltip("[TUNE] Metres above the tower base the chevrons sit (clear of its health bar at 6.8).")]
+        [SerializeField] private float rankHeightAbove = 8.4f;
 
         [Header("Kill-streak combo labels (R2)")]
         [Tooltip("[TUNE] Seconds a combo label stays up (unscaled, like the HUD tweens).")]
@@ -113,6 +123,21 @@ namespace Corehold.UI
         private readonly List<ComboLabel> _comboActive = new List<ComboLabel>();
         private readonly Stack<ComboLabel> _comboPool = new Stack<ComboLabel>();
         private GameManager _gm;
+
+        // Persistent world-space rank chevrons over ranked turrets (R21). Same
+        // doctrine again: one manager, one loop, pooled TMP labels, diffed against
+        // the Tower registry — no per-tower component, no event wiring.
+        private sealed class RankMarker
+        {
+            public GameObject go;
+            public Transform tr;
+            public TextMeshPro tmp;
+            public int shownRank; // last rank written into tmp.text
+        }
+
+        private readonly Dictionary<Tower, RankMarker> _rankActive = new Dictionary<Tower, RankMarker>();
+        private readonly Stack<RankMarker> _rankPool = new Stack<RankMarker>();
+        private readonly List<Tower> _rankToRemove = new List<Tower>();
 
         private void Awake()
         {
@@ -224,8 +249,110 @@ namespace Corehold.UI
                 label.tmp.color = c;
             }
 
+            // 5. Turret veterancy chevrons (R21): diff Tower.Live the same way the
+            // enemy overlays diff Enemy.Live. Towers are few and static, so the
+            // per-frame cost is the billboard write.
+            UpdateRankMarkers(face);
+
             // Turret health bars are handled by a self-contained WorldHealthBar
             // component attached in Tower.Build — not tracked here.
+        }
+
+        // ----- Turret veterancy chevrons (R21) -----
+
+        private void UpdateRankMarkers(Quaternion face)
+        {
+            // Acquire / refresh markers for ranked towers.
+            var towers = Tower.Live;
+            for (int i = 0; i < towers.Count; i++)
+            {
+                Tower t = towers[i];
+                if (t == null || !t.isActiveAndEnabled || t.VeterancyRank <= 0)
+                    continue;
+
+                if (!_rankActive.TryGetValue(t, out RankMarker m) || !Usable(m))
+                {
+                    m = null;
+                    while (_rankPool.Count > 0)
+                    {
+                        m = _rankPool.Pop();
+                        if (Usable(m))
+                            break;
+                        m = null;
+                    }
+                    if (m == null)
+                        m = BuildRankMarker();
+                    if (!Usable(m))
+                        continue;
+                    m.shownRank = -1;
+                    m.go.SetActive(true);
+                    _rankActive[t] = m;
+                }
+
+                if (m.shownRank != t.VeterancyRank)
+                {
+                    m.shownRank = t.VeterancyRank;
+                    // Carets, not U+25B2: guaranteed present in the UI font.
+                    m.tmp.text = new string('^', t.VeterancyRank);
+                }
+
+                m.tr.SetPositionAndRotation(
+                    t.transform.position + Vector3.up * rankHeightAbove, face);
+            }
+
+            // Reclaim markers whose tower is gone (sold, destroyed) or de-ranked
+            // (a rebuilt pad resets to rank 0).
+            _rankToRemove.Clear();
+            foreach (var kv in _rankActive)
+            {
+                Tower t = kv.Key;
+                if (t == null || !t.isActiveAndEnabled || t.VeterancyRank <= 0)
+                    _rankToRemove.Add(t);
+            }
+            for (int i = 0; i < _rankToRemove.Count; i++)
+            {
+                Tower t = _rankToRemove[i];
+                if (_rankActive.TryGetValue(t, out RankMarker m))
+                {
+                    _rankActive.Remove(t);
+                    if (Usable(m))
+                    {
+                        m.go.SetActive(false);
+                        _rankPool.Push(m);
+                    }
+                }
+            }
+        }
+
+        /// <summary>Whole-marker liveness test — same lesson as <see cref="Usable(ComboLabel)"/>.</summary>
+        private static bool Usable(RankMarker m) =>
+            m != null && m.go != null && m.tr != null && m.tmp != null;
+
+        private RankMarker BuildRankMarker()
+        {
+            var m = new RankMarker();
+            m.go = new GameObject("RankChevrons");
+            m.go.transform.SetParent(_root, false);
+            m.tr = m.go.transform;
+
+            m.tmp = m.go.AddComponent<TextMeshPro>();
+            m.tmp.fontSize = rankFontSize;
+            m.tmp.alignment = TextAlignmentOptions.Center;
+            m.tmp.textWrappingMode = TextWrappingModes.NoWrap;
+            m.tmp.fontStyle = FontStyles.Bold;
+            m.tmp.sortingOrder = 100;
+            var theme = UITheme.Instance;
+            if (theme != null && theme.font != null)
+                m.tmp.font = theme.font;
+            m.tmp.color = theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f, 1f);
+
+            var mr = m.go.GetComponent<MeshRenderer>();
+            if (mr != null)
+            {
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+            }
+            return m;
         }
 
         private void UpdateHealth(Enemy e, Overlay o)

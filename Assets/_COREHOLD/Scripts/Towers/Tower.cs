@@ -119,16 +119,61 @@ namespace Corehold.Towers
         /// <summary>Base fire rate × (1 + aura fire-rate bonus). Recomputed on every read.</summary>
         public float EffectiveFireRate => BaseFireRate * (1f + _modifiers.fireRateBonus);
 
-        /// <summary>Base damage × (1 + aura damage bonus). Recomputed on every read.</summary>
-        public float EffectiveDamage => BaseDamage * (1f + _modifiers.damageBonus);
+        /// <summary>Base damage × (1 + aura bonus) × veterancy (R21). Recomputed on every read.</summary>
+        public float EffectiveDamage => BaseDamage * (1f + _modifiers.damageBonus) * VeterancyDamageMultiplier;
 
         /// <summary>
-        /// True damage-per-second including aura buffs, summed per mount so a
-        /// multi-weapon turret is not overstated. Recomputed on every read.
+        /// True damage-per-second including aura buffs and veterancy, summed per
+        /// mount so a multi-weapon turret is not overstated. Recomputed on every read.
         /// </summary>
         public float EffectiveDps => HasTier
             ? CurrentTier.TotalDps * (1f + _modifiers.damageBonus) * (1f + _modifiers.fireRateBonus)
+              * VeterancyDamageMultiplier
             : 0f;
+
+        // ----- Veterancy (R21) -----
+
+        // [TUNE] Career kills required for ranks 1..3, and damage added per rank.
+        private static readonly int[] VeterancyKillThresholds = { 25, 75, 150 };
+        private const float VeterancyDamagePerRank = 0.04f;
+
+        /// <summary>Career kills credited to this instance (R21). Reset by <see cref="Build"/>.</summary>
+        public int KillCount { get; private set; }
+
+        /// <summary>
+        /// Veterancy rank 0–3 (R21). Rank survives upgrades (same instance, same
+        /// career) and dies with a sell — <see cref="Build"/> resets it, so a
+        /// rebuilt pad starts green. Stored per-instance, never in the definition.
+        /// </summary>
+        public int VeterancyRank { get; private set; }
+
+        /// <summary>Damage multiplier from rank (R21): 1 + 0.04 × rank.</summary>
+        public float VeterancyDamageMultiplier => 1f + VeterancyDamagePerRank * VeterancyRank;
+
+        /// <summary>
+        /// Credit one kill (called by the weapon / projectile that landed the
+        /// killing hit — R21). Rank-ups fire here; the OverlayManager draws the
+        /// chevrons by polling <see cref="VeterancyRank"/>.
+        /// </summary>
+        public void RegisterKill()
+        {
+            KillCount++;
+
+            int rank = VeterancyRank;
+            while (rank < VeterancyKillThresholds.Length && KillCount >= VeterancyKillThresholds[rank])
+                rank++;
+            if (rank == VeterancyRank)
+                return;
+
+            VeterancyRank = rank;
+
+            // Rank-up beat: the pooled build puff over the turret head (GDD §11 —
+            // no new effect slot for a mechanic-first ticket) plus a log line.
+            if (Corehold.Systems.VFXDirector.Instance != null)
+                Corehold.Systems.VFXDirector.Instance.PlayBuildPuff(transform.position + Vector3.up * 2f);
+            Debug.Log($"[Corehold] {name} reached veterancy rank {VeterancyRank} " +
+                      $"({KillCount} kills, +{VeterancyDamagePerRank * VeterancyRank:P0} damage).");
+        }
 
         private void Awake()
         {
@@ -189,6 +234,13 @@ namespace Corehold.Towers
             // A freshly built tower starts unbuffed; the aura pass below will apply
             // any coverage it deserves.
             _modifiers = TowerModifiers.None;
+
+            // A build is a NEW purchase: veterancy never carries over (R21 —
+            // selling forfeits rank, and this reset also covers any future
+            // instance pooling). Upgrades go through SetTier and keep the career.
+            KillCount = 0;
+            VeterancyRank = 0;
+
             ApplyEffectiveRange();
 
             // Build-placement puff at the pad (GDD §11), pooled through the director.

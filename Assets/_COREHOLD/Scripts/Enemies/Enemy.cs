@@ -191,6 +191,17 @@ namespace Corehold.Enemies
         /// <summary>True while the enemy is alive and active.</summary>
         public bool IsAlive { get; private set; }
 
+        /// <summary>
+        /// Multiplier on the DISTANCE a turret measures when acquiring this unit
+        /// (R20 Blackout: 2 while unlit, so towers see it at half range). 1 = normal.
+        /// Scales only the max-range comparison — min-range dead zones stay true.
+        /// </summary>
+        public float AcquisitionDistanceScale { get; private set; } = 1f;
+
+        /// <summary>Set the acquisition-distance multiplier (stamped at spawn — R20).</summary>
+        public void SetAcquisitionDistanceScale(float value) =>
+            AcquisitionDistanceScale = Mathf.Max(0.01f, value);
+
         /// <summary>Raised when this enemy's health reaches zero and it dies.</summary>
         public event Action<Enemy> OnDied;
 
@@ -221,6 +232,7 @@ namespace Corehold.Enemies
             ResetHealth();
             ResetEnrage();
             ClearStatuses();
+            AcquisitionDistanceScale = 1f;
             // Re-enable renderers hidden by the death sequence when reused from pool.
             foreach (var r in GetComponentsInChildren<Renderer>(true))
                 r.enabled = true;
