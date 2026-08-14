@@ -25,6 +25,7 @@ namespace Corehold.Systems
     ///   L      slow all live enemies 50% for 3 s (R18 test)
     ///   T      cycle forced wave mutators for waves started AFTER the press
     ///          (R20 test: None → Storm → Convoy → Overcharge → Blackout → All)
+    ///   N      toggle the night lighting variant (R23; needs the scaffold in-scene)
     ///   1/2/3  set difficulty (Normal / Veteran / Nightmare)
     ///   F1     toggle the OnGUI overlay
     /// </summary>
@@ -61,6 +62,8 @@ namespace Corehold.Systems
                 SlowAllEnemies();
             if (kb.tKey.wasPressedThisFrame)
                 CycleForcedMutators();
+            if (kb.nKey.wasPressedThisFrame)
+                ToggleNight();
             if (kb.digit1Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Normal);
             if (kb.digit2Key.wasPressedThisFrame)
@@ -200,6 +203,21 @@ namespace Corehold.Systems
             wm.DebugForceMutators = cycle[(at + 1) % cycle.Length];
             Debug.Log($"[DebugConsole] Forced wave mutators: {wm.DebugForceMutators} " +
                       "(applies to waves started from now; T again to cycle).");
+        }
+
+        /// <summary>R23: flip the night lighting variant, if the scene carries one.</summary>
+        private void ToggleNight()
+        {
+            var night = NightVariant.Instance;
+            if (night == null)
+                night = FindFirstObjectByType<NightVariant>();
+            if (night == null)
+            {
+                Debug.LogWarning("[DebugConsole] No NightVariant in the scene — run " +
+                                 "Tools → COREHOLD → Scene Setup → Night Variant first.");
+                return;
+            }
+            night.Toggle();
         }
 
         private void SetDifficulty(Difficulty d)
