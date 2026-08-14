@@ -225,6 +225,22 @@ public static class GenerateLevel
             errors.Add($"classMix has a negative count ({b.classMix.premium}P/{b.classMix.standard}S/" +
                        $"{b.classMix.rear}R/{b.classMix.overwatch}O) — it would silently shrink the map.");
 
+        // A mix can be arithmetically legal and still be a map nobody can build.
+        // Premium is the SCARCEST class by construction — it is the one that has
+        // to earn four covered spans — so a mix weighted into it asks the geometry
+        // for the one thing it has least of.
+        int others = b.classMix.standard + b.classMix.rear + b.classMix.overwatch;
+        if (b.classMix.premium > MinPremiumPads + 1)
+            warnings.Add($"classMix asks for {b.classMix.premium} Premium pads. Premium is earned by " +
+                         "MEASUREMENT — four covered stretches of route — so it is the scarcest class on any " +
+                         $"map; the shipped map uses {MinPremiumPads}. Expect the hardpoint stage to run out " +
+                         "of qualifying spots.");
+        if (b.classMix.Total > MinPremiumPads && others == 0)
+            warnings.Add($"classMix is {b.classMix.premium} Premium and nothing else. Standard, Rear and " +
+                         "Overwatch pads are what give a map its spread of turret roles; a Premium-only map " +
+                         "asks the geometry for its rarest spots and nothing it has plenty of. The shipped " +
+                         "mix is 3 Premium / 2 Standard / 2 Rear / 1 Overwatch.");
+
         if (b.classMix.premium < MinPremiumPads)
             errors.Add($"classMix.premium is {b.classMix.premium} — the coverage rule requires at least " +
                        $"{MinPremiumPads} pads covering 4+ spans, so this blueprint can never pass the gate.");

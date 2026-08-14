@@ -473,14 +473,61 @@ public class GeneratorWindow : EditorWindow
             });
         }
 
-        fixes.Add(new GenerationAdvisor.Fix
+        // "Fewer pads overall" is NOT offered when Premium is the class that came
+        // up short, and that is a correction rather than an omission: shrinking
+        // drains Standard, then Overwatch, then Rear, holding Premium at its
+        // floor — so it CONCENTRATES the map into the scarcest class. Offered on
+        // a Premium shortfall it makes the next run harder while looking like
+        // help, and clicking it repeatedly walks a healthy 3/2/2/1 down to
+        // 3/0/0/0. Which is exactly what happened.
+        bool premiumShort = s.cls == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium;
+        if (!premiumShort)
         {
-            label = "Fewer pads overall",
-            why = $"A smaller map asks less of the shape. Dropping to {Mathf.Max(LevelBlueprint.PadClassMix.MinPremium, _blueprint.classMix.Total - 1)} " +
-                  "pads gives the selector more room to satisfy every class, and the balance model re-solves " +
-                  "enemy health growth against however many turrets the map ends up supporting.",
-            apply = bp => bp.classMix = bp.classMix.WithTotal(bp.classMix.Total - 1),
-        });
+            fixes.Add(new GenerationAdvisor.Fix
+            {
+                label = "Fewer pads overall",
+                why = $"A smaller map asks less of the shape. Dropping to {Mathf.Max(LevelBlueprint.PadClassMix.MinPremium, _blueprint.classMix.Total - 1)} " +
+                      "pads gives the selector more room to satisfy every class, and the balance model re-solves " +
+                      "enemy health growth against however many turrets the map ends up supporting.",
+                apply = bp => bp.classMix = bp.classMix.WithTotal(bp.classMix.Total - 1),
+            });
+        }
+        else if (_blueprint.classMix.premium > LevelBlueprint.PadClassMix.MinPremium)
+        {
+            int floor = LevelBlueprint.PadClassMix.MinPremium;
+            int shed = _blueprint.classMix.premium - floor;
+            fixes.Add(new GenerationAdvisor.Fix
+            {
+                label = $"Ask for {floor} Premium pads",
+                why = $"Premium is the scarcest class on any map — it has to earn four covered stretches of " +
+                      $"route — and {floor} is both the rule's minimum and what the shipped map uses. The " +
+                      $"other {shed} become Standard pads, which any spot on the map can be.",
+                apply = bp =>
+                {
+                    LevelBlueprint.PadClassMix m = bp.classMix;
+                    m.standard += m.premium - floor;
+                    m.premium = floor;
+                    bp.classMix = m;
+                },
+            });
+        }
+
+        // A mix with nothing but Premium in it cannot be walked back one pad at a
+        // time, so offer the whole way out in one click.
+        if (_blueprint.classMix.standard + _blueprint.classMix.rear + _blueprint.classMix.overwatch == 0)
+        {
+            fixes.Add(new GenerationAdvisor.Fix
+            {
+                label = "Restore the shipped mix (3P/2S/2R/1O)",
+                why = "This mix has no Standard, Rear or Overwatch pads left in it, so every pad the map " +
+                      "needs is one of the hard ones. The shipped map's spread is the known-good starting " +
+                      "point; adjust from there rather than toward an all-Premium map.",
+                apply = bp => bp.classMix = new LevelBlueprint.PadClassMix
+                {
+                    premium = 3, standard = 2, rear = 2, overwatch = 1,
+                },
+            });
+        }
 
         EditorGUILayout.Space(4f);
         EditorGUILayout.LabelField("From the last run", EditorStyles.boldLabel);
