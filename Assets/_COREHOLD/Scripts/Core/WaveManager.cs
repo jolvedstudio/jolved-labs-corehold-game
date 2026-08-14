@@ -24,9 +24,9 @@ namespace Corehold.Core
     ///   • Supports more than one active wave at once, so pressing Start Wave while
     ///     a wave is on the field chains the next one on top (GDD §8.4). Chaining
     ///     pays 8 salvage per enemy still alive at the moment of the call, capped
-    ///     at 80 — and is bounded to <see cref="MaxWavesInFlight"/> waves on the
-    ///     field. Unbounded, the call is no longer a pacing choice: the bonus pays
-    ///     once per press, and every remaining wave lands as a single pile.
+    ///     at 80 — and is refused while the field is already at
+    ///     <see cref="ChainLockAt"/> committed enemies. Unbounded, the call stops
+    ///     being a pacing choice: every remaining wave lands as a single pile.
     ///   • Applies the wave HP scalar 1.0 + 0.18·(wave − 1) and the difficulty
     ///     multipliers (§8.2) at spawn time.
     ///
@@ -65,9 +65,9 @@ namespace Corehold.Core
         [Tooltip("Maximum chain bonus per call (GDD §8.4).")]
         [SerializeField] private int chainBonusCapFallback = 80;
 
-        [Tooltip("How many waves may be on the field at once. 2 = call the next wave while one runs, " +
-                 "but not a third until the first clears. 0 or less = unbounded.")]
-        [SerializeField] private int maxWavesInFlightFallback = 2;
+        [Tooltip("Chaining locks when this fraction of the live cap is already committed (alive + queued). " +
+                 "0.75 of a 14-cap locks at 11. 0 or less = never lock.")]
+        [SerializeField] private float chainLockFieldLoadFallback = 0.75f;
 
         [Header("Navigation liveness (GDD redesign §Gap 4)")]
         [Tooltip("Seconds a live enemy may make no path progress before the watchdog culls it silently (no Core damage, no bounty). Should never fire if navigation is healthy; it exists so a regression logs loudly instead of bricking the session.")]
@@ -81,7 +81,7 @@ namespace Corehold.Core
         private float _hpGrowthPerWave = 0.18f;
         private int _chainBonusPerLiveEnemy = 8;
         private int _chainBonusCap = 80;
-        private int _maxWavesInFlight = 2;
+        private float _chainLockFieldLoad = 0.75f;
         private bool _spreadGroundGroups;
 
         // ----- Runtime state -----
@@ -110,10 +110,12 @@ namespace Corehold.Core
 
         /// <summary>
         /// How many DISTINCT waves currently have anything on the field — live
-        /// enemies, queued spawns, or groups still emitting. This is the quantity
-        /// the chain cap bounds; a live-enemy count cannot answer it, because one
-        /// wave of 20 and four waves of 5 are the same number and very different
-        /// situations.
+        /// enemies, queued spawns, or groups still emitting.
+        ///
+        /// Reporting only. It was the chain gate for one commit, and it was the
+        /// wrong measure: a wave with four stragglers counts the same as a wave of
+        /// twenty, so the button locked on an almost empty field. The gate is
+        /// <see cref="CanStartNextWave"/>, on committed headcount.
         /// </summary>
         public int WavesInFlight
         {
@@ -131,18 +133,35 @@ namespace Corehold.Core
             }
         }
 
-        /// <summary>Waves allowed on the field at once; 0 or less means unbounded.</summary>
-        public int MaxWavesInFlight => _maxWavesInFlight;
+        /// <summary>
+        /// Enemies already committed to the field: alive, plus queued behind the
+        /// live cap. The queue counts because those units are paid for and coming
+        /// — measuring only the living would call an empty field "empty" while
+        /// twenty enemies wait to walk on.
+        /// </summary>
+        public int CommittedCount => _live.Count + _pending.Count;
+
+        /// <summary>Committed count at which chaining locks; 0 means it never does.</summary>
+        public int ChainLockAt => _chainLockFieldLoad <= 0f
+            ? 0
+            : Mathf.Max(1, Mathf.RoundToInt(_maxLiveEnemies * _chainLockFieldLoad));
 
         /// <summary>
-        /// Whether the Start/Chain button may fire. Chaining stays free while the
-        /// field is inside the cap — the risk/reward of calling early is the point
-        /// (GDD §8.4) — but an unbounded queue turns it into two different things:
-        /// a bonus farmed once per call, and every remaining wave arriving as one
-        /// pile no defence can answer.
+        /// Whether the Start/Chain button may fire.
+        ///
+        /// The bound is on HOW FULL THE FIELD IS, not on how many waves are on it.
+        /// Counting waves was the obvious rule and the wrong one: a wave with four
+        /// stragglers left counts the same as a wave of twenty, so the button
+        /// locked on a nearly empty field and read as broken. What actually needs
+        /// bounding is the pile, and the pile is a headcount.
+        ///
+        /// It also closes the farming case on its own. The chain bonus is 8 per
+        /// LIVE enemy, so calling into an empty field pays almost nothing, and
+        /// calling into a full one is what this refuses — the exploit needed both
+        /// halves and can no longer have either.
         /// </summary>
         public bool CanStartNextWave =>
-            HasNextWave && (_maxWavesInFlight <= 0 || !WaveInProgress || WavesInFlight < _maxWavesInFlight);
+            HasNextWave && (ChainLockAt <= 0 || !WaveInProgress || CommittedCount < ChainLockAt);
 
         /// <summary>Number of enemies alive on the field right now.</summary>
         public int LiveCount => _live.Count;
@@ -295,7 +314,7 @@ namespace Corehold.Core
                 _hpGrowthPerWave = level.hpGrowthPerWave > 0f ? level.hpGrowthPerWave : hpGrowthPerWaveFallback;
                 _chainBonusPerLiveEnemy = level.chainBonusPerLiveEnemy > 0 ? level.chainBonusPerLiveEnemy : chainBonusPerLiveEnemyFallback;
                 _chainBonusCap = level.chainBonusCap > 0 ? level.chainBonusCap : chainBonusCapFallback;
-                _maxWavesInFlight = level.maxWavesInFlight > 0 ? level.maxWavesInFlight : maxWavesInFlightFallback;
+                _chainLockFieldLoad = level.chainLockFieldLoad > 0f ? level.chainLockFieldLoad : chainLockFieldLoadFallback;
                 _spreadGroundGroups = level.spreadGroundGroupsAcrossSpawners;
             }
             else
@@ -304,7 +323,7 @@ namespace Corehold.Core
                 _hpGrowthPerWave = hpGrowthPerWaveFallback;
                 _chainBonusPerLiveEnemy = chainBonusPerLiveEnemyFallback;
                 _chainBonusCap = chainBonusCapFallback;
-                _maxWavesInFlight = maxWavesInFlightFallback;
+                _chainLockFieldLoad = chainLockFieldLoadFallback;
                 _spreadGroundGroups = false;
             }
         }
@@ -338,9 +357,9 @@ namespace Corehold.Core
 
         /// <summary>
         /// Start the next wave (GDD §8.4). Pressing it while a wave is on the field
-        /// chains the next one on top and pays the chain bonus — but only up to
-        /// <see cref="MaxWavesInFlight"/>. Returns false if there is no wave left,
-        /// or if the field already holds the maximum number of waves.
+        /// chains the next one on top and pays the chain bonus — but only while the
+        /// field is under <see cref="ChainLockAt"/>. Returns false if there is no
+        /// wave left, or if the field is already that full.
         /// </summary>
         public bool StartNextWave() => StartWave(ignoreFlightCap: false);
 

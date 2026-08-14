@@ -143,10 +143,14 @@ namespace CoreholdEditor
             // Pivot AT the anchor. MakeRect leaves the pivot centred, so a rect
             // anchored to the panel's left edge is centred ON that edge and half of
             // it hangs outside the frame — 170 of 340 px, off the left of the
-            // screen. The shipped scene carries the fix (pivot 0,0.5 and 280 wide,
-            // hand-set after this tool ran); those values are ground truth and now
-            // live here, so a generated HUD looks like the shipped one.
-            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(16, -8), new Vector2(280, 26));
+            // screen.
+            //
+            // The inset is 28, not the 16 the shipped scene was hand-set to: the
+            // panel sprite's own bevel runs about 20 px in, so a 16 px inset put
+            // the first lit segment on top of the frame rather than inside it. The
+            // right edge stays at 296 (28 + 268), which keeps the 8 px gap to the
+            // value label.
+            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(28, -8), new Vector2(268, 26));
             segRoot.pivot = new Vector2(0f, 0.5f);
             var seghlg = segRoot.gameObject.AddComponent<Image>();
             seghlg.color = new Color(0, 0, 0, 0); // parent flashes; keep transparent

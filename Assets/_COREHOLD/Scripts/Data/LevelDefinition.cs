@@ -33,10 +33,11 @@ namespace Corehold.Data
         [Tooltip("Hard cap on concurrently live enemies (GDD §8.1).")]
         public int maxLiveEnemies;
 
-        [Tooltip("How many waves may be on the field at once (GDD §8.4, bounded). 2 = you may call the next " +
-                 "wave while one runs, but not a third until the first clears. 0 uses the WaveManager default. " +
-                 "Unbounded chaining pays the bonus once per call and lands every wave as a single pile.")]
-        public int maxWavesInFlight;
+        [Tooltip("Chaining locks once this fraction of maxLiveEnemies is committed — alive plus queued " +
+                 "(GDD §8.4, bounded). 0.75 of a 14-cap locks at 11. 0 uses the WaveManager default. " +
+                 "The bound is on how full the field is, NOT on how many waves are on it: a wave with four " +
+                 "stragglers is not a full field, and counting waves locks the button while it looks empty.")]
+        [Range(0f, 1f)] public float chainLockFieldLoad;
 
         [Tooltip("Deal each wave's GROUND groups out across every ground spawner in the scene, ignoring the " +
                  "spawner index the group asks for. Set by the generator on siege maps (R40): the wave tables " +

@@ -129,33 +129,85 @@ namespace Corehold.Data
         /// <summary>
         /// The SHAPE of the approach, as opposed to its parameters (R40).
         ///
-        /// R27 varies fold count, fold placement and drop, but every corridor map
-        /// is the same map: enter west and north, merge, snake east, Core on the
+        /// R27 varies fold count, placement and drop, but every corridor map is
+        /// the same map: enter west and north, merge, snake east, Core on the
         /// right. Learn one defence and you have learned all of them. Topology is
         /// the axis that actually makes maps different.
+        ///
+        /// <b>These are the whole parameter.</b> Sector count and arc are not
+        /// separate fields to tune: each name below is one MEASURED-SAFE
+        /// combination, and the combinations that are not here are the ones that
+        /// failed to separate when the geometry was fuzzed. Exposing the two
+        /// numbers raw would mostly offer settings that cannot generate.
         /// </summary>
-        public enum ApproachPattern
+        public enum ApproachTopology
         {
-            /// <summary>Shipped shape: entrance legs merge into one folded run (R27).</summary>
+            /// <summary>Shipped shape: two entrance legs merge into one folded run (R27).</summary>
             Corridor = 0,
 
-            /// <summary>Attackers spiral in on the Core from several bearings (R40).</summary>
-            Siege = 1,
+            /// <summary>One entrance, no merge — the corridor run without the second leg.</summary>
+            SingleLane = 1,
+
+            /// <summary>Two approaches on opposite sides. The lightest siege.</summary>
+            Pincer = 2,
+
+            /// <summary>Three approaches, every side. The default castle siege.</summary>
+            Siege = 3,
+
+            /// <summary>Four approaches over 270° — all sides but one, which is where four still separate.</summary>
+            Encirclement = 4,
         }
 
         [Header("Approach topology (R40)")]
-        [Tooltip("Corridor = the shipped shape (legs merge into one folded run). Siege = attackers spiral " +
-                 "inward on a centred Core from several bearings. Parity is always Corridor.")]
-        public ApproachPattern approachPattern = ApproachPattern.Corridor;
+        [Tooltip("The map's SHAPE. Corridor/SingleLane fold a run past the Core (the shipped shape); " +
+                 "Pincer/Siege/Encirclement spiral in on a centred Core from 2, 3 or 4 bearings. Each " +
+                 "siege option is a combination measured to separate on a 130×75 field at 154 m — the " +
+                 "sector count and arc are not separate knobs because most combinations of them cannot " +
+                 "generate. Parity is always Corridor.")]
+        public ApproachTopology topology = ApproachTopology.Corridor;
 
-        [Tooltip("SIEGE ONLY. How many approaches surround the Core. Each is the same spiral rotated, so " +
-                 "they stay separated by construction until they converge at the Core.")]
-        [Range(2, 5)] public int approachSectors = 3;
+        /// <summary>Whether this topology spirals in on a centred Core rather than folding past it.</summary>
+        public bool IsSiege => topology == ApproachTopology.Pincer ||
+                               topology == ApproachTopology.Siege ||
+                               topology == ApproachTopology.Encirclement;
 
-        [Tooltip("SIEGE ONLY. Arc the approaches are spread over. 360 = every side; 270 leaves one side " +
-                 "safe (the classic castle siege). The arc's own bearing is drawn from the seed, so which " +
-                 "side is safe varies by map.")]
-        [Range(120f, 360f)] public float sectorArcDegrees = 360f;
+        /// <summary>Entrance legs for a corridor map. Siege topologies ignore it.</summary>
+        public int GroundLegs => topology == ApproachTopology.SingleLane ? 1 : 2;
+
+        /// <summary>Approaches around the Core, 0 for corridor topologies.</summary>
+        public int SiegeSectors
+        {
+            get
+            {
+                switch (topology)
+                {
+                    case ApproachTopology.Pincer: return 2;
+                    case ApproachTopology.Siege: return 3;
+                    case ApproachTopology.Encirclement: return 4;
+                    default: return 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Arc the approaches spread over. Its BEARING is drawn from the seed, so
+        /// which side is safe varies map to map; only the width is fixed here.
+        /// Encirclement is 270° rather than 360° because four approaches measured
+        /// under the 4.5 m lane envelope at 360° and hold at 270°.
+        /// </summary>
+        public float SiegeArcDegrees
+        {
+            get
+            {
+                switch (topology)
+                {
+                    case ApproachTopology.Pincer: return 180f;
+                    case ApproachTopology.Siege: return 360f;
+                    case ApproachTopology.Encirclement: return 270f;
+                    default: return 0f;
+                }
+            }
+        }
 
         [Header("Routes (R27)")]
         [Tooltip("Target spline length in metres, hit within ±5% by iterating hairpin anchors. The shipped routes measure 153.7 / 154.5 m as splines, which is the geometry the balance model is baselined on.")]
@@ -166,8 +218,9 @@ namespace Corehold.Data
                  "warn about it on every new blueprint. Parity authors 11 explicitly.")]
         [Range(7.5f, 20f)] public float foldWidth = 12f;
 
-        [Tooltip("Ground entrance legs merging into the shared tail (1-2). Two legs inherit the AutoSmooth merge divergence and REQUIRE R7's world-space tangent pin.")]
-        [Range(1, 2)] public int groundSpawnLegs = 2;
+        // Entrance legs are no longer a field: SingleLane vs Corridor says it, and
+        // a leg count that disagreed with the topology could only be a mistake.
+        // Read LevelBlueprint.GroundLegs.
 
         [Tooltip("Whether air units get a straight corridor to the Core. Air ignores routes entirely and is unaffected by the spline work.")]
         public bool airCorridor = true;

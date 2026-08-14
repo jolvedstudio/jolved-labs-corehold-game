@@ -99,7 +99,7 @@ public static class GenerateLevel
         bp.protectedNormalizedPos = new Vector2(0.765f, 0.413f);  // Core at (34.5, -6.5)
         bp.routeLengthTarget = 154f;                              // splines measure 153.7 / 154.5
         bp.foldWidth = 11f;                                       // shipped folds are 10 and 11 m
-        bp.groundSpawnLegs = 2;
+        bp.topology = LevelBlueprint.ApproachTopology.Corridor;
         bp.airCorridor = true;
         bp.classMix = new LevelBlueprint.PadClassMix
         {
@@ -162,49 +162,39 @@ public static class GenerateLevel
                          "a Mortar centred in that pocket has both legs inside its 6 m dead zone, so its " +
                          "pad will have to sit outside the folds.");
 
-        if (b.groundSpawnLegs < 1 || b.groundSpawnLegs > 2)
-            errors.Add($"groundSpawnLegs must be 1 or 2 (is {b.groundSpawnLegs}).");
+        // ---- approach topology (R40) ----------------------------------------
+        if (b.parityLayout && b.topology != LevelBlueprint.ApproachTopology.Corridor)
+            errors.Add($"parityLayout rebuilds the shipped map, which is a Corridor — topology is " +
+                       $"{b.topology}. Set it back to Corridor, or turn parity off.");
 
-        // ---- siege topology (R40) -------------------------------------------
-        bool siege = b.approachPattern == LevelBlueprint.ApproachPattern.Siege && !b.parityLayout;
-        if (b.parityLayout && b.approachPattern != LevelBlueprint.ApproachPattern.Corridor)
-            errors.Add("parityLayout rebuilds the shipped map, which is a Corridor — set approachPattern " +
-                       "back to Corridor or turn parity off.");
-
-        if (siege)
+        if (b.IsSiege && !b.parityLayout)
         {
             // The ring is bounded by the NEAREST field edge, so an off-centre Core
             // is the difference between a map that generates and one that cannot.
             Vector2 pos = b.protectedNormalizedPos;
             float offCentre = Mathf.Max(Mathf.Abs(pos.x - 0.5f), Mathf.Abs(pos.y - 0.5f));
             if (offCentre > 0.12f)
-                warnings.Add($"siege maps surround the Core, but protectedNormalizedPos is " +
+                warnings.Add($"{b.topology} surrounds the Core, but protectedNormalizedPos is " +
                              $"({pos.x:0.###}, {pos.y:0.###}) — {offCentre:P0} off centre. The approach ring " +
                              "is limited by the nearest field edge, so an off-centre Core shortens every " +
                              "route and may put the length target out of reach. (0.5, 0.5) is the intent.");
 
-            float half = Mathf.Min(b.playfieldSize.x, b.playfieldSize.y) * 0.5f;
-            if (half - 4f < 14f)
+            float ring = Mathf.Min(b.playfieldSize.x, b.playfieldSize.y) * 0.5f - 4f;
+            if (ring < 14f)
                 errors.Add($"playfieldSize {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m leaves a ring of " +
-                           $"{half - 4f:0.#} m — a siege approach needs at least 14 m to spiral in.");
+                           $"{ring:0.#} m — a siege approach needs at least 14 m to spiral in.");
 
-            // Measured by fuzzing the spiral geometry on the shipped field at a
-            // 154 m target: 2–3 approaches hold at any arc, 4 need the arc pulled
-            // in to about 270°, 5 never separate. Stated as a warning rather than
-            // an error because the numbers move with field size and route length —
-            // the synthesizer measures what it built and refuses for real.
-            if (b.approachSectors >= 5)
-                warnings.Add($"{b.approachSectors} approaches did not separate at any arc on a " +
-                             "130×75 field with a 154 m target — expect synthesis to refuse. Fewer " +
-                             "sectors, a shorter routeLengthTarget, or a larger field.");
-            else if (b.approachSectors == 4 && b.sectorArcDegrees > 300f)
-                warnings.Add($"4 approaches over {b.sectorArcDegrees:0}° measured under the 4.5 m envelope; " +
-                             "at ~270° they hold. Expect synthesis to refuse unless the field is larger " +
-                             "than the shipped 130×75.");
-
-            if (b.groundSpawnLegs != 2)
-                warnings.Add("groundSpawnLegs is ignored on siege maps — approachSectors decides how many " +
-                             "ground routes exist.");
+            // Every topology in the enum was measured to separate on the shipped
+            // 130×75 field at 154 m, so there is nothing to warn about there. What
+            // still breaks it is a LONGER target on the same field: more wrap means
+            // less radial pitch between approaches, which is what the separation
+            // actually depends on. The synthesizer measures and refuses for real;
+            // this only flags the case early.
+            if (b.routeLengthTarget > 175f && b.SiegeSectors >= 3)
+                warnings.Add($"{b.topology} at a {b.routeLengthTarget:0.#} m target wraps each approach " +
+                             "further, and approaches that wrap more sit closer together. The measured-safe " +
+                             "combinations assume ~154 m; expect synthesis to refuse above roughly 175 m " +
+                             "unless the field is larger than 130×75.");
         }
 
         // The mix IS the pad count — there is no second total to disagree with it.
@@ -221,10 +211,10 @@ public static class GenerateLevel
         if (b.rulesTemplate == null)
             errors.Add("rulesTemplate is unassigned — R30 clones it to emit the LevelDefinition.");
 
-        if (b.groundSpawnLegs == 1)
-            warnings.Add("groundSpawnLegs is 1 but the shipped wave tables send groups to spawner 1 (north). " +
-                         "The balance model reroutes those to the primary route; verify the wave table's " +
-                         "spawner indices before shipping a 1-leg map (wave regeneration is R33).");
+        if (b.topology == LevelBlueprint.ApproachTopology.SingleLane)
+            warnings.Add("SingleLane has one entrance, but the shipped wave tables send groups to spawner 1 " +
+                         "(north). The balance model reroutes those to the primary route; verify the wave " +
+                         "table's spawner indices before shipping a 1-lane map (wave regeneration is R33).");
 
         if (b.envPackPool == null || b.envPackPool.Length == 0)
         {
@@ -268,10 +258,9 @@ public static class GenerateLevel
 
     private static void AppendPlan(LevelBlueprint b, StringBuilder log)
     {
-        bool siege = b.approachPattern == LevelBlueprint.ApproachPattern.Siege && !b.parityLayout;
-        string routeDesc = siege
-            ? $"{b.approachSectors} siege approach(es) over {b.sectorArcDegrees:0}°"
-            : $"{b.groundSpawnLegs} ground";
+        string routeDesc = b.IsSiege && !b.parityLayout
+            ? $"{b.topology} — {b.SiegeSectors} approaches over {b.SiegeArcDegrees:0}°"
+            : $"{b.topology} — {b.GroundLegs} ground leg(s)";
         log.AppendLine($"seed {b.randomSeed} · field {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m · " +
                        $"routes {routeDesc} + {(b.airCorridor ? "air" : "no air")} · " +
                        $"target {b.routeLengthTarget:0.#} m · folds {b.foldWidth:0.#} m · " +
