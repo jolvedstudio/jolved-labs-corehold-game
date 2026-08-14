@@ -582,6 +582,17 @@ Downstream, as predicted: ground approaches take spawner indices that step over 
 
 ---
 
+### R41 — Natural-language map intent → blueprint (P6 follow-on, AI)
+`Pin: @LevelBlueprint.cs @GenerationAdvisor.cs @GeneratorWindow.cs`
+A designer describing a map says *"a tight desert map, attacked from three sides, over fast"*. The blueprint wants `topology = Siege`, `routeLengthTarget ≈ 120`, `envPackPool = [RockyDesert]`, a centred Core, a smaller pad count. Turning the first into the second is language understanding, which is the one job in this pipeline a model does better than a search — and it is the last piece of the creation flow still done by hand.
+
+**The model proposes; the deterministic advisor proves.** A Claude call maps the sentence onto blueprint fields; `GenerationAdvisor` then runs the real synthesizer over the result exactly as it does for a hand-authored blueprint, repairs what it can, and refuses what it cannot. Nothing reaches generation because a model said so — the same preflight that guards a designer's typing guards the model's. If the proposal cannot generate, the advisor's own fixes are what the designer sees, not a retry loop against the API.
+
+**Editor-time only, and that boundary is load-bearing.** No model call may sit anywhere a player's run can reach it. R37's daily seed requires that a (seed, theme, blueprint) triple produce identical geometry on every device forever; a model in that path would break the promise the feature is built on. The output is an ASSET, authored once and committed — after that the map is as deterministic as any hand-made one. Key handling follows the same rule: a missing or invalid key degrades the window to what it does today, never blocks generation.
+**Done when:** a sentence produces a blueprint that generates without hand-editing, every proposed blueprint is preflighted by the existing advisor before it is offered, no model call exists outside the editor assembly, generation with no API key configured is unchanged in every respect, and the emitted asset carries the prompt that produced it as a comment field for provenance. *(Anti-goal: a model anywhere in the generation math. Route synthesis, pad scoring and the balance model stay deterministic and stay measured — the model chooses INTENT, never geometry.)*
+
+---
+
 # SUGGESTED ORDER & DEPENDENCY SUMMARY
 
 ## Suggested order (weekly drops)
@@ -592,7 +603,7 @@ Downstream, as predicted: ground approaches take spawner indices that step over 
 5. **Drops 7–8 — P4:** R18–R19 (status + Strike Wing), then R20–R22 (mutators, veterancy, model gate).
 6. **Drop 9 — P5:** R23–R24 (night + Floodlight).
 7. **Drops 10–12 — P6:** R25–R26 (blueprint + parity), R27–R28 (route + hardpoint synthesis), R29–R32 (gate, emission, contact sheet, map-2 day).
-8. **Drops 13–14 — P7:** R33–R35 (endless, score attack, medals/stars), R36–R38 (weekly mutators, daily seed, portal adapter), R39 (auto-placement assistant). **R40 (siege topology) slots wherever map variety becomes the priority — it is a P6 follow-on, not a P7 feature.**
+8. **Drops 13–14 — P7:** R33–R35 (endless, score attack, medals/stars), R36–R38 (weekly mutators, daily seed, portal adapter), R39 (auto-placement assistant). **R40 (siege topology) slots wherever map variety becomes the priority — it is a P6 follow-on, not a P7 feature. R41 (intent → blueprint) follows the advisor work and is optional: it removes the last hand-authoring step, it does not unblock anything.**
 
 ## One-page dependency summary
 - **R1 (balance model) blocks everything balance-touching** — it is the universal gate re-run in R10, R22, R30, R33, and every "re-run before tuning" line.

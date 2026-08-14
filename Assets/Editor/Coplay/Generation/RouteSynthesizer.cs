@@ -320,9 +320,23 @@ public static class RouteSynthesizer
         float ring = ringMax * ringDraw;
         float arc = Mathf.Clamp(b.SiegeArcDegrees, 120f, 360f);
 
+        // ---- bearings first, then the ONE lead-in they all share --------------
+        // Order matters: the lead-in depends on every bearing (it is the shortest
+        // one's allowance), and the fit depends on the lead-in. Fitting first and
+        // measuring the bearings afterwards is what let the approaches come out
+        // different lengths.
+        float step = arc >= 359.9f ? 360f / n : (n > 1 ? arc / (n - 1) : 0f);
+        float first = arcCentre + bearingJitter - (arc >= 359.9f ? 0f : arc * 0.5f);
+        var bearings = new float[n];
+        for (int i = 0; i < n; i++)
+            bearings[i] = first + step * i;
+
+        float leadIn = SharedLeadIn(core, ring, bearings, W, D);
+
         // ---- fit the sweep to the length target ------------------------------
         // ONE knob, same secant as the corridor fit. Sweep is monotone in length,
-        // so this converges in a couple of iterations.
+        // so this converges in a couple of iterations. Fitting on one bearing is
+        // valid ONLY because every approach is now congruent to it.
         float sweepMin = 90f * Mathf.Deg2Rad;
         float sweepMax = 4f * Mathf.PI;                            // two full turns
         float sweep = 2f * Mathf.PI;
@@ -333,8 +347,7 @@ public static class RouteSynthesizer
 
         for (int it = 0; it < MaxFitIterations; it++)
         {
-            probe = BuildSpiral(core, ring, SiegeInnerRadius, arcCentre + bearingJitter, sweep, clockwise,
-                                W, D);
+            probe = BuildSpiral(core, ring, SiegeInnerRadius, bearings[0], sweep, clockwise, leadIn);
             measured = MeasureSplineLength(probe);
             float err = measured - L;
             log.AppendLine($"[fit] iter {it}: sweep {sweep * Mathf.Rad2Deg:0.#}° → spline {measured:0.##} m " +
@@ -370,14 +383,10 @@ public static class RouteSynthesizer
         // ---- one spiral per sector, each the same curve rotated ---------------
         var routes = new Vector3[n][];
         var names = new string[n];
-        float step = arc >= 359.9f ? 360f / n : (n > 1 ? arc / (n - 1) : 0f);
-        float first = arcCentre + bearingJitter - (arc >= 359.9f ? 0f : arc * 0.5f);
-
         for (int i = 0; i < n; i++)
         {
-            float bearing = first + step * i;
-            routes[i] = BuildSpiral(core, ring, SiegeInnerRadius, bearing, sweep, clockwise, W, D);
-            names[i] = $"Route_{Compass(bearing)}";
+            routes[i] = BuildSpiral(core, ring, SiegeInnerRadius, bearings[i], sweep, clockwise, leadIn);
+            names[i] = $"Route_{Compass(bearings[i])}";
         }
         DisambiguateNames(names);
 
@@ -415,7 +424,8 @@ public static class RouteSynthesizer
             sharedTail = false,                        // approaches converge, they do not merge
         };
 
-        log.AppendLine($"[ok] {n} approach(es) on a {ring:0.#} m ring, sweep {sweep * Mathf.Rad2Deg:0.#}° " +
+        log.AppendLine($"[ok] {n} approach(es) on a {ring:0.#} m ring, lead-in {leadIn:0.#} m (shared), " +
+                       $"sweep {sweep * Mathf.Rad2Deg:0.#}° " +
                        $"{(clockwise ? "CW" : "CCW")}, arc {arc:0}° centred {arcCentre:0}°, " +
                        $"spline {measured:0.##} m (target {L:0.#} ±5%)");
         report = log.ToString();
@@ -430,18 +440,16 @@ public static class RouteSynthesizer
     /// AutoSmooth turns bunched knots into a wobble.
     /// </summary>
     private static Vector3[] BuildSpiral(Vector3 core, float ring, float innerRadius, float bearingDeg,
-                                         float sweep, bool clockwise, float W, float D)
+                                         float sweep, bool clockwise, float leadIn)
     {
         var pts = new List<Vector3>();
         float dir = clockwise ? -1f : 1f;
         float startRad = bearingDeg * Mathf.Deg2Rad;
 
-        // Lead-in: walk OUT along the entry bearing toward the field edge so the
-        // spawner sits where a player expects one, not floating mid-field. Bearings
-        // facing a near edge simply get a shorter one.
+        // Lead-in: walk OUT along the entry bearing so the spawner sits outside
+        // the spiral rather than on it. The SAME length for every approach — see
+        // SharedLeadIn; a per-bearing one silently breaks congruence.
         Vector3 outward = new Vector3(Mathf.Sin(startRad), 0f, Mathf.Cos(startRad));
-        float room = DistanceToBox(core + outward * ring, outward, W, D) - FieldMargin;
-        float leadIn = Mathf.Clamp(room, 0f, SiegeMaxLeadIn);
         if (leadIn > 1f)
             pts.Add(core + outward * (ring + leadIn));
 
@@ -495,6 +503,38 @@ public static class RouteSynthesizer
                     foreach (Vector3 q in sampled[b])
                         worst = Mathf.Min(worst, Vector3.Distance(p, q));
         return worst == float.MaxValue ? float.MaxValue : worst;
+    }
+
+    /// <summary>
+    /// The one lead-in length every approach on this map uses: the shortest any of
+    /// their bearings can manage.
+    ///
+    /// Sizing it per bearing is the obvious thing and it is wrong. The playfield is
+    /// a RECTANGLE — 130 × 75 — so an approach entering from the west has 32 m of
+    /// room outside the ring while one entering from the north has 4 m, and giving
+    /// each what it can take makes the approaches different lengths. That breaks
+    /// the property the whole topology rests on: the sweep is fitted ONCE and every
+    /// approach is the same curve rotated, which is what keeps them separated and
+    /// what keeps them all inside the ±5% length band. Measured on a real seed the
+    /// spread was 148–158 m against a 154 m target, and gate 1 refused the map —
+    /// for a reason no reseed could fix, since the asymmetry is the field's shape,
+    /// not the draw.
+    ///
+    /// So every approach gets the shortest bearing's allowance. The cost is that
+    /// spawners on the long axis sit nearer the ring than they could; the benefit
+    /// is that all N routes measure identically, by construction.
+    /// </summary>
+    private static float SharedLeadIn(Vector3 core, float ring, float[] bearingsDeg, float W, float D)
+    {
+        float shortest = SiegeMaxLeadIn;
+        foreach (float bearing in bearingsDeg)
+        {
+            float rad = bearing * Mathf.Deg2Rad;
+            Vector3 outward = new Vector3(Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            float room = DistanceToBox(core + outward * ring, outward, W, D) - FieldMargin;
+            shortest = Mathf.Min(shortest, Mathf.Clamp(room, 0f, SiegeMaxLeadIn));
+        }
+        return shortest;
     }
 
     /// <summary>Distance from a point to the field box along a direction (both in XZ).</summary>

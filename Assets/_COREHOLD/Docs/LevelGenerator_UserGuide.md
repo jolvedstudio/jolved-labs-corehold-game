@@ -33,13 +33,17 @@ This is the sanity path. Do it once before anything else.
 
 You just rebuilt Refinery Delta through the full gated pipeline. The scene is at `Assets/_COREHOLD/Scenes/Generated/`, its rules asset at `Assets/_COREHOLD/Data/Levels/Generated/`.
 
-## 3. Quick start B — your first generated map (5 minutes)
+## 3. Quick start B — your first generated map (2 minutes)
 
-1. In the Project window: **duplicate `Blueprint_RefineryDelta`** (Ctrl+D), rename it — the name feeds the scene and asset filenames.
-2. In the Generator window, switch the mode to **Generate new map**. That toolbar is *the* switch between "rebuild the shipped map" and "synthesize from the seed" (it writes `parityLayout` on the blueprint, so it sticks with the asset).
-3. Pick a **seed** (any integer). Leave everything else at shipped values for a first run.
-4. Select your blueprint in the Generator window → **Generate**.
-5. Didn't like it, or a gate refused the seed? **Seed +1 → Generate.** Reseeding is free and is the intended loop — see §10.
+1. In the Generator window, open **Create a new map**.
+2. Give it a **name**, pick a **shape** (see §4), pick a **theme** if you have one, pick a **pace**.
+3. **Create map** → **Generate**.
+
+That is the whole flow. The four choices are all a new map needs; everything else is defaulted to values that work, the Core is placed where your chosen shape needs it, and the seed is pre-picked to one that actually synthesizes — so a new map opens ready to generate rather than on a refusal you didn't cause.
+
+**Do not duplicate `Blueprint_RefineryDelta` to start a new map.** It carries the shipped Core position, which is right for a corridor and wrong for anything that surrounds the Core, and you will meet a refusal about approach rings for a field you never chose.
+
+Didn't like the result, or a gate refused the seed? **Seed +1 → Generate.** Reseeding is free and is the intended loop — see §10.
 
 ---
 
@@ -55,6 +59,9 @@ Top to bottom:
 - **Hardpoints** — **Total pads** plus the per-class breakdown (P/S/R/O). The blueprint stores *only* the breakdown; the total is its sum, so the two can never disagree. Type a new total and the mix **re-spreads itself**: growth goes to **Standard** (the only class with no structural precondition — Premium needs geometry scoring 4+ spans, Rear needs the final approach, Overwatch needs a ≥12 m fold), shrink comes off Standard, then Overwatch, then Rear, and Premium never drops below 3 because the coverage rule needs three pads at 4+ spans. Asking for more pads is a *request*: if the geometry can't host them, gate 2 refuses and names the class that came up short. Disabled in parity mode, where the pad set is the shipped one.
 - **This seed draws** — a preview of the theme, weather, and ground *this exact seed* will pick from the pools, before you spend any time generating.
 - **Validation** — live errors/warnings for the blueprint. Errors disable Generate: the pipeline refuses to start on an invalid blueprint rather than emit a half-right scene.
+- **Suggested fixes** — the part you should actually use when something refuses. The window preflights the blueprint by running the real route synthesis on throwaway copies, and if it cannot generate *on any seed*, it searches for the smallest single change that makes it and offers that as a button. Each one explains the problem in map terms rather than geometry terms, and says what the change costs. Every suggestion has been generated once before it is offered, so "this works" means it worked. **A refusal here blocks Generate**, because a structural failure is not something reseeding can fix — see §10.
+- **Generate until it passes** — generates, and on a gate failure retries the next seed, up to 6 times, stopping the moment a map passes. This is the reseed loop without the reading; the seeds it burns stay on the blueprint, so the map you get is still exactly what that seed makes. Six failures in a row is not bad luck — that is when the fix panel has something to say.
+- **From the last run** — fixes for what only a built scene can reveal. The commonest: your mix asks for more pads of a class than this shape can host. Pad classes are earned by measurement, so the panel tells you the number the map actually offers and offers to ask for that instead.
 - **Generate** — labelled with the stage and gate count. During the run a **cancelable progress bar** shows stage n/18 plus sub-stage detail (candidate scoring, model elapsed time). **Cancel is safe**: it routes through the same discard as a gate failure and leaves nothing behind.
 - **Pipeline map** — always visible. Before a run: every stage pending (○), the four gates badged **⛨** in amber. After: ✓ / – (skipped) / ✗ per stage with timings; a failure shows in red and everything below it reads "not reached".
 - **Copy report** — the full transcript to your clipboard. **This is how you report a failed seed**: paste it in chat and whoever looks at it sees the gate, the offending pads/knots/waves, and the timings, without a screenshot.
@@ -170,6 +177,7 @@ Vendor prefabs you can't move: add the role as an **asset label** (`Landmark`, `
 | "field width … cannot fit 2 folds" | `foldWidth` × folds + entrance leg + Core standoff exceed the field | Widen `playfieldSize.x`, narrow `foldWidth`, or move the Core east |
 | "no top-run band above the Core" | Field too shallow for the Core position | Deepen the field or move `protectedNormalizedPos` south |
 | "could not reach … ±5%" | `routeLengthTarget` out of range for this field/foldWidth | Adjust the target or the field |
+| **"cannot generate on any seed"** | A structural problem — the field, topology, Core position and route length cannot all be true at once | Click a **Suggested fix**. Reseeding will not help: nothing about this failure varies with the seed |
 | Gate 2: "no candidate for Premium slot…" | This seed's pockets can't host the mix | Seed +1; persistent across many seeds → widen `foldWidth` or reduce the mix |
 | Gate 2b: "pads still sight-blocked" | Dressing and pads can't coexist on this seed | Seed +1; recurring → your theme's MidField props are too tall/wide for the fold pockets — check `allowInFold` and measured heights |
 | Gate 2b: "pads hidden from the camera" | A prop stands between the camera and a pad | Seed +1. Recurring means the theme's tall props are too numerous for the field |

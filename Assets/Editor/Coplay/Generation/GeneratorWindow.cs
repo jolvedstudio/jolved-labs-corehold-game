@@ -64,6 +64,8 @@ public class GeneratorWindow : EditorWindow
             DrawDrawPreview();
             DrawValidation(out bool blocked);
             DrawGenerate(blocked);
+            if (_ran)
+                DrawRunFixes();
             DrawStageMap();
         }
         DrawUtilities();
@@ -80,6 +82,8 @@ public class GeneratorWindow : EditorWindow
 
         _blueprint = (LevelBlueprint)EditorGUILayout.ObjectField(
             "Level Blueprint", _blueprint, typeof(LevelBlueprint), false);
+
+        DrawNewMap();
 
         if (_blueprint == null)
         {
@@ -266,6 +270,274 @@ public class GeneratorWindow : EditorWindow
             EditorGUILayout.HelpBox(e, MessageType.Error);
         foreach (string w in warnings)
             EditorGUILayout.HelpBox(w, MessageType.Warning);
+
+        DrawFixes(ref blocked);
+    }
+
+    // ------------------------------------------------------------ new map
+
+    private bool _newMapOpen;
+    private string _newMapName = "";
+    private LevelBlueprint.ApproachTopology _newMapTopology = LevelBlueprint.ApproachTopology.Siege;
+    private EnvPack _newMapTheme;
+    private int _newMapPace = 1;
+
+    private static readonly string[] PaceLabels = { "Short", "Standard", "Long" };
+    private static readonly float[] PaceMetres = { 120f, 154f, 185f };
+
+    /// <summary>
+    /// Author a NEW map from four choices, instead of duplicating the parity
+    /// blueprint and editing it.
+    ///
+    /// Duplicating is how every hand-made blueprint so far has started, and it is
+    /// why they arrive broken: the parity asset carries the shipped Core at
+    /// (0.765, 0.413), which is correct for a corridor and wrong for anything that
+    /// surrounds the Core. The designer then meets a refusal about approach rings
+    /// for a field they never chose. Authoring per topology puts the Core where
+    /// that topology needs it, and the map starts valid.
+    /// </summary>
+    private void DrawNewMap()
+    {
+        _newMapOpen = EditorGUILayout.Foldout(_newMapOpen, "Create a new map", true);
+        if (!_newMapOpen)
+            return;
+
+        using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+        {
+            _newMapName = EditorGUILayout.TextField(
+                new GUIContent("Name", "Feeds the blueprint, scene and rules-asset filenames."), _newMapName);
+            _newMapTopology = (LevelBlueprint.ApproachTopology)EditorGUILayout.EnumPopup(
+                new GUIContent("Shape", "Where the attackers come from. The Core is placed to suit it."),
+                _newMapTopology);
+            _newMapTheme = (EnvPack)EditorGUILayout.ObjectField(
+                new GUIContent("Theme", "The art set this map is dressed in. Optional — leave empty for greybox."),
+                _newMapTheme, typeof(EnvPack), false);
+            _newMapPace = GUILayout.Toolbar(_newMapPace, PaceLabels);
+            EditorGUILayout.LabelField(
+                $"Route length {PaceMetres[_newMapPace]:0} m — how long each attacker walks under fire. " +
+                "Enemy health growth is re-solved against whichever you pick, so all three are balanced.",
+                EditorStyles.wordWrappedMiniLabel);
+
+            using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(_newMapName)))
+            {
+                if (GUILayout.Button("Create map", GUILayout.Height(24f)))
+                    CreateNewMap();
+            }
+        }
+    }
+
+    private void CreateNewMap()
+    {
+        const string dir = "Assets/_COREHOLD/Data/Blueprints";
+        if (!AssetDatabase.IsValidFolder(dir))
+            AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "Blueprints");
+
+        string safe = _newMapName.Trim().Replace(" ", "");
+        string path = AssetDatabase.GenerateUniqueAssetPath($"{dir}/Blueprint_{safe}.asset");
+
+        var bp = ScriptableObject.CreateInstance<LevelBlueprint>();
+        bp.parityLayout = false;
+        bp.topology = _newMapTopology;
+        bp.routeLengthTarget = PaceMetres[_newMapPace];
+        bp.foldWidth = 12f;
+        bp.airCorridor = true;
+        bp.playfieldSize = new Vector2(130f, 75f);
+
+        // The Core goes where the SHAPE needs it. A surrounded Core has to be
+        // central or its approach ring is cut short by the nearest field edge;
+        // a corridor Core sits east, where the shipped map puts it.
+        bp.protectedNormalizedPos = bp.IsSiege
+            ? new Vector2(0.5f, 0.5f)
+            : new Vector2(0.765f, 0.413f);
+
+        bp.classMix = new LevelBlueprint.PadClassMix { premium = 3, standard = 2, rear = 2, overwatch = 1 };
+        if (_newMapTheme != null)
+            bp.envPackPool = new[] { _newMapTheme };
+        bp.rulesTemplate = AssetDatabase.LoadAssetAtPath<LevelDefinition>(
+            "Assets/_COREHOLD/Data/Levels/Level_RefineryDelta.asset");
+
+        // Seed the search rather than the map: pick the first seed that actually
+        // synthesizes, so a new map opens ready to generate instead of opening on
+        // a refusal the designer did not cause.
+        bp.randomSeed = 1;
+        for (int s = 1; s <= 64; s++)
+        {
+            bp.randomSeed = s;
+            if (RouteSynthesizer.Synthesize(bp, out _) != null)
+                break;
+        }
+
+        AssetDatabase.CreateAsset(bp, path);
+        AssetDatabase.SaveAssets();
+
+        _blueprint = bp;
+        _newMapOpen = false;
+        _newMapName = "";
+        _fixKey = 0;
+        _ran = false;
+        Selection.activeObject = bp;
+    }
+
+    /// <summary>Advisor state, recomputed only when the blueprint actually changes.</summary>
+    private int _fixKey;
+    private string _diagnosis;
+    private List<GenerationAdvisor.Fix> _fixes = new List<GenerationAdvisor.Fix>();
+
+    /// <summary>
+    /// The preflight panel: does this blueprint generate, and if not, what one
+    /// change would make it?
+    ///
+    /// It runs the real synthesizer on throwaway copies, which is cheap but not
+    /// free, so it recomputes on a CHANGE KEY rather than every repaint — an
+    /// editor window repaints on mouse movement, and a search per frame would
+    /// make the whole window feel broken.
+    /// </summary>
+    private void DrawFixes(ref bool blocked)
+    {
+        int key = FixKey(_blueprint);
+        if (key != _fixKey)
+        {
+            _fixKey = key;
+            _fixes = GenerationAdvisor.Suggest(_blueprint, out _diagnosis);
+        }
+
+        if (string.IsNullOrEmpty(_diagnosis) && _fixes.Count == 0)
+            return;
+
+        if (!string.IsNullOrEmpty(_diagnosis))
+        {
+            // A structural refusal blocks Generate the same way a validation error
+            // does. Letting the button run a pipeline that cannot reach stage 7 is
+            // a slower way of saying the same thing.
+            blocked = true;
+            EditorGUILayout.HelpBox("This blueprint cannot generate on any seed:\n\n" + _diagnosis,
+                                    MessageType.Error);
+        }
+
+        if (_fixes.Count == 0)
+            return;
+
+        EditorGUILayout.LabelField(_fixes.Count == 1 ? "Suggested fix" : "Suggested fixes",
+                                   EditorStyles.boldLabel);
+        DrawFixList(_fixes);
+    }
+
+    /// <summary>
+    /// Fixes for what the LAST RUN found — things no preflight can know, because
+    /// they need a built scene: how many pads of a class this geometry can
+    /// actually host.
+    /// </summary>
+    private void DrawRunFixes()
+    {
+        HardpointSelector.Shortfall s = HardpointSelector.LastShortfall;
+        if (!s.valid || _blueprint == null || _blueprint.parityLayout)
+            return;
+
+        var fixes = new List<GenerationAdvisor.Fix>();
+
+        // Premium has a floor the coverage rule sets, so "place fewer" is not
+        // available there — the honest advice is a different map, not a worse mix.
+        bool premiumFloored = s.cls == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium &&
+                              s.placed < LevelBlueprint.PadClassMix.MinPremium;
+
+        if (!premiumFloored)
+        {
+            int placed = s.placed;
+            var cls = s.cls;
+            fixes.Add(new GenerationAdvisor.Fix
+            {
+                label = $"Ask for {placed} {cls} pad(s)",
+                why = $"The mix wants {s.wanted} {cls} pads and this map's geometry offers {placed}. " +
+                      "Pad classes are earned by measurement — a pad is Premium because it covers four " +
+                      "stretches of route, not because it was labelled one — so asking for more than the " +
+                      "shape provides cannot be satisfied. The freed pads move to Standard, which has no " +
+                      "geometric precondition.",
+                apply = bp =>
+                {
+                    LevelBlueprint.PadClassMix m = bp.classMix;
+                    int freed = 0;
+                    switch (cls)
+                    {
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium:
+                            freed = m.premium - placed; m.premium = placed; break;
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Standard:
+                            freed = 0; m.standard = placed; break;
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Rear:
+                            freed = m.rear - placed; m.rear = placed; break;
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Overwatch:
+                            freed = m.overwatch - placed; m.overwatch = placed; break;
+                    }
+                    m.standard += Mathf.Max(0, freed);
+                    bp.classMix = m;
+                },
+            });
+        }
+
+        fixes.Add(new GenerationAdvisor.Fix
+        {
+            label = "Fewer pads overall",
+            why = $"A smaller map asks less of the shape. Dropping to {Mathf.Max(LevelBlueprint.PadClassMix.MinPremium, _blueprint.classMix.Total - 1)} " +
+                  "pads gives the selector more room to satisfy every class, and the balance model re-solves " +
+                  "enemy health growth against however many turrets the map ends up supporting.",
+            apply = bp => bp.classMix = bp.classMix.WithTotal(bp.classMix.Total - 1),
+        });
+
+        EditorGUILayout.Space(4f);
+        EditorGUILayout.LabelField("From the last run", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox($"This map hosts {s.placed} {s.cls} pad(s); the mix asks for {s.wanted}. " +
+                                "That is a property of the shape, so the same seed will always fail this way — " +
+                                "but a different seed may well have room.", MessageType.Warning);
+        DrawFixList(fixes);
+    }
+
+    private void DrawFixList(List<GenerationAdvisor.Fix> list)
+    {
+        GenerationAdvisor.Fix clicked = null;
+        foreach (GenerationAdvisor.Fix fix in list)
+        {
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField(fix.why, EditorStyles.wordWrappedMiniLabel);
+                if (GUILayout.Button(fix.label))
+                    clicked = fix;
+            }
+        }
+
+        // Applied AFTER the loop: mutating the blueprint mid-draw changes what the
+        // rest of this pass wants to lay out, and IMGUI does not forgive that.
+        if (clicked != null)
+        {
+            Undo.RecordObject(_blueprint, clicked.label);
+            clicked.apply(_blueprint);
+            EditorUtility.SetDirty(_blueprint);
+            _ran = false;
+            _fixKey = 0;                      // re-diagnose against the edited blueprint
+            Repaint();
+        }
+    }
+
+    /// <summary>
+    /// Everything the advisor's answer depends on, in one int. Deliberately not
+    /// the seed: a structural refusal is the same on every seed, which is the
+    /// whole reason the advisor exists.
+    /// </summary>
+    private static int FixKey(LevelBlueprint b)
+    {
+        if (b == null)
+            return 0;
+        unchecked
+        {
+            int h = b.GetInstanceID();
+            h = h * 31 + b.topology.GetHashCode();
+            h = h * 31 + b.parityLayout.GetHashCode();
+            h = h * 31 + b.playfieldSize.GetHashCode();
+            h = h * 31 + b.protectedNormalizedPos.GetHashCode();
+            h = h * 31 + b.routeLengthTarget.GetHashCode();
+            h = h * 31 + b.foldWidth.GetHashCode();
+            h = h * 31 + b.classMix.premium * 7 + b.classMix.standard * 11 +
+                         b.classMix.rear * 13 + b.classMix.overwatch * 17;
+            return h;
+        }
     }
 
     private void DrawGenerate(bool blocked)
@@ -280,6 +552,10 @@ public class GeneratorWindow : EditorWindow
             if (GUILayout.Button($"Generate  ({GenerationPipeline.Stages.Length} stages, {gates} gates — " +
                                  "cancel any time)", GUILayout.Height(32f)))
                 Run();
+
+            if (GUILayout.Button($"Generate until it passes  (retries the next seed, up to {MaxAutoSeeds})",
+                                 GUILayout.Height(22f)))
+                RunUntilPass();
         }
         if (blocked)
             EditorGUILayout.HelpBox("Fix the errors above — the pipeline refuses to start on an " +
@@ -304,6 +580,61 @@ public class GeneratorWindow : EditorWindow
         }
 
         Repaint();
+    }
+
+    /// <summary>Maximum seeds <see cref="RunUntilPass"/> will burn before giving up.</summary>
+    private const int MaxAutoSeeds = 6;
+
+    /// <summary>
+    /// Generate, and on a gate failure try the next seed, up to
+    /// <see cref="MaxAutoSeeds"/> times.
+    ///
+    /// This is what "reseed rather than repair" has meant in practice all along:
+    /// press the button, read a refusal, press Seed +1, press the button. The
+    /// loop is the same thing without the reading, and it stops the moment a map
+    /// passes. Seeds it burned are left on the blueprint, so the map you got is
+    /// the map that seed makes — the run stays reproducible.
+    ///
+    /// It gives up rather than grinding: six failures in a row is not bad luck,
+    /// it is a blueprint the fix panel should be answering instead.
+    /// </summary>
+    private void RunUntilPass()
+    {
+        for (int attempt = 0; attempt < MaxAutoSeeds; attempt++)
+        {
+            if (attempt > 0)
+            {
+                Undo.RecordObject(_blueprint, "Auto reseed");
+                _blueprint.randomSeed++;
+                EditorUtility.SetDirty(_blueprint);
+            }
+
+            Run();
+            if (Passed(_results))
+                return;
+
+            // A cancel is a decision, not a failure — do not answer it by
+            // starting another run.
+            if (WasCancelled(_results))
+                return;
+        }
+    }
+
+    private static bool Passed(List<GenerationPipeline.StageRun> results)
+    {
+        foreach (var run in results)
+            if (!run.result.ok)
+                return false;
+        return results.Count > 0;
+    }
+
+    private static bool WasCancelled(List<GenerationPipeline.StageRun> results)
+    {
+        foreach (var run in results)
+            if (!run.result.ok && run.result.message != null &&
+                run.result.message.IndexOf("cancel", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        return false;
     }
 
     /// <summary>
