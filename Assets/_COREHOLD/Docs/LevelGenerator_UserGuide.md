@@ -85,7 +85,7 @@ Top to bottom:
 | 15 | Group & verify hierarchy | Sweeps stray roots into containers, then verifies: a second pass must move **zero** objects. Failure names the root to add to `SceneContainers.Groups`. |
 | 16 | Emit LevelDefinition | Clones `rulesTemplate`; **generated maps get a solved `hpGrowthPerWave` and a derived `maxLiveEnemies`**; parity clones verbatim and verifies instead. Runs the balance model (needs Python). |
 | 17 | **⛨ GATE 3 — model margins** | See §6. |
-| 18 | Save scene | Only reachable with every gate green. Scene + asset written. |
+| 18 | Save scene | Only reachable with every gate green. Scene + asset written, and the scene is **registered in Build Settings** — `SceneManager.LoadScene` only accepts scenes on that list, so without it the map plays but Retry cannot reload it. Generated-scene entries whose file was deleted are pruned in the same pass. |
 
 Any ✗ triggers the **Discard** row: half-built scene closed unsaved, created assets deleted. A failed run's only output is its report.
 
@@ -177,6 +177,7 @@ Vendor prefabs you can't move: add the role as an **asset label** (`Landmark`, `
 | Gate 3: "margins out of band" | Geometry can't be balanced by growth alone | Seed +1. The flagged waves in the report say which side (LOW = defense starved, HIGH = too easy) |
 | Hierarchy verify: "unrecognised root(s)" | A tool emitted a root the container table doesn't know | Add the name to `SceneContainers.Groups` — one line |
 | Gate 2 census is a **multiple** of the blueprint mix (e.g. 6/4/4/2 against 3/2/2/1) | Another scene was loaded and its pads were counted too | Fixed — every generation query is scoped to the active scene. If stage 3 still reports "N scenes are loaded", close the others |
+| Retry / Main Menu drops me into Refinery Delta | Fixed — both used to carry a serialized scene name defaulting to `Game`. Retry now reloads the ACTIVE scene | If a scene still refuses to reload, it is not in Build Settings: generate it again (stage 18 registers it) or add it by hand |
 | "envPackPool is empty" warning | No theme assigned | Fine for greybox testing; assign packs for visuals |
 | Parity blueprint runs synthesis | Asset predates `parityLayout` | Re-run **Create Refinery Delta Blueprint** |
 | Missing-prefab warnings on parity dressing | `Assets/Vendor/` kit not installed on this machine | Cosmetic only; install the kit for visuals |

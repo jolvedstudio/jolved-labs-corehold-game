@@ -21,7 +21,10 @@ namespace Corehold.UI
         [SerializeField] private Button menuButton;
         [SerializeField] private Button muteButton;
         [SerializeField] private TMP_Text muteLabel;
-        [SerializeField] private string gameSceneName = "Game";
+
+        [Tooltip("Separate title scene, if the build has one. EMPTY (the single-scene build) sends Main Menu " +
+                 "back through this level's own title overlay. Retry ignores this — it always reloads the " +
+                 "scene being played, which is the only correct answer once levels are generated.")]
         [SerializeField] private string titleSceneName = "";
 
         private float _prevTimeScale = 1f;
@@ -75,23 +78,26 @@ namespace Corehold.UI
         private void Retry()
         {
             if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
-            Corehold.Enemies.Enemy.Live.Clear();
-            Time.timeScale = 1f;
-            string scene = string.IsNullOrEmpty(gameSceneName) ? SceneManager.GetActiveScene().name : gameSceneName;
-            SceneManager.LoadScene(scene, LoadSceneMode.Single);
+            Corehold.Core.GameFlow.RestartCurrentLevel();
         }
 
         private void MainMenu()
         {
             if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
-            Time.timeScale = 1f;
+
+            // A title scene is a genuinely DIFFERENT scene, so a name is the only
+            // way to say which — unlike Retry, where the answer is always "this
+            // one". Unset (the single-scene build) reloads this level, which comes
+            // back up on its own title overlay.
+            if (string.IsNullOrEmpty(titleSceneName))
+            {
+                Corehold.Core.GameFlow.RestartCurrentLevel();
+                return;
+            }
+
             Corehold.Enemies.Enemy.Live.Clear();
-            // No separate title scene in the single-scene build — reload the game
-            // scene, which drops back to its own title overlay.
-            string scene = string.IsNullOrEmpty(titleSceneName)
-                ? (string.IsNullOrEmpty(gameSceneName) ? SceneManager.GetActiveScene().name : gameSceneName)
-                : titleSceneName;
-            SceneManager.LoadScene(scene, LoadSceneMode.Single);
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(titleSceneName, LoadSceneMode.Single);
         }
 
         private void ToggleMute()

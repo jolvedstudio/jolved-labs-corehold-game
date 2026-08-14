@@ -106,7 +106,7 @@ Operating discipline, standing constraints, and the gate ritual are defined once
 
 ## P7 — Retention loop (researched features). Three drops.
 **Objective:** Add the local-first, server-free return mechanics, now that the generator and mutators exist.
-**Tickets:** R33 (endless survival — model-driven wave extension), R34 (score attack + local leaderboard + share code), R35 (per-map medals → stars → cosmetic/loadout meta), R36 (weekly mutator rotation), R37 (daily-seed challenge), R38 (optional portal leaderboard adapter).
+**Tickets:** R33 (endless survival — model-driven wave extension), R34 (score attack + local leaderboard + share code), R35 (per-map medals → stars → cosmetic/loadout meta), R36 (weekly mutator rotation), R37 (daily-seed challenge), R38 (optional portal leaderboard adapter), R39 (turret auto-placement assistant — premium).
 **Exit gate:** Universal ritual; all persistence via existing SaveData; determinism verified (same seed → identical run); no power locked behind money.
 
 ---
@@ -542,6 +542,17 @@ Add a thin, optional adapter that submits scores to a **host-provided sanctioned
 
 ---
 
+### R39 — Turret auto-placement assistant (P7, premium)
+`Pin: @HardpointCoverageGizmo.cs @HardpointSelector.cs @BuildMenu.cs @LevelDefinition.cs @SaveData.cs @docs/balance_model.py`
+A **solver**, not a language model: given the pad set, the wave table and current salvage, recommend which turret to build on which pad, in what order. Every quantity it needs is already measured — `HardpointCoverageGizmo` gives covered spans per pad **per turret kind**, `DamageTable` gives the type-vs-armour multiplier, `TowerTier.TotalDps` gives output, and the generator computed all of it at emission time. Score each empty (pad, kind) pair by expected damage against the next N waves per salvage spent, take the best, repeat while salvage lasts. Same state ⇒ same advice: the ordering must be deterministic, or it cannot be tested and two players comparing notes see different games.
+
+Validate the plan, do not just print it: run the recommended build through R1's model (the R30 runner already shells out) and refuse to recommend a build whose per-wave margins fall out of band — an assistant that confidently proposes a losing opener is worse than none. Surface it as a **suggestion** — ghost the recommended turret on its pad with the reason ("4 covered spans, hits Breaker armour ×1.5") and let the player accept or ignore. Never auto-build; autopilot is not the ask and it removes the game.
+
+**The premium gate is the risky part of this ticket, and it is a design decision, not an implementation detail.** P7's exit gate says no power behind money, and an assistant that plays better than the player is power. The way through is that it must sell **convenience, not information**: every number it reasons from stays visible to every player (pad coverage ratings are already rendered by the gizmo — expose them in the build menu for free), and premium buys the solved ordering. Keep it out of competitive surfaces regardless — disable it in the R37 daily-seed run, or stamp its use into the R34 share code so a leaderboard entry says whether it was used.
+**Done when:** the assistant recommends a full build for the shipped map that the balance model puts in band, its output is identical for identical game state, accepting a suggestion is a normal build (no special path), it is inert with the entitlement off, the coverage numbers it uses are visible to all players, and it is disabled or flagged in daily-seed and leaderboard runs. *(Anti-goal: an LLM in the hot path. If a model is ever wanted here it belongs at authoring time — explaining a plan in the editor — where latency and per-call cost are not in the player's way.)*
+
+---
+
 # SUGGESTED ORDER & DEPENDENCY SUMMARY
 
 ## Suggested order (weekly drops)
@@ -552,14 +563,14 @@ Add a thin, optional adapter that submits scores to a **host-provided sanctioned
 5. **Drops 7–8 — P4:** R18–R19 (status + Strike Wing), then R20–R22 (mutators, veterancy, model gate).
 6. **Drop 9 — P5:** R23–R24 (night + Floodlight).
 7. **Drops 10–12 — P6:** R25–R26 (blueprint + parity), R27–R28 (route + hardpoint synthesis), R29–R32 (gate, emission, contact sheet, map-2 day).
-8. **Drops 13–14 — P7:** R33–R35 (endless, score attack, medals/stars), R36–R38 (weekly mutators, daily seed, portal adapter).
+8. **Drops 13–14 — P7:** R33–R35 (endless, score attack, medals/stars), R36–R38 (weekly mutators, daily seed, portal adapter), R39 (auto-placement assistant).
 
 ## One-page dependency summary
 - **R1 (balance model) blocks everything balance-touching** — it is the universal gate re-run in R10, R22, R30, R33, and every "re-run before tuning" line.
 - **R6 (spline backbone) → R7 (pin) → R8 (coverage) → R9 (revalidation/flip) → R10 (model re-run).** R7 depends on R6; R8 depends on R6; R9 depends on R7+R8; R10 depends on R9. **All of P3 depends on P2 being frozen** (dressing/flyover on stable geometry).
 - **R18 (status system) is a hard dependency of R19 (Strike Wing uses stun/slow) and of the R20 Blackout ↔ R24 Floodlight interaction.** R22 depends on R2 (streak), R18 (stun), R20 (Overcharge), R21 (veterancy).
 - **Generator chain:** R25 (blueprint) → R26 (parity) → R27 (routes, which reuse R7's pin) → R28 (hardpoints, which reuse R8's curve sampler) → R29 (gate, which reuses clearance + coverage + model) → R30 (emission, which uses the R1 model as solver) → R31 (contact sheet) → R32 (map-2 day). R27 depends on P2; R28 depends on R8; R30 depends on R1.
-- **Retention chain:** R33 (endless) depends on R1 + WaveManager; R34 (score) depends on R4's SaveData extension; R35 (medals/stars) depends on R4 + R34; R36 (weekly mutators) depends on R20; **R37 (daily seed) depends on the entire generator gate (R29) + R34's share code**; R38 depends on R34.
+- **Retention chain:** R33 (endless) depends on R1 + WaveManager; R34 (score) depends on R4's SaveData extension; R35 (medals/stars) depends on R4 + R34; R36 (weekly mutators) depends on R20; **R37 (daily seed) depends on the entire generator gate (R29) + R34's share code**; R38 depends on R34; **R39 (auto-placement) depends on R28's per-kind coverage measurement and R1's model as its validator**, and touches R34/R37 only to declare itself.
 - **Nothing in P7 ships before P6's gate (R29) exists**, because the daily seed and any future generated content route through it.
 
 ## Recommendations

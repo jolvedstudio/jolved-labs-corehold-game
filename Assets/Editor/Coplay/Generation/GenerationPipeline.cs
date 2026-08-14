@@ -23,6 +23,9 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class GenerationPipeline
 {
+    /// <summary>Where generated scenes are saved — and the prefix Build Settings pruning trusts.</summary>
+    private const string GeneratedDir = "Assets/_COREHOLD/Scenes/Generated";
+
     // ------------------------------------------------------------------ results
 
     public struct StageResult
@@ -883,11 +886,10 @@ public static class GenerationPipeline
     private static StageResult StSave(Context ctx)
     {
         LevelBlueprint b = ctx.blueprint;
-        const string dir = "Assets/_COREHOLD/Scenes/Generated";
-        if (!AssetDatabase.IsValidFolder(dir))
+        if (!AssetDatabase.IsValidFolder(GeneratedDir))
             AssetDatabase.CreateFolder("Assets/_COREHOLD/Scenes", "Generated");
 
-        ctx.scenePath = $"{dir}/{Sanitise(b.name)}_s{b.randomSeed}.unity";
+        ctx.scenePath = $"{GeneratedDir}/{Sanitise(b.name)}_s{b.randomSeed}.unity";
 
         Scene scene = SceneManager.GetActiveScene();
         if (!EditorSceneManager.SaveScene(scene, ctx.scenePath))
@@ -895,7 +897,54 @@ public static class GenerationPipeline
 
         ctx.sceneSaved = true;
         AssetDatabase.SaveAssets();
-        return StageResult.Ok($"{ctx.scenePath} — press Play to run it");
+
+        string build = RegisterInBuildSettings(ctx.scenePath);
+        return StageResult.Ok($"{ctx.scenePath} — press Play to run it{build}");
+    }
+
+    /// <summary>
+    /// Put the generated scene in Build Settings.
+    ///
+    /// Not a packaging nicety — <see cref="SceneManager.LoadScene(string)"/> only
+    /// accepts scenes in that list, so an unregistered map plays fine but dies on
+    /// Retry, which is the one control a tester presses most. Registering here
+    /// keeps it with the save that created the scene.
+    ///
+    /// Entries under Scenes/Generated whose file is gone are dropped in the same
+    /// pass, so deleting a map you did not like cleans up after itself instead of
+    /// leaving the list to grow one dead row per seed.
+    /// </summary>
+    private static string RegisterInBuildSettings(string scenePath)
+    {
+        var scenes = new List<EditorBuildSettingsScene>();
+        bool present = false;
+        int pruned = 0;
+
+        foreach (EditorBuildSettingsScene s in EditorBuildSettings.scenes)
+        {
+            if (s.path == scenePath)
+            {
+                present = true;
+            }
+            else if (s.path.StartsWith(GeneratedDir, System.StringComparison.Ordinal) &&
+                     AssetDatabase.LoadAssetAtPath<SceneAsset>(s.path) == null)
+            {
+                pruned++;
+                continue;
+            }
+            scenes.Add(s);
+        }
+
+        if (present && pruned == 0)
+            return ", already in Build Settings";
+
+        if (!present)
+            scenes.Add(new EditorBuildSettingsScene(scenePath, true));
+        EditorBuildSettings.scenes = scenes.ToArray();
+
+        string added = present ? "" : ", added to Build Settings so Retry can reload it";
+        string gone = pruned > 0 ? $", {pruned} deleted generated scene(s) pruned from it" : "";
+        return added + gone;
     }
 
     // ------------------------------------------------------------------ helpers

@@ -111,7 +111,7 @@ public static class BuildGameScene
         var rs = rsGo.AddComponent<ResultScreen>();
         var rsSo = new SerializedObject(rs);
         rsSo.FindProperty("waveManager").objectReferenceValue = wm;
-        rsSo.FindProperty("gameSceneName").stringValue = "Game";
+        // No scene name to set: Retry reloads whatever scene it is playing.
         rsSo.ApplyModifiedPropertiesWithoutUndo();
 
         // ---- DebugConsole ----

@@ -3,6 +3,7 @@ using Corehold.Systems;
 using Corehold.Towers;
 using Corehold.UI;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace Corehold.Core
 {
@@ -120,6 +121,38 @@ namespace Corehold.Core
                 var go = new GameObject("InputRouter");
                 go.AddComponent<InputRouter>();
             }
+        }
+
+        /// <summary>
+        /// Restart the level being played — Retry, from the pause overlay or the
+        /// result screen.
+        ///
+        /// "The level being played" is the ACTIVE SCENE and nothing else. Both
+        /// screens used to carry a serialized scene name defaulting to "Game", so
+        /// Retry on any generated map threw the player back into Refinery Delta:
+        /// a stored name is a second answer to a question the runtime already
+        /// knows, and it is wrong for every map the generator makes.
+        ///
+        /// Reloading needs the scene in Build Settings (the Level Generator
+        /// registers what it saves). Without it Unity refuses the load, so say
+        /// which scene and why rather than letting it fail silently.
+        /// </summary>
+        public static void RestartCurrentLevel()
+        {
+            Enemies.Enemy.Live.Clear();
+            Time.timeScale = 1f;
+
+            Scene active = SceneManager.GetActiveScene();
+            if (active.buildIndex >= 0)
+            {
+                SceneManager.LoadScene(active.buildIndex, LoadSceneMode.Single);
+                return;
+            }
+
+            Debug.LogError($"[GameFlow] Retry cannot reload '{active.name}' — it is not in Build Settings. " +
+                           "Add it via File → Build Profiles (the Level Generator does this for scenes it " +
+                           "saves; a scene added by hand needs it too).");
+            SceneManager.LoadScene(active.name, LoadSceneMode.Single);
         }
     }
 }
