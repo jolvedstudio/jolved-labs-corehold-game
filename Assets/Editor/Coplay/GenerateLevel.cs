@@ -151,16 +151,24 @@ public static class GenerateLevel
 
         // Fold width is the constraint that decides whether good pads can exist at
         // all, so it is validated against the turret numbers rather than a taste.
-        if (b.foldWidth < 2f * ClearanceEnvelope)
-            errors.Add($"foldWidth {b.foldWidth:0.##} m is below {2f * ClearanceEnvelope:0.##} m — " +
-                       "a pad centred in that pocket cannot clear the 3.75 m envelope from both legs.");
-        if (b.foldWidth > 20f)
-            errors.Add($"foldWidth {b.foldWidth:0.##} m exceeds 20 m — the shortest-ranged turret " +
-                       "(Arc Node, 10 m) cannot reach both legs from the pocket centre.");
-        if (b.classMix.overwatch > 0 && b.foldWidth < 12f)
-            warnings.Add($"foldWidth {b.foldWidth:0.##} m is under 12 m while the mix asks for an Overwatch pad — " +
-                         "a Mortar centred in that pocket has both legs inside its 6 m dead zone, so its " +
-                         "pad will have to sit outside the folds.");
+        //
+        // ONLY for topologies that have folds. A siege map spirals in on the Core
+        // and never reads foldWidth, so judging it against fold geometry produced
+        // a warning about a pocket that does not exist on that map — noise the
+        // reader has to learn to ignore, which is how real warnings get ignored too.
+        if (!b.IsSiege)
+        {
+            if (b.foldWidth < 2f * ClearanceEnvelope)
+                errors.Add($"foldWidth {b.foldWidth:0.##} m is below {2f * ClearanceEnvelope:0.##} m — " +
+                           "a pad centred in that pocket cannot clear the 3.75 m envelope from both legs.");
+            if (b.foldWidth > 20f)
+                errors.Add($"foldWidth {b.foldWidth:0.##} m exceeds 20 m — the shortest-ranged turret " +
+                           "(Arc Node, 10 m) cannot reach both legs from the pocket centre.");
+            if (b.classMix.overwatch > 0 && b.foldWidth < 12f)
+                warnings.Add($"foldWidth {b.foldWidth:0.##} m is under 12 m while the mix asks for an Overwatch " +
+                             "pad — a Mortar centred in that pocket has both legs inside its 6 m dead zone, so " +
+                             "its pad will have to sit outside the folds.");
+        }
 
         // ---- approach topology (R40) ----------------------------------------
         if (b.parityLayout && b.topology != LevelBlueprint.ApproachTopology.Corridor)
@@ -170,19 +178,32 @@ public static class GenerateLevel
         if (b.IsSiege && !b.parityLayout)
         {
             // The ring is bounded by the NEAREST field edge, so an off-centre Core
-            // is the difference between a map that generates and one that cannot.
+            // is the difference between a map that generates and one that cannot —
+            // and the warning has to carry the two numbers, because "off centre"
+            // alone reads as a style note when it is actually the whole outcome.
             Vector2 pos = b.protectedNormalizedPos;
-            float offCentre = Mathf.Max(Mathf.Abs(pos.x - 0.5f), Mathf.Abs(pos.y - 0.5f));
-            if (offCentre > 0.12f)
-                warnings.Add($"{b.topology} surrounds the Core, but protectedNormalizedPos is " +
-                             $"({pos.x:0.###}, {pos.y:0.###}) — {offCentre:P0} off centre. The approach ring " +
-                             "is limited by the nearest field edge, so an off-centre Core shortens every " +
-                             "route and may put the length target out of reach. (0.5, 0.5) is the intent.");
+            Vector3 core = LevelLayout.FromNormalized(pos, b.playfieldSize);
+            float toEdge = Mathf.Min(
+                Mathf.Min(b.playfieldSize.x * 0.5f - core.x, b.playfieldSize.x * 0.5f + core.x),
+                Mathf.Min(b.playfieldSize.y * 0.5f - core.z, b.playfieldSize.y * 0.5f + core.z));
+            float ring = toEdge - 4f;
+            float centredRing = Mathf.Min(b.playfieldSize.x, b.playfieldSize.y) * 0.5f - 4f;
 
-            float ring = Mathf.Min(b.playfieldSize.x, b.playfieldSize.y) * 0.5f - 4f;
             if (ring < 14f)
-                errors.Add($"playfieldSize {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m leaves a ring of " +
-                           $"{ring:0.#} m — a siege approach needs at least 14 m to spiral in.");
+            {
+                errors.Add($"the Core at ({pos.x:0.###}, {pos.y:0.###}) sits {toEdge:0.#} m from the nearest " +
+                           $"field edge, leaving a {ring:0.#} m approach ring — a siege approach needs at " +
+                           "least 14 m to spiral in. Centre the Core or enlarge playfieldSize.");
+            }
+            else if (ring < centredRing - 1f)
+            {
+                warnings.Add($"{b.topology} surrounds the Core, but protectedNormalizedPos ({pos.x:0.###}, " +
+                             $"{pos.y:0.###}) leaves only {ring:0.#} m of approach ring against the " +
+                             $"{centredRing:0.#} m a centred Core would give. Each approach has to wrap " +
+                             "further to reach the length target, and more wrap means less radial pitch " +
+                             "between approaches — which is what separation depends on. Expect synthesis to " +
+                             "refuse below about 30 m of ring at a 154 m target. (0.5, 0.5) is the intent.");
+            }
 
             // Every topology in the enum was measured to separate on the shipped
             // 130×75 field at 154 m, so there is nothing to warn about there. What
@@ -263,7 +284,8 @@ public static class GenerateLevel
             : $"{b.topology} — {b.GroundLegs} ground leg(s)";
         log.AppendLine($"seed {b.randomSeed} · field {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m · " +
                        $"routes {routeDesc} + {(b.airCorridor ? "air" : "no air")} · " +
-                       $"target {b.routeLengthTarget:0.#} m · folds {b.foldWidth:0.#} m · " +
+                       $"target {b.routeLengthTarget:0.#} m · " +
+                       (b.IsSiege && !b.parityLayout ? "" : $"folds {b.foldWidth:0.#} m · ") +
                        $"{b.HardpointCount} pads ({b.classMix.premium}P/{b.classMix.standard}S/" +
                        $"{b.classMix.rear}R/{b.classMix.overwatch}O)");
         log.AppendLine();
