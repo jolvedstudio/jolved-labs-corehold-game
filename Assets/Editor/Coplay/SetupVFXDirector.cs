@@ -8,7 +8,7 @@ using UnityEngine.SceneManagement;
 /// <summary>
 /// Editor setup for the COREHOLD VFXDirector (GDD §11). Creates (or updates) a
 /// VFXDirector GameObject in the Game scene and assigns the Cartoon FX Remaster
-/// prefabs (eleven slots as of R18) to its serialized effect slots. Run once;
+/// prefabs (twelve slots as of R19) to its serialized effect slots. Run once;
 /// safe to re-run — and MUST be re-run on scenes built before a slot was added,
 /// because a scene's serialized array keeps its old length until this rewrites it.
 /// </summary>
@@ -48,6 +48,13 @@ public static class SetupVFXDirector
             CfxrRoot + "Ice/CFXR3 Hit Ice.prefab",
             CfxrRoot + "Impacts/CFXR Impact Glowing HDR (Blue).prefab",
         }, 6),
+        // Strike Wing EM burst (R19) — a big electric pop; the director plays it
+        // scaled up to read at the 6 m ability radius.
+        (VFXDirector.Effect.StrikeWingBurst, new[]
+        {
+            CfxrRoot + "Electric/CFXR3 Hit Electric B (Air).prefab",
+            CfxrRoot + "Electric/CFXR3 Hit Electric C (Air).prefab",
+        }, 2),
     };
 
     // ---- Tracer configuration, as tuned in the shipped Game.unity ----------

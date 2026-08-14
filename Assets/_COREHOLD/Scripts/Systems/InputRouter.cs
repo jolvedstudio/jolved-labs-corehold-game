@@ -60,6 +60,21 @@ namespace Corehold.Systems
         // Mouse "finger id" used by the EventSystem for the left button.
         private const int MousePointerId = -1;
 
+        // An armed ability (Strike Wing R19) that claims field taps ahead of pad
+        // routing. UI still gets first refusal — the claimant only sees taps the
+        // EventSystem declined. Returns true when it consumed the tap.
+        private Func<Vector2, bool> _tapClaimant;
+
+        /// <summary>Route field taps to <paramref name="claimant"/> until cleared.</summary>
+        public void SetTapClaimant(Func<Vector2, bool> claimant) => _tapClaimant = claimant;
+
+        /// <summary>Clear the claimant (only if it is still the registered one).</summary>
+        public void ClearTapClaimant(Func<Vector2, bool> claimant)
+        {
+            if (_tapClaimant == claimant)
+                _tapClaimant = null;
+        }
+
         private void Awake()
         {
             if (raycastCamera == null)
@@ -110,6 +125,10 @@ namespace Corehold.Systems
             // 1. UI gets first refusal. Must pass the fingerId — the parameterless
             //    overload is mouse-only and misreports on mobile (GDD §9.3).
             if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(pointerId))
+                return;
+
+            // 1b. An armed ability claims the tap before pad routing (R19).
+            if (_tapClaimant != null && _tapClaimant(screenPos))
                 return;
 
             if (raycastCamera == null)

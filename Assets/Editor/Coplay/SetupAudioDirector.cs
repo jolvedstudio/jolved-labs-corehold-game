@@ -11,7 +11,9 @@ using UnityEngine.SceneManagement;
 /// one-shot clips from the Turret SFX and Creepy Cat sound folders, the rotation
 /// loop and a music/ambient bed, and forces every referenced clip to
 /// CompressedInMemory on the WebGL platform override (GDD §10). Run once; safe to
-/// re-run.
+/// re-run. Owns EVERY Sfx row (13 as of R19) — it writes the array size, so any
+/// row it did not know about would be truncated on re-run, and generated maps
+/// only ever run this tool.
 /// </summary>
 public static class SetupAudioDirector
 {
@@ -20,19 +22,47 @@ public static class SetupAudioDirector
     private const string TurretSfx = "Assets/Vendor/IndieGameModels/SFX/Turret SFX/sounds/";
     private const string CreepySound = "Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Sound/";
 
-    // Logical one-shot -> clip path (GDD §10).
-    private static readonly (AudioDirector.Sfx id, string path)[] SfxMap =
+    // Logical one-shot -> clip path CANDIDATES (GDD §10): the first that exists
+    // wins, and every list ends on a known-present clip. This table is the ONE
+    // authority for every Sfx row — it also carries the rows SetupP1Juice used
+    // to append (StreakStep, CloseCall), because this tool writes arraySize and
+    // a partial table here would TRUNCATE rows another tool appended whenever
+    // it was re-run (and generated maps only ever run this tool).
+    private static readonly (AudioDirector.Sfx id, string[] paths)[] SfxMap =
     {
-        (AudioDirector.Sfx.FireKinetic, TurretSfx + "Turret/turret_fire.wav"),
-        (AudioDirector.Sfx.FireEnergy,  TurretSfx + "Laser turret/laser_turret_fire.wav"),
-        (AudioDirector.Sfx.FireMissile, TurretSfx + "Missle Turret/missle_fire.wav"),
-        (AudioDirector.Sfx.FireMortar,  TurretSfx + "Turret/turret_fire3.wav"),
-        (AudioDirector.Sfx.Impact,      TurretSfx + "Laser turret/energyimpact_small.wav"),
-        (AudioDirector.Sfx.Explosion,   TurretSfx + "Missle Turret/explosion missile 01.wav"),
-        (AudioDirector.Sfx.EnemyDeath,  CreepySound + "Explosions/Explode_02.wav"),
-        (AudioDirector.Sfx.UIClick,     CreepySound + "Interfaces/Light_Switch_A.wav"),
-        (AudioDirector.Sfx.Build,       CreepySound + "Interfaces/Gravity_Switch_A.wav"),
-        (AudioDirector.Sfx.CoreAlarm,   CreepySound + "Vocal/Msg_Warning Restricted Access.wav"),
+        (AudioDirector.Sfx.FireKinetic, new[] { TurretSfx + "Turret/turret_fire.wav" }),
+        (AudioDirector.Sfx.FireEnergy,  new[] { TurretSfx + "Laser turret/laser_turret_fire.wav" }),
+        (AudioDirector.Sfx.FireMissile, new[] { TurretSfx + "Missle Turret/missle_fire.wav" }),
+        (AudioDirector.Sfx.FireMortar,  new[] { TurretSfx + "Turret/turret_fire3.wav" }),
+        (AudioDirector.Sfx.Impact,      new[] { TurretSfx + "Laser turret/energyimpact_small.wav" }),
+        (AudioDirector.Sfx.Explosion,   new[] { TurretSfx + "Missle Turret/explosion missile 01.wav" }),
+        (AudioDirector.Sfx.EnemyDeath,  new[] { CreepySound + "Explosions/Explode_02.wav" }),
+        (AudioDirector.Sfx.UIClick,     new[] { CreepySound + "Interfaces/Light_Switch_A.wav" }),
+        (AudioDirector.Sfx.Build,       new[] { CreepySound + "Interfaces/Gravity_Switch_A.wav" }),
+        (AudioDirector.Sfx.CoreAlarm,   new[] { CreepySound + "Vocal/Msg_Warning Restricted Access.wav" }),
+        // R2/R3 rows, absorbed from SetupP1Juice (same candidate lists).
+        (AudioDirector.Sfx.StreakStep,  new[]
+        {
+            CreepySound + "Interfaces/Light_Switch_B.wav",
+            CreepySound + "Interfaces/Beep_A.wav",
+            CreepySound + "Interfaces/Light_Switch_A.wav",
+        }),
+        (AudioDirector.Sfx.CloseCall,   new[]
+        {
+            CreepySound + "Vocal/Msg_Alert.wav",
+            CreepySound + "Vocal/Msg_Warning Intruder Alert.wav",
+            CreepySound + "Interfaces/Gravity_Switch_B.wav",
+            CreepySound + "Interfaces/Gravity_Switch_A.wav",
+        }),
+        // Strike Wing EM burst (R19). Laser-charge feel; falls back to the
+        // energy fire clip (present, shared with FireEnergy) when the kit
+        // edition lacks the nicer candidates.
+        (AudioDirector.Sfx.StrikeWing,  new[]
+        {
+            TurretSfx + "Laser turret/laser_turret_charge.wav",
+            CreepySound + "Explosions/Explode_01.wav",
+            TurretSfx + "Laser turret/laser_turret_fire.wav",
+        }),
     };
 
     private const string RotationLoopPath = TurretSfx + "Turret/rotate_loop.wav";
@@ -73,7 +103,15 @@ public static class SetupAudioDirector
         for (int i = 0; i < SfxMap.Length; i++)
         {
             var entry = SfxMap[i];
-            var clip = LoadAndCompress(entry.path, missing);
+            AudioClip clip = null;
+            foreach (string path in entry.paths)
+            {
+                clip = LoadAndCompress(path, null);
+                if (clip != null)
+                    break;
+            }
+            if (clip == null)
+                missing.Add($"{entry.id}: none of [{string.Join(", ", entry.paths)}]");
 
             SerializedProperty element = sfx.GetArrayElementAtIndex(i);
             element.FindPropertyRelative("id").enumValueIndex = (int)entry.id;
@@ -116,14 +154,15 @@ public static class SetupAudioDirector
 
     /// <summary>
     /// Load a clip and force its WebGL platform override to CompressedInMemory
-    /// (GDD §10). Returns null and records the path if it does not exist.
+    /// (GDD §10). Returns null — and records the path when a missing-list is
+    /// given (candidate probing passes null; a candidate miss is not an error).
     /// </summary>
     private static AudioClip LoadAndCompress(string path, List<string> missing)
     {
         var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
         if (clip == null)
         {
-            missing.Add(path);
+            missing?.Add(path);
             return null;
         }
 
@@ -158,7 +197,8 @@ public static class SetupAudioDirector
             case AudioDirector.Sfx.Build: return 0.8f;
             case AudioDirector.Sfx.FireMortar: return 1.0f;
             case AudioDirector.Sfx.CoreAlarm: return 1.0f;
-            default: return 0.9f;
+            case AudioDirector.Sfx.StreakStep: return 0.8f;
+            default: return 0.9f; // incl. CloseCall and StrikeWing (0.9)
         }
     }
 
