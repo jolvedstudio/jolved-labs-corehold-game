@@ -89,14 +89,17 @@ namespace Corehold.Systems
         [SerializeField] private Material tracerMaterial;
 
         [Tooltip("Tracer line width in metres.")]
-        [SerializeField] private float tracerWidth = 0.35f;
+        [SerializeField] private float tracerWidth = 0.15f;   // shipped Game.unity value
 
         [Tooltip("Copies of the tracer prewarmed into its pool.")]
         [SerializeField] private int tracerPrewarm = 8;
 
         [Tooltip("Default tracer colour (additive, so RGB reads as the glow colour). HDR-bright so it stands out.")]
         [ColorUsage(true, true)]
-        [SerializeField] private Color defaultTracerColor = new Color(3f, 2.4f, 1.2f, 1f);
+        // The shipped scene's tuned tracer: an intensely HDR cyan, not the warm
+        // orange this defaulted to. A generated scene inherited the default and
+        // fired visibly different-looking shots (see SetupVFXDirector).
+        [SerializeField] private Color defaultTracerColor = new Color(0f, 207.88327f, 705.2075f, 1f);
 
         // ----- Singleton -----
 

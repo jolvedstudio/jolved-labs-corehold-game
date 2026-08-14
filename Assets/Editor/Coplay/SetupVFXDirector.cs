@@ -28,6 +28,13 @@ public static class SetupVFXDirector
         (VFXDirector.Effect.BuildPuff,       "Assets/Vendor/JMO Assets/Cartoon FX Remaster/CFXR Prefabs/Misc/CFXR Magic Poof.prefab", 2),
     };
 
+    // ---- Tracer configuration, as tuned in the shipped Game.unity ----------
+    // Read out of the scene, not invented: thin (0.15 m, not 0.35) and an
+    // intensely HDR cyan (not the warm orange the class defaulted to).
+    private const float TracerWidth = 0.15f;
+    private const int TracerPrewarm = 8;
+    private static readonly Color DefaultTracerColor = new Color(0f, 207.88327f, 705.2075f, 1f);
+
     [MenuItem("Tools/COREHOLD/Scene Setup/VFX Director", false, 42)]
     public static void Setup()
     {
@@ -65,6 +72,17 @@ public static class SetupVFXDirector
             element.FindPropertyRelative("prewarm").intValue = entry.prewarm;
         }
 
+        // The TRACER is the Autocannon/Arc Node firing effect, and the tool used
+        // to write only the effects array — so these three came from the class
+        // defaults in any scene the tool built, while the shipped scene carried
+        // hand-tuned values. Result: generated maps fired wide warm-orange
+        // tracers where the shipped map fires thin cyan ones. A setup tool that
+        // owns PART of a component leaves the rest free to drift, so it now
+        // writes the whole configuration.
+        WriteFloat(so, "tracerWidth", TracerWidth);
+        WriteInt(so, "tracerPrewarm", TracerPrewarm);
+        WriteColor(so, "defaultTracerColor", DefaultTracerColor);
+
         so.ApplyModifiedPropertiesWithoutUndo();
         EditorUtility.SetDirty(director);
         EditorSceneManager.MarkSceneDirty(scene);
@@ -76,6 +94,30 @@ public static class SetupVFXDirector
         if (missing.Count > 0)
             Debug.LogError("[COREHOLD] VFXDirector setup: missing prefabs:\n- " + string.Join("\n- ", missing));
         else
-            Debug.Log($"[COREHOLD] VFXDirector setup complete: {Map.Length} effect prefabs assigned and scene saved.");
+            Debug.Log($"[COREHOLD] VFXDirector setup complete: {Map.Length} effect prefabs assigned, " +
+                      $"tracer width {TracerWidth} colour {DefaultTracerColor}.");
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private static void WriteFloat(SerializedObject so, string field, float value)
+    {
+        SerializedProperty p = so.FindProperty(field);
+        if (p != null) p.floatValue = value;
+        else Debug.LogWarning($"[COREHOLD] VFXDirector has no '{field}' field — setup contract drifted.");
+    }
+
+    private static void WriteInt(SerializedObject so, string field, int value)
+    {
+        SerializedProperty p = so.FindProperty(field);
+        if (p != null) p.intValue = value;
+        else Debug.LogWarning($"[COREHOLD] VFXDirector has no '{field}' field — setup contract drifted.");
+    }
+
+    private static void WriteColor(SerializedObject so, string field, Color value)
+    {
+        SerializedProperty p = so.FindProperty(field);
+        if (p != null) p.colorValue = value;
+        else Debug.LogWarning($"[COREHOLD] VFXDirector has no '{field}' field — setup contract drifted.");
     }
 }
