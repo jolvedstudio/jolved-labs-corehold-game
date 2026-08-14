@@ -4,6 +4,8 @@ using Corehold.Systems;
 using Corehold.UI;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 
 /// <summary>
 /// The gameplay singletons a playable COREHOLD scene needs (R26).
@@ -38,6 +40,14 @@ public static class SceneSkeleton
         Ensure<DebugConsole>("DebugConsole", made);
         ResultScreen result = SceneQuery.FirstInActiveScene<ResultScreen>()
                               ?? Ensure<ResultScreen>("ResultScreen", made);
+
+        // THE EVENT SYSTEM. Nothing else creates one: BuildRealUI adds a
+        // GraphicRaycaster to every canvas but no EventSystem, and the shipped
+        // scene only has one because a human made it. Without it Unity performs
+        // no UI raycasting at all — menus render and no click ever lands, while
+        // pad taps keep working because those are physics raycasts. That is
+        // exactly the "welcome screen shows but nothing is clickable" symptom.
+        EnsureEventSystem(made);
 
         // WaveManager → PoolRegistry.
         var waveSo = new SerializedObject(wave);
@@ -95,6 +105,33 @@ public static class SceneSkeleton
         foreach (Spawner s in spawners)
             labels.Add($"{s.Index}:{s.name}");
         return $"WaveManager spawners = [{string.Join(", ", labels)}]";
+    }
+
+    /// <summary>
+    /// Find or create the EventSystem, carrying the NEW input system's UI module.
+    /// The project runs on the Input System package, where the legacy
+    /// StandaloneInputModule throws every frame and breaks UI raycasts — so the
+    /// module choice is not cosmetic (see FixEventSystemInputModule, which
+    /// repairs scenes that already have the wrong one).
+    /// </summary>
+    private static void EnsureEventSystem(List<string> made)
+    {
+        EventSystem existing = SceneQuery.FirstInActiveScene<EventSystem>();
+        if (existing == null)
+        {
+            var go = new GameObject("EventSystem");
+            go.AddComponent<EventSystem>();
+            go.AddComponent<InputSystemUIInputModule>();
+            Undo.RegisterCreatedObjectUndo(go, "Scene Skeleton");
+            made.Add("EventSystem");
+            return;
+        }
+
+        if (existing.GetComponent<InputSystemUIInputModule>() == null)
+        {
+            existing.gameObject.AddComponent<InputSystemUIInputModule>();
+            made.Add("EventSystem input module");
+        }
     }
 
     private static T Ensure<T>(string objectName, List<string> made) where T : Component

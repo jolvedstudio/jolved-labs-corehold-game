@@ -504,33 +504,53 @@ public static class GenerationPipeline
     private static StageResult StGround(Context ctx)
     {
         // GroundAndSkirt only FINDS and fits a Floor — it never creates one, and
-        // a generated scene has none, so the level had no ground at all. The
-        // plane's size is irrelevant here: the fit below drives it from the
-        // camera frustum (R11).
-        bool createdFloor = false;
-        if (SceneLookup.Find("Floor") == null)
+        // a generated scene has none, so the level had no ground at all.
+        var notes = new List<string>();
+        GameObject floor = SceneLookup.Find("Floor");
+        bool fromPrefab = false;
+
+        if (floor == null)
         {
-            var plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            plane.name = "Floor";
-            plane.transform.SetParent(SceneContainers.Ensure("_Level"), false);
-            plane.transform.position = Vector3.zero;
-            Undo.RegisterCreatedObjectUndo(plane, "Generate Level");
-            createdFloor = true;
+            GameObject groundPrefab = ctx.theme != null ? ctx.theme.groundPrefab : null;
+            if (groundPrefab != null)
+            {
+                floor = (GameObject)PrefabUtility.InstantiatePrefab(groundPrefab);
+                fromPrefab = true;
+                notes.Add($"ground from theme prefab '{groundPrefab.name}'");
+            }
+            else
+            {
+                floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+                notes.Add("ground plane created");
+            }
+            floor.name = "Floor";                       // the name every tool looks for
+            floor.transform.SetParent(SceneContainers.Ensure("_Level"), false);
+            floor.transform.position = Vector3.zero;
+            Undo.RegisterCreatedObjectUndo(floor, "Generate Level");
+        }
+        else
+        {
+            notes.Add("existing Floor reused");
         }
 
         GroundAndSkirt.FitGroundAndFog();      // frustum-sized, never the design box (R11)
 
-        string floorNote = createdFloor ? "floor created + fit to frustum" : "floor fit to frustum";
+        // FitGroundAndFog assumes a Unity plane (10 m per unit of scale). An
+        // arbitrary ground mesh needs its own fit, measured from what it
+        // actually is, so re-fit from renderer bounds when the theme supplied one.
+        if (fromPrefab)
+            notes.Add(FitByBounds(floor));
+
+        var renderer = floor.GetComponentInChildren<Renderer>();
+        if (renderer == null)
+            return StageResult.Fail($"the ground object '{floor.name}' has no renderer — " +
+                                    "it cannot be seen, and the theme material has nothing to apply to");
+
+        Bounds worldBounds = renderer.bounds;
+        notes.Add($"covers {worldBounds.size.x:0} × {worldBounds.size.z:0} m");
 
         if (ctx.theme == null)
-            return StageResult.Ok($"{floorNote}; no theme, shipped ground kept");
-
-        var floor = SceneLookup.Find("Floor");
-        var renderer = floor != null ? floor.GetComponent<Renderer>() : null;
-        if (renderer == null)
-            return StageResult.Fail("no Floor renderer to apply the theme ground to");
-
-        var notes = new List<string> { floorNote };
+            return StageResult.Ok(string.Join(", ", notes) + "; no theme, default ground kept");
 
         if (ctx.theme.groundMaterial != null)
         {
@@ -541,8 +561,7 @@ public static class GenerationPipeline
         // Tiling must be recomputed per map (the fit differs every time), and it
         // must go through an MPB: renderer.material leaks an instance, and
         // sharedMaterial edits would retile every map using the asset.
-        Bounds bounds = renderer.bounds;
-        Vector2 tiling = ctx.theme.GroundTilingFor(new Vector2(bounds.size.x, bounds.size.z));
+        Vector2 tiling = ctx.theme.GroundTilingFor(new Vector2(worldBounds.size.x, worldBounds.size.z));
         if (tiling != Vector2.zero)
         {
             var mpb = new MaterialPropertyBlock();
@@ -552,11 +571,38 @@ public static class GenerationPipeline
             notes.Add($"tiling {tiling.x:0.#}×{tiling.y:0.#}");
         }
 
-        if (ctx.theme.groundPrefab != null)
-            notes.Add("groundPrefab NOT honoured yet — the frustum fit sizes the primitive plane, and an " +
-                      "arbitrary ground mesh needs its own fit rule; the material + tiling channels are live");
-
         return StageResult.Ok(string.Join(", ", notes));
+    }
+
+    /// <summary>
+    /// Scale an arbitrary ground mesh so it covers the camera's ground
+    /// footprint, measured from its own renderer bounds at its authored scale
+    /// rather than assuming Unity-plane dimensions.
+    /// </summary>
+    private static string FitByBounds(GameObject floor)
+    {
+        Camera cam = SceneQuery.FirstInActiveScene<Camera>();
+        if (cam == null)
+            return "no camera to fit the ground prefab to";
+
+        floor.transform.localScale = Vector3.one;
+        var renderers = floor.GetComponentsInChildren<Renderer>();
+        if (renderers.Length == 0)
+            return "ground prefab has no renderer to measure";
+
+        Bounds b = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            b.Encapsulate(renderers[i].bounds);
+
+        float halfX = Mathf.Max(0.01f, b.size.x * 0.5f);
+        float halfZ = Mathf.Max(0.01f, b.size.z * 0.5f);
+        Vector2 need = GroundAndSkirt.RequiredHalfExtent(cam, out _);
+
+        // Uniform, and rounded up: a non-uniform scale stretches ground UVs
+        // unevenly, which reads as smeared texels under a fixed camera.
+        float scale = Mathf.Ceil(Mathf.Max(need.x / halfX, need.y / halfZ) * 100f) / 100f;
+        floor.transform.localScale = Vector3.one * scale;
+        return $"prefab ground scaled ×{scale:0.##} to cover the frustum";
     }
 
     private static StageResult StDressing(Context ctx)
