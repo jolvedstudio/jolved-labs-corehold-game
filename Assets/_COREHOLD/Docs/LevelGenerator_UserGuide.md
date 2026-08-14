@@ -100,6 +100,8 @@ Any ✗ triggers the **Discard** row: half-built scene closed unsaved, created a
 
 *Can the player see the pad?* The **camera sight line**, camera → pad, is a separate test. At the fixed 38° pitch a 12 m landmark hides roughly 15 m of ground behind it, well past the 6 m pad keep-out, so a prop can leave a pad fully functional and completely invisible. The placer refuses any position that would hide a pad, and this gate re-verifies it: a hidden pad fails the seed.
 
+*Can the player watch the approach?* The route gets a **budget** rather than absolute protection, because it is 150 m of ground rather than a point — protecting every metre would exclude a band behind every prop position and leave the field bare. At most **6% of the route** may be hidden from the camera (~9 m on the shipped 154 m route: a couple of short stretches behind props, not a screen). The placer spends the budget as it places, charging each prop only for route nothing else was hiding; this gate re-measures the finished scene and fails the seed if the total is over. Shared route between the two entrances is counted once, so "a metre of route" means a metre of ground.
+
 Both apply to **generated** dressing. Parity dressing is the shipped set a human placed and the map was validated with, so it carries no `PlacedProp` markers and is reported as 0 occluders.
 
 **GATE 3 — model margins (balance).** The scene's real geometry (route lengths, pad positions and turrets) goes to `docs/balance_model.py`. For generated maps the model **solves** `hpGrowthPerWave` so the boss wave lands mid-band (~1.10); for parity it verifies the shipped 0.18. Every wave's margin must sit in the accepted band (≥1.00 all waves, boss ≤1.20). Out of band at the solved value means this geometry can't be balanced by growth alone — reseed.
@@ -170,6 +172,8 @@ Vendor prefabs you can't move: add the role as an **asset label** (`Landmark`, `
 | "could not reach … ±5%" | `routeLengthTarget` out of range for this field/foldWidth | Adjust the target or the field |
 | Gate 2: "no candidate for Premium slot…" | This seed's pockets can't host the mix | Seed +1; persistent across many seeds → widen `foldWidth` or reduce the mix |
 | Gate 2b: "pads still sight-blocked" | Dressing and pads can't coexist on this seed | Seed +1; recurring → your theme's MidField props are too tall/wide for the fold pockets — check `allowInFold` and measured heights |
+| Gate 2b: "pads hidden from the camera" | A prop stands between the camera and a pad | Seed +1. Recurring means the theme's tall props are too numerous for the field |
+| Gate 2b: "dressing hides N m of route… over budget" | Too much of the approach is behind props | Seed +1. Recurring → lower the theme's Landmark/MidField heights, or raise `RouteVisibility.HiddenBudgetFraction` if 6% is stricter than you want |
 | Gate 3: "margins out of band" | Geometry can't be balanced by growth alone | Seed +1. The flagged waves in the report say which side (LOW = defense starved, HIGH = too easy) |
 | Hierarchy verify: "unrecognised root(s)" | A tool emitted a root the container table doesn't know | Add the name to `SceneContainers.Groups` — one line |
 | Gate 2 census is a **multiple** of the blueprint mix (e.g. 6/4/4/2 against 3/2/2/1) | Another scene was loaded and its pads were counted too | Fixed — every generation query is scoped to the active scene. If stage 3 still reports "N scenes are loaded", close the others |

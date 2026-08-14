@@ -721,13 +721,35 @@ public static class GenerationPipeline
             return StageResult.Fail("pads hidden from the camera by dressing — the player cannot see " +
                                     "where to build:\n  • " + string.Join("\n  • ", hidden));
 
+        // Route occlusion, re-measured from the FINISHED scene rather than
+        // trusting the placer's running total. The two can legitimately differ:
+        // the placer charges a candidate when it places it, and the occlusion
+        // repair may later delete a prop, which only ever frees route back up.
+        // Re-measuring is what makes the budget a guarantee instead of a hope.
+        float routeHiddenMetres = 0f, routeBudget = 0f, routeTotal = 0f;
+        if (cam != null && ctx.routes.Count > 0)
+        {
+            List<Vector3> routeSamples = RouteVisibility.SampleRoutes(ctx.routes);
+            routeTotal = RouteVisibility.TotalMetres(routeSamples);
+            routeBudget = RouteVisibility.BudgetMetres(routeSamples);
+            routeHiddenMetres = RouteVisibility.HiddenMetres(routeSamples, cam, occluders);
+
+            if (routeHiddenMetres > routeBudget)
+                return StageResult.Fail(
+                    $"dressing hides {routeHiddenMetres:0.#} m of the {routeTotal:0} m route from the " +
+                    $"camera, over the {routeBudget:0.#} m budget " +
+                    $"({RouteVisibility.HiddenBudgetFraction:P0}) — the player cannot watch the " +
+                    "approach. Reseed (R29).");
+        }
+
         if (occluders.Count == 0)
             return StageResult.Ok(ctx.blueprint.parityLayout
                 ? "0 measured occluders (parity structures carry no PlacedProp markers — the validated shipped set)"
                 : "0 occluders placed — plain recount holds");
 
-        return StageResult.Ok($"through {occluders.Count} occluder(s): every pad keeps its class, " +
-                              "and every pad is visible from the camera");
+        return StageResult.Ok($"through {occluders.Count} occluder(s): every pad keeps its class and is " +
+                              $"visible; {routeHiddenMetres:0.#} m of {routeTotal:0} m route hidden " +
+                              $"(budget {routeBudget:0.#} m)");
     }
 
     private static StageResult StWeather(Context ctx)

@@ -103,6 +103,16 @@ public static class PropPlacer
         Camera cam = SceneQuery.FirstInActiveScene<Camera>();
         var probe = new List<HardpointCoverageGizmo.Occluder> { default };
 
+        // ROUTE OCCLUSION BUDGET (R28). Pads may never be hidden; the route may
+        // be, up to a budget — see RouteVisibility for why the two differ. Spent
+        // incrementally: each candidate is charged only for route it hides that
+        // something else is not hiding already.
+        List<Vector3> routeVisSamples = RouteVisibility.SampleRoutes(routes);
+        var routeHidden = new bool[routeVisSamples.Count];
+        float hiddenBudget = RouteVisibility.BudgetMetres(routeVisSamples);
+        float hiddenMetres = 0f;
+        var pendingHidden = new List<int>();
+
         var dressing = new GameObject("Dressing");
         dressing.transform.SetParent(levelContainer, false);
 
@@ -165,6 +175,13 @@ public static class PropPlacer
                     var data = new Placed { pos = pos, radius = radius, height = height };
                     placed.Add(data);
                     placedObjects.Add((go, data));
+
+                    // Spend the budget only on an accepted placement — a rejected
+                    // candidate must not charge the map for route it never hid.
+                    foreach (int idx in pendingHidden)
+                        routeHidden[idx] = true;
+                    hiddenMetres += pendingHidden.Count * RouteVisibility.SampleStep;
+
                     placedCount++;
                     break;
                 }
@@ -206,6 +223,19 @@ public static class PropPlacer
                     if (HardpointCoverageGizmo.LineBlocked(cam.transform.position, padPoint, probe))
                         return false;
                 }
+            }
+
+            // Route budget: how much NEWLY hidden route would this prop cost?
+            pendingHidden.Clear();
+            if (cam != null)
+            {
+                probe[0] = new HardpointCoverageGizmo.Occluder
+                { position = pos, radius = radius, height = height };
+                RouteVisibility.FindHidden(routeVisSamples, cam, probe, pendingHidden, routeHidden);
+
+                float cost = pendingHidden.Count * RouteVisibility.SampleStep;
+                if (hiddenMetres + cost > hiddenBudget)
+                    return false;
             }
 
             return ClearOfProps(pos, radius);
@@ -274,6 +304,9 @@ public static class PropPlacer
             removed++;
         }
 
+        log.AppendLine($"  route occlusion: {hiddenMetres:0.#} m of " +
+                       $"{RouteVisibility.TotalMetres(routeVisSamples):0} m hidden " +
+                       $"(budget {hiddenBudget:0.#} m = {RouteVisibility.HiddenBudgetFraction:P0})");
         log.AppendLine(removed > 0
             ? $"  occlusion re-run: {removed} prop(s) removed to keep sight lines; " +
               (stillBlocked.Count == 0 ? "all pads recovered" : $"{stillBlocked.Count} pad(s) STILL short")
