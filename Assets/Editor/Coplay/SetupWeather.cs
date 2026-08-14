@@ -91,6 +91,7 @@ public static class SetupWeather
 
         p.windDirection = new Vector3(0.35f, 0f, -1f);
         p.windStrength = 3.5f;
+        p.ambientVolume = 0.4f;    // synthesized rain hiss unless a clip is assigned
 
         p.overridePostProfile = true;
         p.postProfile = AuthorGrade(WeatherDir + "/Weather_Rain_Post.asset",
@@ -123,13 +124,14 @@ public static class SetupWeather
         p.groundTint = new Color(1.00f, 0.94f, 0.82f, 1f);   // warm dust film
 
         p.precipitation = WeatherPreset.Precipitation.Dust;
-        p.precipitationRate = 90f;
+        p.precipitationRate = 180f;
         p.fallSpeed = 1.6f;
-        p.particleSize = 0.05f;    // ~3.4 px motes (was 0.12 x a hidden 3 = 24 px)
+        p.particleSize = 0.065f;   // ~4.4 px motes at the 12 m layer (was 0.12 × a hidden 3 = 24 px)
         p.particleColor = new Color(0.85f, 0.76f, 0.60f, 0.16f);
 
         p.windDirection = new Vector3(1f, 0.05f, -0.35f);
         p.windStrength = 5f;
+        p.ambientVolume = 0.32f;   // synthesized wind unless a clip is assigned
 
         p.overridePostProfile = true;
         p.postProfile = AuthorGrade(WeatherDir + "/Weather_Dust_Post.asset",
