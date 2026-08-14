@@ -73,7 +73,7 @@ Top to bottom:
 | 3 | New scene + containers | Fresh scene; the five hierarchy containers (`_Systems`…`_Rendering`) created first so everything is born grouped. Offers to save your open scene — never builds over unsaved work. |
 | 4 | Scene skeleton | GameManager, WaveManager, PoolRegistry, RouteTraffic, DebugConsole, ResultScreen, directors, all three UI canvases — and the EventSystem's input module swapped to the new Input System (otherwise the menu renders but no click registers). |
 | 5 | Protected structure | The Core, at the blueprint's normalized position, using `protectedPrefab` if set (else the shipped platform stack). |
-| 6 | Routes + spawners | **Parity:** the shipped waypoints. **Generated:** seeded synthesis — entrance legs, merge at ~20% of route length, 2–3 hairpin folds at exactly `foldWidth`, length fitted to ±5% of target. Merge tangent pinned (two legs would otherwise diverge on the shared tail). Spawners created and wired. |
+| 6 | Routes + spawners | **Parity:** the shipped waypoints. **Generated:** seeded synthesis — entrance legs, merge at ~20% of route length, 2–3 hairpin folds at exactly `foldWidth`, length fitted to ±5% of target. Merge tangent pinned (two legs would otherwise diverge on the shared tail). **Siege:** one inward spiral per sector, all congruent, sweep fitted to the length target; no merge to pin. Spawners created and wired — ground approaches step over index 2, which every shipped wave table uses for air. |
 | 7 | **⛨ GATE 1 — clearance** | See §6. |
 | 8 | Hardpoints | **Parity:** the live map's pad set. **Generated:** grid candidates filtered by clearance, scored by the real coverage validator, classified from measurement, picked deterministically with 5 m spacing. Each pad gets a visible `PadMarker` disc — a bare TowerHardpoint has no renderer. |
 | 9 | **⛨ GATE 2 — coverage** | See §6. |
@@ -122,6 +122,9 @@ Both apply to **generated** dressing. Parity dressing is the shipped set a human
 | `foldWidth` | Hairpin pocket width — **hard constraint**. <7.5 m: no pad fits the pocket (validation error). >20 m: Arc Node can't reach both legs (error). <12 m with an Overwatch in the mix: warning — the Mortar pad will sit outside the folds. | 10–11 m shipped; field default **12** (the default mix asks for an Overwatch pad, which needs ≥12) |
 | `groundSpawnLegs` | 1 or 2 entrance legs. 1-leg maps get a warning: shipped wave tables send groups to spawner 1. | 2 |
 | `airCorridor` | Straight air lane to the Core. | on |
+| `approachPattern` | **Corridor** = the shipped shape (legs merge into one folded run). **Siege** = attackers spiral inward on a centred Core from several bearings. Parity is always Corridor. | Corridor |
+| `approachSectors` | SIEGE ONLY. How many approaches surround the Core. On the shipped 130×75 field at a 154 m target: **2–3 hold at any arc, 4 need the arc pulled in to ~270°, 5 never separate** — synthesis measures and refuses, and reseeding cannot help because nothing here varies with the seed. | 3 |
+| `sectorArcDegrees` | SIEGE ONLY. Arc the approaches spread over. 360 = every side; 270 leaves one side safe. Which side is safe is drawn from the seed. | 360 |
 | `classMix` | Premium/Standard/Rear/Overwatch counts — **and the pad count, which is their sum.** There is no separate total field. **Premium < 3 is a validation error** — the coverage rule needs three pads at 4+ spans. | 3/2/2/1 (8 pads) |
 | `envPackPool` | Theme candidates; the seed picks one. **One entry = pinned theme.** Every pack in the pool is validated, not just the drawn one. | see §8 |
 | `weatherPool` | **Override only.** Empty = the drawn theme's own pool decides (an ice map can't draw desert dust). Empty in both = the authored look, pixel-identical. | empty |

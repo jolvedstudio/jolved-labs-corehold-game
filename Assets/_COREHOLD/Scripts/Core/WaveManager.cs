@@ -82,6 +82,7 @@ namespace Corehold.Core
         private int _chainBonusPerLiveEnemy = 8;
         private int _chainBonusCap = 80;
         private int _maxWavesInFlight = 2;
+        private bool _spreadGroundGroups;
 
         // ----- Runtime state -----
 
@@ -295,6 +296,7 @@ namespace Corehold.Core
                 _chainBonusPerLiveEnemy = level.chainBonusPerLiveEnemy > 0 ? level.chainBonusPerLiveEnemy : chainBonusPerLiveEnemyFallback;
                 _chainBonusCap = level.chainBonusCap > 0 ? level.chainBonusCap : chainBonusCapFallback;
                 _maxWavesInFlight = level.maxWavesInFlight > 0 ? level.maxWavesInFlight : maxWavesInFlightFallback;
+                _spreadGroundGroups = level.spreadGroundGroupsAcrossSpawners;
             }
             else
             {
@@ -303,6 +305,7 @@ namespace Corehold.Core
                 _chainBonusPerLiveEnemy = chainBonusPerLiveEnemyFallback;
                 _chainBonusCap = chainBonusCapFallback;
                 _maxWavesInFlight = maxWavesInFlightFallback;
+                _spreadGroundGroups = false;
             }
         }
 
@@ -382,14 +385,29 @@ namespace Corehold.Core
             if (wave == null || wave.groups == null)
                 return;
 
+            int groundOrdinal = 0;
             foreach (var group in wave.groups)
             {
                 if (group.enemy == null || group.count <= 0)
                     continue;
 
+                // R40: a siege map has more approaches than the wave tables know
+                // how to address, so its ground groups are dealt out across the
+                // spawners that exist. Rotating by wave as well as by group keeps
+                // the same approach from always going first. Air is left alone —
+                // it has one spawner and the tables address it correctly.
+                int spawnerIndex = group.spawnerIndex;
+                if (_spreadGroundGroups && !(group.enemy != null && group.enemy.isAir))
+                {
+                    int[] ground = GroundSpawnerIndices();
+                    if (ground.Length > 0)
+                        spawnerIndex = ground[(groundOrdinal + waveNumber) % ground.Length];
+                    groundOrdinal++;
+                }
+
                 _activeSpawnGroups++;
                 _emittingWaves.Add(waveNumber);
-                Coroutine c = StartCoroutine(SpawnGroupRoutine(group, waveNumber));
+                Coroutine c = StartCoroutine(SpawnGroupRoutine(group, waveNumber, spawnerIndex));
                 _spawnRoutines.Add(c);
             }
         }
@@ -399,14 +417,14 @@ namespace Corehold.Core
         /// spaced by <c>spawnGap</c>. Timing uses <see cref="WaitForSeconds"/> so it
         /// scales with <c>Time.timeScale</c> (the 2× toggle, GDD §9.6).
         /// </summary>
-        private IEnumerator SpawnGroupRoutine(SpawnGroup group, int waveNumber)
+        private IEnumerator SpawnGroupRoutine(SpawnGroup group, int waveNumber, int spawnerIndex)
         {
             if (group.startOffset > 0f)
                 yield return new WaitForSeconds(group.startOffset);
 
             for (int i = 0; i < group.count; i++)
             {
-                RequestSpawn(group.enemy, group.spawnerIndex, waveNumber);
+                RequestSpawn(group.enemy, spawnerIndex, waveNumber);
 
                 if (i < group.count - 1 && group.spawnGap > 0f)
                     yield return new WaitForSeconds(group.spawnGap);
@@ -676,6 +694,24 @@ namespace Corehold.Core
         {
             Difficulty diff = GameManager.Instance != null ? GameManager.Instance.Difficulty : Difficulty.Normal;
             return Mathf.RoundToInt(amount * DifficultyEconomyMultiplier(diff));
+        }
+
+        /// <summary>
+        /// Indices of the spawners that own a route, ascending — the ground
+        /// approaches. Air has no route, which is what distinguishes it, so this
+        /// never redirects an air group onto the floor.
+        /// </summary>
+        private int[] GroundSpawnerIndices()
+        {
+            if (spawners == null)
+                return System.Array.Empty<int>();
+
+            var indices = new List<int>();
+            foreach (Spawner s in spawners)
+                if (s != null && s.Route != null)
+                    indices.Add(s.Index);
+            indices.Sort();
+            return indices.ToArray();
         }
 
         private Spawner FindSpawner(int index)

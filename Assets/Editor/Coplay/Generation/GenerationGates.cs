@@ -44,6 +44,14 @@ public static class GenerationGates
     /// </summary>
     private const float MergeExclusion = 8f;
 
+    /// <summary>
+    /// Siege approaches converge on the Core by design (R40), so pairs inside this
+    /// radius are exempt — the same reasoning as <see cref="MergeExclusion"/>. It
+    /// matches the synthesizer's inner radius plus a sample step: outside it the
+    /// approaches are r·2π/N apart and must satisfy the envelope like anything else.
+    /// </summary>
+    private const float CoreConvergenceExclusion = 10f;
+
     // ------------------------------------------------------------ gate 1
 
     /// <summary>
@@ -103,8 +111,22 @@ public static class GenerationGates
         // join — the SHIPPED map pinches to ~2.5 m there. Both separation
         // checks therefore exempt the merge zone; everything outside it is a
         // real violation.
-        bool hasMerge = sampled.Count == 2;
+        //
+        // Siege maps (R40) have no merge and a different designed pinch: every
+        // approach converges on the Core, so they crowd at the centre by
+        // construction. Same principle, different exempt zone — and the zone has
+        // to be named correctly, because exempting the wrong one either hides a
+        // real overlap or fails a map for doing what it was asked to do.
+        bool siege = blueprint.approachPattern == LevelBlueprint.ApproachPattern.Siege &&
+                     !blueprint.parityLayout;
+        bool hasMerge = !siege && sampled.Count == 2;
         Vector3 mergePoint = hasMerge ? FindMergePoint(routes[0], routes[1]) : Vector3.zero;
+        Vector3 corePoint = LevelLayout.FromNormalized(blueprint.protectedNormalizedPos,
+                                                       blueprint.playfieldSize);
+
+        bool Exempt(Vector3 p) =>
+            (hasMerge && HorizontalDistance(p, mergePoint) < MergeExclusion) ||
+            (siege && HorizontalDistance(p, corePoint) < CoreConvergenceExclusion);
 
         foreach (var (route, pts, dist) in sampled)
         {
@@ -112,13 +134,13 @@ public static class GenerationGates
             float worstAt = 0f;
             for (int i = 0; i < pts.Count; i++)
             {
-                if (hasMerge && HorizontalDistance(pts[i], mergePoint) < MergeExclusion)
+                if (Exempt(pts[i]))
                     continue;
                 for (int j = i + 1; j < pts.Count; j++)
                 {
                     if (dist[j] - dist[i] < SelfArcWindow)
                         continue;
-                    if (hasMerge && HorizontalDistance(pts[j], mergePoint) < MergeExclusion)
+                    if (Exempt(pts[j]))
                         continue;
                     float d = HorizontalDistance(pts[i], pts[j]);
                     if (d < worst) { worst = d; worstAt = dist[i]; }
@@ -128,6 +150,46 @@ public static class GenerationGates
                 problems.AppendLine($"  • {route.name} approaches itself at {worst:0.##} m " +
                                     $"(≥{MinRouteSeparation:0.##} m required) near arc {worstAt:0.#} m — " +
                                     "two lane bands would overlap");
+        }
+
+        if (siege)
+        {
+            // EVERY pair, not just the first two: the old check only ever ran on a
+            // two-route map, so a three-approach map would have had its routes
+            // compared against nothing at all.
+            float worst = float.MaxValue;
+            Vector3 worstAt = Vector3.zero;
+            string worstPair = null;
+
+            for (int a = 0; a < sampled.Count; a++)
+            {
+                for (int bIdx = a + 1; bIdx < sampled.Count; bIdx++)
+                {
+                    for (int i = 0; i < sampled[a].pts.Count; i++)
+                    {
+                        if (Exempt(sampled[a].pts[i]))
+                            continue;
+                        for (int j = 0; j < sampled[bIdx].pts.Count; j++)
+                        {
+                            if (Exempt(sampled[bIdx].pts[j]))
+                                continue;
+                            float d = HorizontalDistance(sampled[a].pts[i], sampled[bIdx].pts[j]);
+                            if (d < worst)
+                            {
+                                worst = d;
+                                worstAt = sampled[a].pts[i];
+                                worstPair = $"{sampled[a].route.name} / {sampled[bIdx].route.name}";
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (worst < MinRouteSeparation)
+                problems.AppendLine($"  • {worstPair} approach each other at {worst:0.##} m " +
+                                    $"(≥{MinRouteSeparation:0.##} m) near ({worstAt.x:0.#}, {worstAt.z:0.#}), " +
+                                    $"outside the {CoreConvergenceExclusion:0} m Core convergence zone — " +
+                                    "reduce approachSectors, or widen the ring by centring the Core");
         }
 
         if (hasMerge)

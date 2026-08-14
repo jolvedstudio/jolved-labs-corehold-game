@@ -571,6 +571,15 @@ Make topology a drawn property. Add `approachPattern` (`Corridor` = today's fold
 
 **Done when:** a Siege blueprint generates N approaches around a centred Core, all four gates pass, no route leaves the frustum, the model reports in-band margins with concurrency accounted for, pad classes are measured from the ring rather than from a final approach, the R31 contact sheet visibly shows different SHAPES across seeds rather than one shape with different folds, and `Corridor` blueprints — the parity path included — generate byte-identically to today.
 
+**As shipped.** Approaches are inward SPIRALS, one per sector, each the same curve rotated. The shape is forced, not chosen: the ring fits inside min(W, D)/2 minus the field margin — about 33 m on the shipped field — and folding a 33 m radial run cannot close the gap to a 154 m target, because each fold costs its own width along the run and only one fits. Wrapping closes it: a turn and a half at a mean radius of 20 m is over 150 m of path in the same box. Sweep is the single fit knob, driven by the same secant the corridor uses.
+
+Two ticket predictions were wrong, and both were cheaper to find than to assume:
+
+- **Pad classes did not need redefining.** `HardpointSelector` already classified Rear and Overwatch by distance from the Core (≤14 m, ≤25 m), not by position along a final approach, so the ring topology was already expressible. Nothing changed.
+- **"Congruent spirals stay r·2π/N apart" is false.** Fuzzing the geometry in Python before writing the C# showed a spiral sweeping past 360° crosses its neighbours' entry spokes at a smaller radius, so the real minimum is set by RADIAL pitch. Measured on the shipped field at 154 m: 2–3 approaches hold at any arc, 4 hold only when the arc is pulled in to ~270°, 5 never separate. Those numbers are field- and length-specific and are therefore NOT hard-coded — the synthesizer measures the separation it produced and refuses, saying so, because reseeding cannot fix a shape that does not vary with the seed.
+
+Downstream, as predicted: ground approaches take spawner indices that step over index 2 (the air spawner in every shipped wave table — renumbering air instead would have sent existing air groups down a ground route); the emitted `LevelDefinition` sets `spreadGroundGroupsAcrossSpawners` so a four-approach map does not leave half its sectors silent, with the identical rotation implemented in `balance_model.py` so gate 3 scores the map the game actually runs; and `LevelLayout.sharedTail` now says whether a merge exists, since R7's tangent pin must run for the shipped map and must NOT run for approaches that only converge at the Core.
+
 ---
 
 # SUGGESTED ORDER & DEPENDENCY SUMMARY

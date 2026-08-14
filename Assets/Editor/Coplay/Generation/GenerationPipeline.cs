@@ -26,6 +26,17 @@ public static class GenerationPipeline
     /// <summary>Where generated scenes are saved — and the prefix Build Settings pruning trusts.</summary>
     private const string GeneratedDir = "Assets/_COREHOLD/Scenes/Generated";
 
+    /// <summary>The air spawner's index in every shipped wave table.</summary>
+    private const int AirSpawnerIndex = 2;
+
+    /// <summary>
+    /// Spawner index for ground approach <paramref name="sector"/>. The shipped
+    /// tables address ground 0 and 1 and air 2, so ground approaches beyond the
+    /// second step over the air index and continue at 3.
+    /// </summary>
+    internal static int GroundSpawnerIndex(int sector) =>
+        sector < AirSpawnerIndex ? sector : sector + 1;
+
     // ------------------------------------------------------------------ results
 
     public struct StageResult
@@ -400,26 +411,32 @@ public static class GenerationPipeline
 
         // Two legs sharing a tail REQUIRE the R7 world-space tangent pin — the
         // AutoSmooth divergence is inherited wholesale by any merged pair (R27).
-        string pinNote = "single route, no merge to pin";
-        if (ctx.routes.Count == 2)
+        // Siege approaches never share a tail, so there is no join to pin.
+        string pinNote = ctx.layout.sharedTail ? null : "no merge (approaches converge only at the Core)";
+        if (ctx.layout.sharedTail && ctx.routes.Count == 2)
         {
             if (!MergeKnotPinning.Pin(ctx.routes[0], ctx.routes[1], out string pinReport))
                 return StageResult.Fail("merge-knot pin failed:\n" + pinReport);
             pinNote = "merge pinned, shared tails identical (divergence gate PASS)";
         }
+        pinNote ??= "single route, no merge to pin";
 
         // Spawners: created fresh (a generated scene has none to find), wired
         // by the same WireOne the shipped map used, parented under _Level.
+        //
+        // Index 2 is the AIR spawner in every shipped wave table, so ground
+        // approaches step over it rather than take it. Renumbering air instead
+        // would silently send the air groups of every existing table down a
+        // ground route.
         Transform levelRoot = SceneContainers.Ensure("_Level");
-        Corehold.Core.PathRoute west = ctx.routes[0];
-        Corehold.Core.PathRoute north = ctx.routes.Count > 1 ? ctx.routes[1] : null;
-        RefineryDeltaBlockout.WireOne("Spawner_West", 0, west, ctx.coreTarget,
-            ctx.layout.groundRoutes[0][0], log, levelRoot);
-        if (north != null)
-            RefineryDeltaBlockout.WireOne("Spawner_North", 1, north, ctx.coreTarget,
-                ctx.layout.groundRoutes[1][0], log, levelRoot);
+        for (int i = 0; i < ctx.routes.Count; i++)
+        {
+            RefineryDeltaBlockout.WireOne($"Spawner_{ctx.layout.routeNames[i].Replace("Route_", "")}",
+                GroundSpawnerIndex(i), ctx.routes[i], ctx.coreTarget,
+                ctx.layout.groundRoutes[i][0], log, levelRoot);
+        }
         if (ctx.blueprint.airCorridor)
-            RefineryDeltaBlockout.WireOne("Spawner_Air", 2, null, ctx.coreTarget,
+            RefineryDeltaBlockout.WireOne("Spawner_Air", AirSpawnerIndex, null, ctx.coreTarget,
                 ctx.layout.airSpawn, log, levelRoot);
 
         // Spawners exist only now, so this is where the WaveManager learns about
@@ -854,11 +871,21 @@ public static class GenerationPipeline
 
         clone.hpGrowthPerWave = ctx.model.solved_hp_growth;
         clone.maxLiveEnemies = derivedMaxLive;
+
+        // The wave tables address two ground spawners. A siege map has up to five,
+        // so without this its extra approaches are built, gated, dressed — and
+        // never walked. Regenerating the tables properly is R33; dealing the
+        // existing groups out across the spawners that exist is the honest
+        // interim, and it is recorded in the transcript rather than done quietly.
+        clone.spreadGroundGroupsAcrossSpawners = ctx.routes.Count > 2;
         EditorUtility.SetDirty(clone);
         AssetDatabase.SaveAssets();
 
         return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; SOLVED hpGrowthPerWave = " +
                               $"{ctx.model.solved_hp_growth:0.####} (close targeted mid-band), " +
+                              (clone.spreadGroundGroupsAcrossSpawners
+                                  ? $"ground groups dealt across {ctx.routes.Count} approaches (R33 regenerates tables), "
+                                  : "") +
                               $"maxLiveEnemies = {derivedMaxLive} (the shipped {BalanceModelRunner.ShippedMaxLive} " +
                               "scaled by route length, clamped to what fits)");
     }

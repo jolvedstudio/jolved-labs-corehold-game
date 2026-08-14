@@ -126,6 +126,37 @@ namespace Corehold.Data
         [Tooltip("Position on the playfield, normalized from its south-west corner. Default matches the shipped Core at world (34.5, −6.5) on a 130 × 75 field.")]
         public Vector2 protectedNormalizedPos = new Vector2(0.765f, 0.413f);
 
+        /// <summary>
+        /// The SHAPE of the approach, as opposed to its parameters (R40).
+        ///
+        /// R27 varies fold count, fold placement and drop, but every corridor map
+        /// is the same map: enter west and north, merge, snake east, Core on the
+        /// right. Learn one defence and you have learned all of them. Topology is
+        /// the axis that actually makes maps different.
+        /// </summary>
+        public enum ApproachPattern
+        {
+            /// <summary>Shipped shape: entrance legs merge into one folded run (R27).</summary>
+            Corridor = 0,
+
+            /// <summary>Attackers spiral in on the Core from several bearings (R40).</summary>
+            Siege = 1,
+        }
+
+        [Header("Approach topology (R40)")]
+        [Tooltip("Corridor = the shipped shape (legs merge into one folded run). Siege = attackers spiral " +
+                 "inward on a centred Core from several bearings. Parity is always Corridor.")]
+        public ApproachPattern approachPattern = ApproachPattern.Corridor;
+
+        [Tooltip("SIEGE ONLY. How many approaches surround the Core. Each is the same spiral rotated, so " +
+                 "they stay separated by construction until they converge at the Core.")]
+        [Range(2, 5)] public int approachSectors = 3;
+
+        [Tooltip("SIEGE ONLY. Arc the approaches are spread over. 360 = every side; 270 leaves one side " +
+                 "safe (the classic castle siege). The arc's own bearing is drawn from the seed, so which " +
+                 "side is safe varies by map.")]
+        [Range(120f, 360f)] public float sectorArcDegrees = 360f;
+
         [Header("Routes (R27)")]
         [Tooltip("Target spline length in metres, hit within ±5% by iterating hairpin anchors. The shipped routes measure 153.7 / 154.5 m as splines, which is the geometry the balance model is baselined on.")]
         public float routeLengthTarget = 154f;

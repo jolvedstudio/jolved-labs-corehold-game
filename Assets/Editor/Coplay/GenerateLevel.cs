@@ -165,6 +165,48 @@ public static class GenerateLevel
         if (b.groundSpawnLegs < 1 || b.groundSpawnLegs > 2)
             errors.Add($"groundSpawnLegs must be 1 or 2 (is {b.groundSpawnLegs}).");
 
+        // ---- siege topology (R40) -------------------------------------------
+        bool siege = b.approachPattern == LevelBlueprint.ApproachPattern.Siege && !b.parityLayout;
+        if (b.parityLayout && b.approachPattern != LevelBlueprint.ApproachPattern.Corridor)
+            errors.Add("parityLayout rebuilds the shipped map, which is a Corridor — set approachPattern " +
+                       "back to Corridor or turn parity off.");
+
+        if (siege)
+        {
+            // The ring is bounded by the NEAREST field edge, so an off-centre Core
+            // is the difference between a map that generates and one that cannot.
+            Vector2 pos = b.protectedNormalizedPos;
+            float offCentre = Mathf.Max(Mathf.Abs(pos.x - 0.5f), Mathf.Abs(pos.y - 0.5f));
+            if (offCentre > 0.12f)
+                warnings.Add($"siege maps surround the Core, but protectedNormalizedPos is " +
+                             $"({pos.x:0.###}, {pos.y:0.###}) — {offCentre:P0} off centre. The approach ring " +
+                             "is limited by the nearest field edge, so an off-centre Core shortens every " +
+                             "route and may put the length target out of reach. (0.5, 0.5) is the intent.");
+
+            float half = Mathf.Min(b.playfieldSize.x, b.playfieldSize.y) * 0.5f;
+            if (half - 4f < 14f)
+                errors.Add($"playfieldSize {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m leaves a ring of " +
+                           $"{half - 4f:0.#} m — a siege approach needs at least 14 m to spiral in.");
+
+            // Measured by fuzzing the spiral geometry on the shipped field at a
+            // 154 m target: 2–3 approaches hold at any arc, 4 need the arc pulled
+            // in to about 270°, 5 never separate. Stated as a warning rather than
+            // an error because the numbers move with field size and route length —
+            // the synthesizer measures what it built and refuses for real.
+            if (b.approachSectors >= 5)
+                warnings.Add($"{b.approachSectors} approaches did not separate at any arc on a " +
+                             "130×75 field with a 154 m target — expect synthesis to refuse. Fewer " +
+                             "sectors, a shorter routeLengthTarget, or a larger field.");
+            else if (b.approachSectors == 4 && b.sectorArcDegrees > 300f)
+                warnings.Add($"4 approaches over {b.sectorArcDegrees:0}° measured under the 4.5 m envelope; " +
+                             "at ~270° they hold. Expect synthesis to refuse unless the field is larger " +
+                             "than the shipped 130×75.");
+
+            if (b.groundSpawnLegs != 2)
+                warnings.Add("groundSpawnLegs is ignored on siege maps — approachSectors decides how many " +
+                             "ground routes exist.");
+        }
+
         // The mix IS the pad count — there is no second total to disagree with it.
         // What can still be wrong is a negative slot, which reads as a smaller map
         // rather than as the mistake it is.
@@ -226,8 +268,12 @@ public static class GenerateLevel
 
     private static void AppendPlan(LevelBlueprint b, StringBuilder log)
     {
+        bool siege = b.approachPattern == LevelBlueprint.ApproachPattern.Siege && !b.parityLayout;
+        string routeDesc = siege
+            ? $"{b.approachSectors} siege approach(es) over {b.sectorArcDegrees:0}°"
+            : $"{b.groundSpawnLegs} ground";
         log.AppendLine($"seed {b.randomSeed} · field {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m · " +
-                       $"routes {b.groundSpawnLegs} ground + {(b.airCorridor ? "air" : "no air")} · " +
+                       $"routes {routeDesc} + {(b.airCorridor ? "air" : "no air")} · " +
                        $"target {b.routeLengthTarget:0.#} m · folds {b.foldWidth:0.#} m · " +
                        $"{b.HardpointCount} pads ({b.classMix.premium}P/{b.classMix.standard}S/" +
                        $"{b.classMix.rear}R/{b.classMix.overwatch}O)");

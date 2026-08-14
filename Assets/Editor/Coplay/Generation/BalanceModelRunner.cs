@@ -186,7 +186,12 @@ public static class BalanceModelRunner
         {
             PathRoute route = routes[r];
             if (r > 0) sb.Append(',');
-            sb.Append($"{{\"name\":\"{route.name}\",\"spawner\":{r},\"measured_length\":");
+            // The REAL spawner index, not the loop counter: siege approaches step
+            // over the air index, and the model keys routes by whatever the wave
+            // tables address. Writing the counter would have the model simulate a
+            // different route assignment than the game runs.
+            sb.Append($"{{\"name\":\"{route.name}\",\"spawner\":{GenerationPipeline.GroundSpawnerIndex(r)}," +
+                      "\"measured_length\":");
             sb.Append(route.Length.ToString("0.###", inv));
             sb.Append(",\"points\":[");
             for (int i = 0; i < route.PointCount; i++)
@@ -211,7 +216,7 @@ public static class BalanceModelRunner
                       $"\"z\":{p.z.ToString("0.###", inv)}," +
                       $"\"tower\":\"{TowerId(g.intendedTurret)}\",\"cls\":\"{g.padClass}\"}}");
         }
-        sb.Append("],\"build_priority\":[");
+        sb.Append($"],\"spread_ground_groups\":{(routes.Count > 2 ? "true" : "false")},\"build_priority\":[");
         var ordered = pads.OrderBy(g => ClassOrder(g.padClass))
                           .ThenBy(g => g.name, StringComparer.Ordinal).ToArray();
         for (int i = 0; i < ordered.Length; i++)

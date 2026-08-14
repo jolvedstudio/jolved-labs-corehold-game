@@ -366,6 +366,17 @@ class Geometry:
     air_target: tuple = AIR_TARGET
     pads: dict = field(default_factory=lambda: dict(PADS))
 
+    #: Deal ground groups out across every ground route instead of obeying the
+    #: spawner index the wave table names (roadmap R40). Siege maps have up to
+    #: five approaches while the tables address two, so the game rotates groups
+    #: across them — and the model has to rotate identically or it is scoring a
+    #: map nobody plays. Off for the shipped map and for corridor synthesis.
+    spread_ground_groups: bool = False
+
+    def ground_indices(self) -> list:
+        """Ground spawner indices, ascending — the rotation order."""
+        return sorted(self.routes)
+
     def air_length(self) -> float:
         return math.hypot(self.air_target[0] - self.air_spawn[0],
                           self.air_target[1] - self.air_spawn[1])
@@ -578,12 +589,20 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
 
     groups = []
     wave_duration = 0.0
+    ground_ordinal = 0
     for enemy_id, count, gap, offset, spawner in wave["groups"]:
         enemy = ENEMIES[enemy_id]
         if enemy["air"]:
             route = None
             traverse = geom.air_length() / enemy["speed"]
         else:
+            if geom.spread_ground_groups:
+                # Mirrors WaveManager.StartWaveGroups exactly, rotation included.
+                # Two implementations of one rule is the drift this file exists
+                # to prevent, so if one of them changes, change both.
+                indices = geom.ground_indices()
+                spawner = indices[(ground_ordinal + wave_number) % len(indices)]
+            ground_ordinal += 1
             # A wave may reference a ground spawner the map does not have (a
             # 1-leg generated map running the shipped wave table): those groups
             # walk the primary route instead, mirroring a single-entrance map.
@@ -706,6 +725,7 @@ def load_geometry(path: str) -> Geometry:
         air_target=tuple(data["air_target"]),
         pads={p["name"]: (float(p["x"]), float(p["z"]), p["tower"], p.get("cls", "?"))
               for p in data["pads"]},
+        spread_ground_groups=bool(data.get("spread_ground_groups", False)),
     )
     geom.apply_measured_lengths(
         {int(r["spawner"]): float(r["measured_length"]) for r in data["routes"]
