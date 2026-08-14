@@ -151,24 +151,23 @@ public static class GenerateLevel
 
         // Fold width is the constraint that decides whether good pads can exist at
         // all, so it is validated against the turret numbers rather than a taste.
-        //
-        // ONLY for topologies that have folds. A siege map spirals in on the Core
-        // and never reads foldWidth, so judging it against fold geometry produced
-        // a warning about a pocket that does not exist on that map — noise the
-        // reader has to learn to ignore, which is how real warnings get ignored too.
-        if (!b.IsSiege)
-        {
-            if (b.foldWidth < 2f * ClearanceEnvelope)
-                errors.Add($"foldWidth {b.foldWidth:0.##} m is below {2f * ClearanceEnvelope:0.##} m — " +
-                           "a pad centred in that pocket cannot clear the 3.75 m envelope from both legs.");
-            if (b.foldWidth > 20f)
-                errors.Add($"foldWidth {b.foldWidth:0.##} m exceeds 20 m — the shortest-ranged turret " +
-                           "(Arc Node, 10 m) cannot reach both legs from the pocket centre.");
-            if (b.classMix.overwatch > 0 && b.foldWidth < 12f)
-                warnings.Add($"foldWidth {b.foldWidth:0.##} m is under 12 m while the mix asks for an Overwatch " +
-                             "pad — a Mortar centred in that pocket has both legs inside its 6 m dead zone, so " +
-                             "its pad will have to sit outside the folds.");
-        }
+        // It applies to EVERY topology again: siege approaches fold too (their
+        // outer run carries the folds the length fit adds), which was the miss
+        // in the first siege design — a smooth spiral has no pockets, and a map
+        // without pockets is a map without Premium pads.
+        if (b.foldWidth < 2f * ClearanceEnvelope)
+            errors.Add($"foldWidth {b.foldWidth:0.##} m is below {2f * ClearanceEnvelope:0.##} m — " +
+                       "a pad centred in that pocket cannot clear the 3.75 m envelope from both legs.");
+        if (b.foldWidth > 20f)
+            errors.Add($"foldWidth {b.foldWidth:0.##} m exceeds 20 m — the shortest-ranged turret " +
+                       "(Arc Node, 10 m) cannot reach both legs from the pocket centre.");
+        if (!b.IsSiege && b.classMix.overwatch > 0 && b.foldWidth < 12f)
+            warnings.Add($"foldWidth {b.foldWidth:0.##} m is under 12 m while the mix asks for an Overwatch " +
+                         "pad — a Mortar centred in that pocket has both legs inside its 6 m dead zone, so " +
+                         "its pad will have to sit outside the folds.");
+        if (b.IsSiege && b.foldWidth > 14f)
+            warnings.Add($"foldWidth {b.foldWidth:0.##} m on a siege map: wide folds crowd the outer run " +
+                         "(measured: above ~14 m many seeds refuse at the 154 m target). 12 is the sweet spot.");
 
         // ---- approach topology (R40) ----------------------------------------
         if (b.parityLayout && b.topology != LevelBlueprint.ApproachTopology.Corridor)
@@ -205,17 +204,19 @@ public static class GenerateLevel
                              "refuse below about 30 m of ring at a 154 m target. (0.5, 0.5) is the intent.");
             }
 
-            // Every topology in the enum was measured to separate on the shipped
-            // 130×75 field at 154 m, so there is nothing to warn about there. What
-            // still breaks it is a LONGER target on the same field: more wrap means
-            // less radial pitch between approaches, which is what the separation
-            // actually depends on. The synthesizer measures and refuses for real;
-            // this only flags the case early.
-            if (b.routeLengthTarget > 175f && b.SiegeSectors >= 3)
-                warnings.Add($"{b.topology} at a {b.routeLengthTarget:0.#} m target wraps each approach " +
-                             "further, and approaches that wrap more sit closer together. The measured-safe " +
-                             "combinations assume ~154 m; expect synthesis to refuse above roughly 175 m " +
-                             "unless the field is larger than 130×75.");
+            // Measured route-length ceilings on the shipped 130×75 field (fuzzed
+            // across seeds): Pincer reaches any tested target (120–185), Siege
+            // tops out around 157 m, Encirclement around 131 m — four approaches
+            // share one ring, so each one's territory is a quarter of it. The
+            // synthesizer refuses for real with the measured number; this flags
+            // the case before a run is spent.
+            if (b.topology == LevelBlueprint.ApproachTopology.Siege && b.routeLengthTarget > 155f)
+                warnings.Add($"Siege at {b.routeLengthTarget:0.#} m: three approaches on this field measured " +
+                             "a ceiling of ~157 m — expect refusals above ~155. Standard pace (154) fits.");
+            if (b.topology == LevelBlueprint.ApproachTopology.Encirclement && b.routeLengthTarget > 122f)
+                warnings.Add($"Encirclement at {b.routeLengthTarget:0.#} m: four approaches share the ring, " +
+                             "and each one's territory measured a ceiling of ~131 m — with full pad feasibility " +
+                             "only up to ~120. Short pace (120) is the intent for this topology.");
         }
 
         // The mix IS the pad count — there is no second total to disagree with it.

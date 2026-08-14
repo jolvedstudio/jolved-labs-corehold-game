@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Corehold.Core;
 using Corehold.Data;
@@ -67,7 +68,8 @@ public static class HardpointSelector
     /// Internal because the HP spec it returns is internal (CS0050).
     /// </summary>
     internal static RefineryDeltaBlockout.HP[] Select(
-        LevelBlueprint blueprint, List<PathRoute> routes, Vector3 corePos, out string report)
+        LevelBlueprint blueprint, List<PathRoute> routes, Vector3 corePos, bool sharedTail,
+        out string report)
     {
         LastShortfall = default;                  // this run's answer, not the last one's
         var log = new StringBuilder();
@@ -113,8 +115,14 @@ public static class HardpointSelector
         try
         {
             var gz = scorer.AddComponent<HardpointCoverageGizmo>();
-            gz.routes = new[] { routes[0] };            // shipped convention: the primary
-                                                        // route carries every shared span
+            // Which routes a pad is measured against is a TOPOLOGY property.
+            // Merged corridor routes share their tail — identical knots on both —
+            // so the primary carries every shared span and counting both would
+            // double-count (the shipped convention). Disjoint siege approaches
+            // share nothing: a pad covering three of them scored against one is
+            // credited with a third of its real coverage, which is exactly how
+            // siege maps came out "hosting 1 Premium pad" on every seed.
+            gz.routes = sharedTail ? new[] { routes[0] } : routes.ToArray();
             for (int ci = 0; ci < candidates.Count; ci++)
             {
                 Candidate c = candidates[ci];
