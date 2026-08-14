@@ -73,9 +73,7 @@ public static class RouteSynthesizer
     /// </summary>
     public static LevelLayout Synthesize(LevelBlueprint b, out string report)
     {
-        return b.approachPattern == LevelBlueprint.ApproachPattern.Siege
-            ? SynthesizeSiege(b, out report)
-            : SynthesizeCorridor(b, out report);
+        return b.IsSiege ? SynthesizeSiege(b, out report) : SynthesizeCorridor(b, out report);
     }
 
     private static LevelLayout SynthesizeCorridor(LevelBlueprint b, out string report)
@@ -111,7 +109,7 @@ public static class RouteSynthesizer
         // zone, and fuzzing showed a high top run leaves it no room to — the
         // approach hugs the run in a sustained sub-clearance band.
         float zTopMin = core.z + 14f;
-        float zTopMax = D * 0.5f - (b.groundSpawnLegs >= 2 ? 14.5f : 8f);
+        float zTopMax = D * 0.5f - (b.GroundLegs >= 2 ? 14.5f : 8f);
         if (zTopMax <= zTopMin)
         {
             report = $"field depth {D:0.#} m leaves no top-run band above the Core (z {core.z:0.#}) — " +
@@ -217,10 +215,10 @@ public static class RouteSynthesizer
             corePos = core,
             airSpawn = new Vector3(0f, 4f, D * 0.5f - 0.5f),
             pads = null,                               // R28 selects
-            sharedTail = b.groundSpawnLegs >= 2,       // two legs merge; one does not
+            sharedTail = b.GroundLegs >= 2,            // two legs merge; one does not
         };
 
-        if (b.groundSpawnLegs >= 2)
+        if (b.GroundLegs >= 2)
         {
             // The north leg is BENT, not straight: the inner half climbs away
             // from the top run at a fixed steep bearing (35° east of +Z, a
@@ -295,7 +293,7 @@ public static class RouteSynthesizer
         var log = new StringBuilder();
         float W = b.playfieldSize.x, D = b.playfieldSize.y;
         float L = b.routeLengthTarget;
-        int n = Mathf.Clamp(b.approachSectors, 2, 5);
+        int n = Mathf.Clamp(b.SiegeSectors, 2, 5);
         Vector3 core = LevelLayout.FromNormalized(b.protectedNormalizedPos, b.playfieldSize);
 
         // Ring radius is bounded by the NEAREST field edge, so an off-centre Core
@@ -320,7 +318,7 @@ public static class RouteSynthesizer
         float bearingJitter = rng.Range(-6f, 6f);                 // whole-ring twist, keeps sectors congruent
 
         float ring = ringMax * ringDraw;
-        float arc = Mathf.Clamp(b.sectorArcDegrees, 120f, 360f);
+        float arc = Mathf.Clamp(b.SiegeArcDegrees, 120f, 360f);
 
         // ---- fit the sweep to the length target ------------------------------
         // ONE knob, same secant as the corridor fit. Sweep is monotone in length,
@@ -400,9 +398,10 @@ public static class RouteSynthesizer
         {
             report = $"siege: {n} approaches over {arc:0}° hold only {sep:0.##} m apart " +
                      $"(≥{MinSeparation:0.##} m required outside the Core convergence zone). Reseeding will " +
-                     "not help — nothing here varies with the seed. Reduce approachSectors, narrow " +
-                     "sectorArcDegrees (4 approaches fit at ~270° where they do not at 360°), shorten " +
-                     "routeLengthTarget so each approach wraps less, or enlarge the field.";
+                     "not help — nothing here varies with the seed. Choose a topology with fewer " +
+                     "approaches, shorten routeLengthTarget so each approach wraps less (more wrap means " +
+                     "less radial pitch between approaches, which is what separation depends on), or " +
+                     "enlarge the field.";
             return null;
         }
 

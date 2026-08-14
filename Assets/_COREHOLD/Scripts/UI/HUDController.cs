@@ -500,7 +500,9 @@ namespace Corehold.UI
             {
                 if (!canStart)
                 {
-                    startWaveLabel.text = $"WAVE {nextNum}\nFIELD FULL";
+                    // Name the number that is blocking, not just the fact of it —
+                    // "FIELD FULL" over four visible enemies reads as a bug.
+                    startWaveLabel.text = $"WAVE {nextNum}\nFIELD {waveManager.CommittedCount}/{waveManager.ChainLockAt}";
                 }
                 else if (waveLive)
                 {
