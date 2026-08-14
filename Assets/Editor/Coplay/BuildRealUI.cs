@@ -111,7 +111,7 @@ namespace CoreholdEditor
             theme.cyan = Cyan; theme.amber = Amber; theme.danger = Danger;
 
             // Catalogues, in menu order.
-            string[] order = { "Autocannon", "MissileBattery", "ArcNode", "SiegeMortar", "ScanRelay" };
+            string[] order = { "Autocannon", "MissileBattery", "ArcNode", "SiegeMortar", "ScanRelay", "Floodlight" };
             var defs = AssetDatabase.FindAssets("t:TowerDefinition", new[] { "Assets/_COREHOLD/Data/Towers" })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Select(AssetDatabase.LoadAssetAtPath<TowerDefinition>)
@@ -327,14 +327,16 @@ namespace CoreholdEditor
 
         static BuildMenu BuildBuildMenu(Canvas canvas, UITheme theme, RangeRing ring)
         {
+            // Width fits SIX 140-wide entries + 5×8 spacing (R24 added the
+            // Floodlight): 6·140 + 40 = 880 row, 904 panel.
             var root = MakePanel(canvas.transform, "BuildMenu",
-                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(760, 150), theme.panel);
+                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(904, 150), theme.panel);
             var comp = canvas.gameObject.AddComponent<BuildMenu>();
 
             var title = MakeText(root, "Title", "BUILD", _small, TextAlignmentOptions.TopLeft, new Vector2(16, -6), new Vector2(200, 22));
             title.color = Cyan;
 
-            var entriesRow = MakeRect(root, "Entries", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(736, 110));
+            var entriesRow = MakeRect(root, "Entries", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(880, 110));
             var hlg = entriesRow.gameObject.AddComponent<HorizontalLayoutGroup>();
             hlg.spacing = 8; hlg.childAlignment = TextAnchor.MiddleCenter; hlg.childControlWidth = false; hlg.childControlHeight = false;
             var entryTemplate = BuildTurretEntryTemplate(entriesRow, theme);

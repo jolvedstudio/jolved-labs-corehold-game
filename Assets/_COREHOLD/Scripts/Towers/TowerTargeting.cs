@@ -150,7 +150,7 @@ namespace Corehold.Towers
                 _current != null &&
                 _current.IsAlive &&
                 InRange((_current.HitPoint - origin).sqrMagnitude, rangeSqr, minRangeSqr,
-                        _current.AcquisitionDistanceScale) &&
+                        AcquisitionScale(_current)) &&
                 CanTarget(_current);
 
             if (!currentInRange)
@@ -170,7 +170,7 @@ namespace Corehold.Towers
                     continue;
 
                 float distSqr = (e.HitPoint - origin).sqrMagnitude;
-                if (!InRange(distSqr, rangeSqr, minRangeSqr, e.AcquisitionDistanceScale))
+                if (!InRange(distSqr, rangeSqr, minRangeSqr, AcquisitionScale(e)))
                     continue;
 
                 float score = Score(e, distSqr);
@@ -199,6 +199,20 @@ namespace Corehold.Towers
         {
             float scaledSqr = distSqr * distanceScale * distanceScale;
             return scaledSqr <= rangeSqr && distSqr >= minRangeSqr;
+        }
+
+        /// <summary>
+        /// The distance scale to use for this enemy's max-range comparison: its
+        /// Blackout stamp (R20) unless a Floodlight lights it (R24) — light
+        /// restores full range. Cheap by construction: unstamped units (scale 1)
+        /// never query the floodlight registry at all.
+        /// </summary>
+        private static float AcquisitionScale(Enemy e)
+        {
+            float s = e.AcquisitionDistanceScale;
+            if (s <= 1f)
+                return s;
+            return Floodlight.IsLit(e.HitPoint) ? 1f : s;
         }
 
         /// <summary>Air-target gate (GDD §7.2). Ground-only turrets skip air enemies.</summary>

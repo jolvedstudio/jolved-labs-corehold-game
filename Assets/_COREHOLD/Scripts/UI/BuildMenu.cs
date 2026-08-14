@@ -227,6 +227,7 @@ namespace Corehold.UI
                 case "arcnode": return "CHAIN";
                 case "mortar": return "SIEGE";
                 case "scanrelay": return "SUPPORT";
+                case "floodlight": return "LIGHT";
             }
             if (def.damageType == DamageType.Explosive) return "SPLASH";
             if (def.tiers != null && def.tiers.Length > 0 && def.tiers[0].auraRadius > 0f) return "SUPPORT";

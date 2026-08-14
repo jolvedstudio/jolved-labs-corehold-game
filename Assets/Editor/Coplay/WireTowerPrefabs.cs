@@ -20,6 +20,7 @@ namespace CoreholdEditor
             ("Assets/_COREHOLD/Data/Towers/Tower_ArcNode.asset",        "Assets/_COREHOLD/Prefabs/Towers/Tower_ArcNode.prefab"),
             ("Assets/_COREHOLD/Data/Towers/Tower_SiegeMortar.asset",    "Assets/_COREHOLD/Prefabs/Towers/Tower_SiegeMortar.prefab"),
             ("Assets/_COREHOLD/Data/Towers/Tower_ScanRelay.asset",      "Assets/_COREHOLD/Prefabs/Towers/Tower_ScanRelay.prefab"),
+            ("Assets/_COREHOLD/Data/Towers/Tower_Floodlight.asset",     "Assets/_COREHOLD/Prefabs/Towers/Tower_Floodlight.prefab"),
         };
 
         public static string Run()
