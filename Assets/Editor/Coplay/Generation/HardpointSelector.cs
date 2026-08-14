@@ -69,6 +69,7 @@ public static class HardpointSelector
     internal static RefineryDeltaBlockout.HP[] Select(
         LevelBlueprint blueprint, List<PathRoute> routes, Vector3 corePos, out string report)
     {
+        LastShortfall = default;                  // this run's answer, not the last one's
         var log = new StringBuilder();
 
         // ---- route curve samples, once --------------------------------------
@@ -144,19 +145,20 @@ public static class HardpointSelector
         var picked = new List<(Candidate cand, Kind kind, Cls cls, string name)>();
 
         bool ok =
-            PickClass(candidates, picked, mix.premium, Cls.Premium, PremiumKinds, 4,
-                      c => true, log) &&
-            PickClass(candidates, picked, mix.overwatch, Cls.Overwatch, new[] { Kind.Mortar }, 2,
-                      c => c.coreDist <= OverwatchRadius, log) &&
-            PickClass(candidates, picked, mix.rear, Cls.Rear, RearKinds, 2,
-                      c => c.coreDist <= RearRadius, log) &&
-            PickClass(candidates, picked, mix.standard, Cls.Standard, StandardKinds, 2,
-                      c => true, log);
+            Fill(candidates, picked, mix.premium, Cls.Premium, PremiumKinds, 4,
+                 c => true, log) &&
+            Fill(candidates, picked, mix.overwatch, Cls.Overwatch, new[] { Kind.Mortar }, 2,
+                 c => c.coreDist <= OverwatchRadius, log) &&
+            Fill(candidates, picked, mix.rear, Cls.Rear, RearKinds, 2,
+                 c => c.coreDist <= RearRadius, log) &&
+            Fill(candidates, picked, mix.standard, Cls.Standard, StandardKinds, 2,
+                 c => true, log);
 
         if (!ok)
         {
             report = "hardpoint selection could not satisfy the class mix:\n" + log.ToString().TrimEnd() +
-                     "\nThis geometry cannot host the blueprint's pads — reseed (R29).";
+                     $"\nThis geometry hosts {LastShortfall.placed} {LastShortfall.cls} pad(s), not the " +
+                     $"{LastShortfall.wanted} the mix asks for.";
             return null;
         }
 
@@ -186,7 +188,48 @@ public static class HardpointSelector
     /// (prefer breathing room), then x, then z, so ties are stable. Spacing
     /// against already-picked pads is enforced during the scan.
     /// </summary>
-    private static bool PickClass(List<Candidate> candidates,
+    /// <summary>
+    /// What the geometry could not provide, from the last selection attempt.
+    ///
+    /// A failed run is discarded, so by the time anyone reads the transcript the
+    /// scene that would answer "how many Overwatch pads COULD this map host?" no
+    /// longer exists. Recording it as the selection runs is the only chance —
+    /// and that number, not the refusal, is what turns the failure into a fix.
+    /// Static because a run is one at a time and this outlives the discard.
+    /// </summary>
+    internal struct Shortfall
+    {
+        public Cls cls;
+        public int wanted;
+        public int placed;
+        public bool valid;
+    }
+
+    internal static Shortfall LastShortfall;
+
+    /// <summary>
+    /// <see cref="PickClass"/> plus the bookkeeping: records the first class that
+    /// came up short, so the caller can report what the map can actually host.
+    /// </summary>
+    private static bool Fill(List<Candidate> candidates,
+                             List<(Candidate cand, Kind kind, Cls cls, string name)> picked,
+                             int count, Cls cls, Kind[] kinds, int minSpans,
+                             System.Func<Candidate, bool> extraFilter, StringBuilder log)
+    {
+        int placed = PickClass(candidates, picked, count, cls, kinds, minSpans, extraFilter, log);
+        if (placed >= count)
+            return true;
+
+        LastShortfall = new Shortfall { cls = cls, wanted = count, placed = placed, valid = true };
+        return false;
+    }
+
+    /// <summary>
+    /// Fills one class and returns HOW MANY it managed. A bool would say the map
+    /// failed; the count says what the map can actually host, which is the number
+    /// the designer needs in order to fix their mix.
+    /// </summary>
+    private static int PickClass(List<Candidate> candidates,
                                   List<(Candidate cand, Kind kind, Cls cls, string name)> picked,
                                   int count, Cls cls, Kind[] kinds, int minSpans,
                                   System.Func<Candidate, bool> extraFilter, StringBuilder log)
@@ -225,11 +268,11 @@ public static class HardpointSelector
                                (cls == Cls.Rear ? $", ≤{RearRadius:0} m of Core" :
                                 cls == Cls.Overwatch ? $", ≤{OverwatchRadius:0} m of Core" : "") +
                                ") with spacing held");
-                return false;
+                return slot;                       // how many of this class the map could host
             }
             picked.Add((best, kind, cls, null));
         }
-        return true;
+        return count;
     }
 
     private static bool Tiebreak(Candidate a, Candidate b)

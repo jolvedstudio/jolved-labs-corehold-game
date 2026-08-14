@@ -64,6 +64,8 @@ public class GeneratorWindow : EditorWindow
             DrawDrawPreview();
             DrawValidation(out bool blocked);
             DrawGenerate(blocked);
+            if (_ran)
+                DrawRunFixes();
             DrawStageMap();
         }
         DrawUtilities();
@@ -417,8 +419,81 @@ public class GeneratorWindow : EditorWindow
 
         EditorGUILayout.LabelField(_fixes.Count == 1 ? "Suggested fix" : "Suggested fixes",
                                    EditorStyles.boldLabel);
+        DrawFixList(_fixes);
+    }
+
+    /// <summary>
+    /// Fixes for what the LAST RUN found — things no preflight can know, because
+    /// they need a built scene: how many pads of a class this geometry can
+    /// actually host.
+    /// </summary>
+    private void DrawRunFixes()
+    {
+        HardpointSelector.Shortfall s = HardpointSelector.LastShortfall;
+        if (!s.valid || _blueprint == null || _blueprint.parityLayout)
+            return;
+
+        var fixes = new List<GenerationAdvisor.Fix>();
+
+        // Premium has a floor the coverage rule sets, so "place fewer" is not
+        // available there — the honest advice is a different map, not a worse mix.
+        bool premiumFloored = s.cls == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium &&
+                              s.placed < LevelBlueprint.PadClassMix.MinPremium;
+
+        if (!premiumFloored)
+        {
+            int placed = s.placed;
+            var cls = s.cls;
+            fixes.Add(new GenerationAdvisor.Fix
+            {
+                label = $"Ask for {placed} {cls} pad(s)",
+                why = $"The mix wants {s.wanted} {cls} pads and this map's geometry offers {placed}. " +
+                      "Pad classes are earned by measurement — a pad is Premium because it covers four " +
+                      "stretches of route, not because it was labelled one — so asking for more than the " +
+                      "shape provides cannot be satisfied. The freed pads move to Standard, which has no " +
+                      "geometric precondition.",
+                apply = bp =>
+                {
+                    LevelBlueprint.PadClassMix m = bp.classMix;
+                    int freed = 0;
+                    switch (cls)
+                    {
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium:
+                            freed = m.premium - placed; m.premium = placed; break;
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Standard:
+                            freed = 0; m.standard = placed; break;
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Rear:
+                            freed = m.rear - placed; m.rear = placed; break;
+                        case Corehold.Towers.HardpointCoverageGizmo.PadClass.Overwatch:
+                            freed = m.overwatch - placed; m.overwatch = placed; break;
+                    }
+                    m.standard += Mathf.Max(0, freed);
+                    bp.classMix = m;
+                },
+            });
+        }
+
+        fixes.Add(new GenerationAdvisor.Fix
+        {
+            label = "Fewer pads overall",
+            why = $"A smaller map asks less of the shape. Dropping to {Mathf.Max(LevelBlueprint.PadClassMix.MinPremium, _blueprint.classMix.Total - 1)} " +
+                  "pads gives the selector more room to satisfy every class, and the balance model re-solves " +
+                  "enemy health growth against however many turrets the map ends up supporting.",
+            apply = bp => bp.classMix = bp.classMix.WithTotal(bp.classMix.Total - 1),
+        });
+
+        EditorGUILayout.Space(4f);
+        EditorGUILayout.LabelField("From the last run", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox($"This map hosts {s.placed} {s.cls} pad(s); the mix asks for {s.wanted}. " +
+                                "That is a property of the shape, so the same seed will always fail this way — " +
+                                "but a different seed may well have room.", MessageType.Warning);
+        DrawFixList(fixes);
+    }
+
+    private void DrawFixList(List<GenerationAdvisor.Fix> list)
+    {
         GenerationAdvisor.Fix clicked = null;
-        foreach (GenerationAdvisor.Fix fix in _fixes)
+        foreach (GenerationAdvisor.Fix fix in list)
         {
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
@@ -477,6 +552,10 @@ public class GeneratorWindow : EditorWindow
             if (GUILayout.Button($"Generate  ({GenerationPipeline.Stages.Length} stages, {gates} gates — " +
                                  "cancel any time)", GUILayout.Height(32f)))
                 Run();
+
+            if (GUILayout.Button($"Generate until it passes  (retries the next seed, up to {MaxAutoSeeds})",
+                                 GUILayout.Height(22f)))
+                RunUntilPass();
         }
         if (blocked)
             EditorGUILayout.HelpBox("Fix the errors above — the pipeline refuses to start on an " +
@@ -501,6 +580,61 @@ public class GeneratorWindow : EditorWindow
         }
 
         Repaint();
+    }
+
+    /// <summary>Maximum seeds <see cref="RunUntilPass"/> will burn before giving up.</summary>
+    private const int MaxAutoSeeds = 6;
+
+    /// <summary>
+    /// Generate, and on a gate failure try the next seed, up to
+    /// <see cref="MaxAutoSeeds"/> times.
+    ///
+    /// This is what "reseed rather than repair" has meant in practice all along:
+    /// press the button, read a refusal, press Seed +1, press the button. The
+    /// loop is the same thing without the reading, and it stops the moment a map
+    /// passes. Seeds it burned are left on the blueprint, so the map you got is
+    /// the map that seed makes — the run stays reproducible.
+    ///
+    /// It gives up rather than grinding: six failures in a row is not bad luck,
+    /// it is a blueprint the fix panel should be answering instead.
+    /// </summary>
+    private void RunUntilPass()
+    {
+        for (int attempt = 0; attempt < MaxAutoSeeds; attempt++)
+        {
+            if (attempt > 0)
+            {
+                Undo.RecordObject(_blueprint, "Auto reseed");
+                _blueprint.randomSeed++;
+                EditorUtility.SetDirty(_blueprint);
+            }
+
+            Run();
+            if (Passed(_results))
+                return;
+
+            // A cancel is a decision, not a failure — do not answer it by
+            // starting another run.
+            if (WasCancelled(_results))
+                return;
+        }
+    }
+
+    private static bool Passed(List<GenerationPipeline.StageRun> results)
+    {
+        foreach (var run in results)
+            if (!run.result.ok)
+                return false;
+        return results.Count > 0;
+    }
+
+    private static bool WasCancelled(List<GenerationPipeline.StageRun> results)
+    {
+        foreach (var run in results)
+            if (!run.result.ok && run.result.message != null &&
+                run.result.message.IndexOf("cancel", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+        return false;
     }
 
     /// <summary>
