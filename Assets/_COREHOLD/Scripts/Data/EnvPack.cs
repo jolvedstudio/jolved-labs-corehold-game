@@ -82,10 +82,10 @@ namespace Corehold.Data
         [Tooltip("Optional ground object used instead of the built-in primitive plane. Leave empty for the plane. Either way the ground is SIZED FROM THE CAMERA FRUSTUM (R11) — never from the blueprint's playfieldSize, which is what left a void on the shipped map.")]
         public GameObject groundPrefab;
 
-        [Tooltip("Material for the level's ground. Leave empty to keep whatever the scene already has. WeatherApplier (R13) captures the live ground material rather than assuming the shipped one, so a pack shipping its own is already supported.")]
+        [Tooltip("Material for the level's ground — used ONLY when groundPrefab is empty. A ground prefab was authored with its own material and UV tiling, so the generator just fits it to the frustum and leaves its look alone. WeatherApplier (R13) captures the live ground material rather than assuming the shipped one, so either path is supported.")]
         public Material groundMaterial;
 
-        [Tooltip("Texture repeats per metre. The ground is scaled to fit each map's camera solve, so one fixed tiling stretches by a different amount on every map. 0 leaves the material's own tiling alone.")]
+        [Tooltip("Texture repeats per metre — used ONLY when groundPrefab is empty (a prefab carries its own tiling). The plane is scaled to fit each map's camera solve, so one fixed tiling would stretch by a different amount on every map; this recomputes it from the final size. 0 leaves the material's own tiling alone.")]
         public float groundTilingPerMetre;
 
         /// <summary>

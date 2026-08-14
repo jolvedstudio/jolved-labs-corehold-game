@@ -74,7 +74,7 @@ Top to bottom:
 | 8 | Hardpoints | **Parity:** the live map's pad set. **Generated:** grid candidates filtered by clearance, scored by the real coverage validator, classified from measurement, picked deterministically with 5 m spacing. Each pad gets a visible `PadMarker` disc — a bare TowerHardpoint has no renderer. |
 | 9 | **⛨ GATE 2 — coverage** | See §6. |
 | 10 | Camera framing | The fixed-camera solve against the *generated* content bounds. |
-| 11 | Floor fit + theme ground | Creates the ground plane if the scene has none, sizes it from the **camera frustum** (never the design box), then applies the theme's material and recomputes tiling for that exact size. |
+| 11 | Floor fit + theme ground | Creates the ground if the scene has none, sizes it from the **camera frustum** (never the design box). **With a theme `groundPrefab`: fit only** — it was authored with its own material and tiling, so those pack fields are ignored. **Without one:** a plane is created and the pack's `groundMaterial` + `groundTilingPerMetre` are applied, tiling recomputed for the fitted size. |
 | 12 | Dressing | Silhouette band, then themed props with measured footprints/heights, each stamped with a `PlacedProp` marker. Includes automatic self-repair against sight-lines (§6, gate 2b). |
 | 13 | **⛨ GATE 2b — occlusion re-run** | See §6. |
 | 14 | Weather | The WeatherApplier wired to the drawn preset (or the null preset — pixel-identical authored look). |

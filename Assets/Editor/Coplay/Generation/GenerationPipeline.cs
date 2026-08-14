@@ -548,21 +548,47 @@ public static class GenerationPipeline
         if (fromPrefab)
             notes.Add(FitByBounds(floor));
 
-        var renderer = floor.GetComponentInChildren<Renderer>();
-        if (renderer == null)
+        // Combined bounds, not the first renderer's: a ground prefab may be
+        // several meshes, and both the extent report and the tiling need what
+        // the whole ground actually covers.
+        var renderers = floor.GetComponentsInChildren<Renderer>();
+        if (renderers.Length == 0)
             return StageResult.Fail($"the ground object '{floor.name}' has no renderer — " +
-                                    "it cannot be seen, and the theme material has nothing to apply to");
+                                    "it cannot be seen, and a theme material would have nothing to apply to");
 
-        Bounds worldBounds = renderer.bounds;
+        Bounds worldBounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            worldBounds.Encapsulate(renderers[i].bounds);
         notes.Add($"covers {worldBounds.size.x:0} × {worldBounds.size.z:0} m");
 
         if (ctx.theme == null)
             return StageResult.Ok(string.Join(", ", notes) + "; no theme, default ground kept");
 
+        // A GROUND PREFAB SHIPS ITS OWN LOOK. It was authored with its material
+        // and UV tiling already right, so the only thing it needs from the
+        // generator is the frustum fit. Applying the pack's material over it
+        // would discard that authoring — and on a multi-mesh ground it could
+        // only reach one submesh, which is worse than either choice. So the
+        // material and tiling channels exist FOR THE PLANE PATH, and are inert
+        // whenever a prefab is supplied.
+        if (fromPrefab)
+        {
+            if (ctx.theme.groundMaterial != null || ctx.theme.groundTilingPerMetre > 0f)
+                notes.Add("groundMaterial/tiling ignored — the prefab carries its own look; " +
+                          "those fields apply only when groundPrefab is empty");
+            return StageResult.Ok(string.Join(", ", notes));
+        }
+
+        // ---- plane path: the pack's material + tiling ARE the ground's look --
         if (ctx.theme.groundMaterial != null)
         {
-            renderer.sharedMaterial = ctx.theme.groundMaterial;   // scene slot → asset ref; edits nothing
+            foreach (Renderer r in renderers)
+                r.sharedMaterial = ctx.theme.groundMaterial;   // scene slot → asset ref; edits nothing
             notes.Add($"material '{ctx.theme.groundMaterial.name}'");
+        }
+        else
+        {
+            notes.Add("no groundMaterial on the theme — default plane material");
         }
 
         // Tiling must be recomputed per map (the fit differs every time), and it
@@ -572,10 +598,14 @@ public static class GenerationPipeline
         if (tiling != Vector2.zero)
         {
             var mpb = new MaterialPropertyBlock();
-            renderer.GetPropertyBlock(mpb);
-            mpb.SetVector("_BaseMap_ST", new Vector4(tiling.x, tiling.y, 0f, 0f));
-            renderer.SetPropertyBlock(mpb);
-            notes.Add($"tiling {tiling.x:0.#}×{tiling.y:0.#}");
+            foreach (Renderer r in renderers)
+            {
+                r.GetPropertyBlock(mpb);
+                mpb.SetVector("_BaseMap_ST", new Vector4(tiling.x, tiling.y, 0f, 0f));
+                r.SetPropertyBlock(mpb);
+            }
+            notes.Add($"tiling {tiling.x:0.#}×{tiling.y:0.#} " +
+                      $"({ctx.theme.groundTilingPerMetre:0.##}/m over {worldBounds.size.x:0} m)");
         }
 
         return StageResult.Ok(string.Join(", ", notes));
