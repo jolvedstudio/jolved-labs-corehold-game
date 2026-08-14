@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c7d2ec683a69c04ea0d0cd516f2a733, type: 3}
+  m_Name: Weather_Rain
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WeatherPreset
+  overrideAmbient: 1
+  ambientColor: {r: 0.26, g: 0.3, b: 0.4, a: 1}
+  overrideFog: 1
+  fogColor: {r: 0.13, g: 0.16, b: 0.22, a: 1}
+  fogDensity: 0.0052
+  overrideGroundTint: 1
+  groundTint: {r: 0.88, g: 0.92, b: 1, a: 1}
+  precipitation: 1
+  precipitationPrefab: {fileID: 6077168872989578693, guid: f514474ff8e94554d8477de1f2f601b0, type: 3}
+  precipitationRate: 260
+  fallSpeed: 18
+  particleSize: 0.018
+  streakLength: 18
+  particleColor: {r: 0.78, g: 0.85, b: 0.98, a: 0.3}
+  overridePostProfile: 1
+  postProfile: {fileID: 11400000, guid: e2c986f34f95dd14592568e6f8e46f73, type: 2}
+  postWeight: 1
+  windDirection: {x: 0.35, y: 0, z: -1}
+  windStrength: 3.5

@@ -1,0 +1,48 @@
+COREHOLD — P2 spline gate report (roadmap R9)
+scene: Game
+
+=== 1. ROUTE CLEARANCE (report-only) ===
+Routes: 2, Pads: 8
+Route clearance OK: no route lane-band intersects any hardpoint pad.
+
+=== 2. HARDPOINT COVERAGE — chords (before) vs walked route (after) ===
+  pad              turret      class      need chord curve delta  verdict
+  HP_Overwatch     Mortar      Overwatch     2     4     4     0  PASS
+  HP_Premium_1     Missile     Premium       4     4     4     0  PASS
+  HP_Premium_2     Autocannon  Premium       4     3     3     0  **FAIL**
+  HP_Premium_3     ArcNode     Premium       4     4     4     0  PASS
+  HP_Rear_1        Autocannon  Rear          2     2     2     0  PASS
+  HP_Rear_2        ArcNode     Rear          2     2     2     0  PASS
+  HP_Standard_1    Autocannon  Standard      2     4     4     0  PASS
+  HP_Standard_2    Missile     Standard      2     3     3     0  PASS
+  Premium pads covering 4+: 2 (need >= 3)
+  COVERAGE RULE: **NOT MET**
+
+=== 3. SHARED-TAIL DIVERGENCE (R7) ===
+=== R7 shared-tail divergence ===
+Mode        : spline (ready: Route_West=True, Route_North=True)
+Measured    : 119.99 m back from the Core (240 samples @ 0.5 m), covering the tail shared from Route_West[2] / Route_North[2]
+Route length: Route_West 153.742 m, Route_North 154.518 m (difference 0.777 m — the approach legs, which are NOT shared)
+Merge knot  : Route_West at 30 m, Route_North at 30.159 m
+First breach: 113.0 m back from the Core
+Max divergence: 1.4188 m at 119.5 m back from the Core (gate ≤ 0.05 m) -> **FAIL**
+
+
+=== 4. ROUTE LENGTH DELTA (input to R10) ===
+  route           spline?   polyline    current     delta
+  Route_North        True    149.985    154.518    3.02%
+  Route_West         True    149.985    153.742    2.50%
+  Longer curved routes give enemies more time-in-range, which EASES margins.
+  Feed these lengths to docs/balance_model.py and report any wave whose margin moves >0.15 (R10).
+
+=== GATE SUMMARY ===
+  clearance clean        : YES
+  coverage rule holds    : NO
+  coverage classes moved : 0 pad(s) — each needs EXPLICIT acceptance
+  shared-tail divergence : NO
+
+  Still owed by a human before flipping useSpline default ON:
+    • move any knots the clearance stage named (never auto-nudged)
+    • accept any coverage class change above, in writing
+    • capture the 1920×1080 sign-off set at 16:9, 16:10 and 20:9
+    • re-run docs/balance_model.py on the new Lengths (R10)

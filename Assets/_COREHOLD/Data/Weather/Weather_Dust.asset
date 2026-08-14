@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c7d2ec683a69c04ea0d0cd516f2a733, type: 3}
+  m_Name: Weather_Dust
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WeatherPreset
+  overrideAmbient: 1
+  ambientColor: {r: 0.38, g: 0.32, b: 0.24, a: 1}
+  overrideFog: 1
+  fogColor: {r: 0.22, g: 0.18, b: 0.13, a: 1}
+  fogDensity: 0.0068
+  overrideGroundTint: 1
+  groundTint: {r: 1, g: 0.94, b: 0.82, a: 1}
+  precipitation: 2
+  precipitationPrefab: {fileID: 173810, guid: 258197df3dfea514095084e83b1981fc, type: 3}
+  precipitationRate: 90
+  fallSpeed: 1.6
+  particleSize: 0.05
+  streakLength: 18
+  particleColor: {r: 0.85, g: 0.76, b: 0.6, a: 0.16}
+  overridePostProfile: 1
+  postProfile: {fileID: 11400000, guid: 9eb25121f2872f947970796783f326ca, type: 2}
+  postWeight: 1
+  windDirection: {x: 1, y: 0.05, z: -0.35}
+  windStrength: 5

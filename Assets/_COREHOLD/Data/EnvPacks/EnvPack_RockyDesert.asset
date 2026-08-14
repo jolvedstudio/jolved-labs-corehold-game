@@ -1,0 +1,170 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 864fd7fc3ba0c024bb59d612a850c76a, type: 3}
+  m_Name: EnvPack_RockyDesert
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnvPack
+  themeName: RockyDesert
+  entries:
+  - prefab: {fileID: 6764515366743756750, guid: 3df16326f3ce77e44ad0155792edee5c, type: 3}
+    role: 1
+    footprintRadius: 7.160754
+    height: 11.016656
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 7671183549982553149, guid: a227ef4c3091e3c49a379c503c6a5cdc, type: 3}
+    role: 1
+    footprintRadius: 8.09609
+    height: 3.67147
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 986643319809443745, guid: 99532bd2e247b1049a450526d1e0b499, type: 3}
+    role: 2
+    footprintRadius: 2.905511
+    height: 1.5055914
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 1831993958126854827, guid: 1ed41b6f2cad51f4aafd94e1e54eb099, type: 3}
+    role: 3
+    footprintRadius: 2.569808
+    height: 0.43758157
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 3794195547569384717, guid: 67749c1a3fa661449a9431cdb5412ba1, type: 3}
+    role: 3
+    footprintRadius: 2.569808
+    height: 0.43758157
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 8186684133222996609, guid: 2c92062d173c73441909d43ab494021f, type: 3}
+    role: 3
+    footprintRadius: 1.7846781
+    height: 0.35025105
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 8621545925908781241, guid: 7a74eec7ed2c8db4db850ed5ff553621, type: 3}
+    role: 3
+    footprintRadius: 3.3785434
+    height: 0.31884512
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 284766782877313632, guid: c8a9b0d571d007748bb4cb6c480a2650, type: 3}
+    role: 3
+    footprintRadius: 4.1399784
+    height: 1.3664052
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 1694356048614297273, guid: adaacaf761659c24cbf18fd7458bb171, type: 3}
+    role: 3
+    footprintRadius: 6.4358606
+    height: 1.7929955
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 5619224812331591942, guid: 490abc32f4eb65648920b7be918a690f, type: 3}
+    role: 3
+    footprintRadius: 9.581039
+    height: 6.6651554
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 7207974183140993035, guid: 3bafb43cca3d5f147af1e9707a1da3c6, type: 3}
+    role: 3
+    footprintRadius: 2.8823211
+    height: 1.0998534
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 5353900346815657101, guid: 36413a49f4d24034cb0dd2224ef6adb6, type: 3}
+    role: 3
+    footprintRadius: 1.6916988
+    height: 0.7018344
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 4668727814303176061, guid: 5a29de318f042964eb6b10d88d8ad18e, type: 3}
+    role: 3
+    footprintRadius: 1.4598429
+    height: 0.9140644
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 8208044228301766412, guid: c144b67bdc306f14fb3ff74bee1a4402, type: 3}
+    role: 3
+    footprintRadius: 1.000566
+    height: 0.5377888
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 6637243552409242014, guid: df255719573482c42a6c9f060efd897e, type: 3}
+    role: 3
+    footprintRadius: 2.569808
+    height: 0.43758157
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 7598850050154353782, guid: d76982c032f2aa849a7e4e3db6d3f7b3, type: 3}
+    role: 3
+    footprintRadius: 1.7846781
+    height: 0.35025105
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 9148224785509112326, guid: db9ed0901bf657643bc91ff1f75fe693, type: 3}
+    role: 3
+    footprintRadius: 3.3785434
+    height: 0.31884512
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 4467989446430415231, guid: 9bf447a9f262ae348993e924f64f12a5, type: 3}
+    role: 3
+    footprintRadius: 4.1399784
+    height: 1.3664052
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 3357066974927362540, guid: 985c17e05c5a61247a25fa67156ccba2, type: 3}
+    role: 3
+    footprintRadius: 6.4358606
+    height: 1.7929955
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 3587194999720287673, guid: 68b3328554eb56148bb80b5a217450b5, type: 3}
+    role: 3
+    footprintRadius: 4.574124
+    height: 2.583163
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 2218813357578462764, guid: 80a49ce040c76ec478079d4ec0574a2d, type: 3}
+    role: 3
+    footprintRadius: 2.2699952
+    height: 1.6690292
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 7822839721952211802, guid: 51b499b604a72e8478f68cbc0e2e4881, type: 3}
+    role: 3
+    footprintRadius: 7.562445
+    height: 12.315557
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 396049784954235744, guid: 424be6c013b3dff419926203412a2caf, type: 3}
+    role: 3
+    footprintRadius: 8.288376
+    height: 2.9756749
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 21414944571528979, guid: 3b40154a31ec0fd4f85a837503637390, type: 3}
+    role: 3
+    footprintRadius: 2.3863728
+    height: 0.6239252
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 849949757681443237, guid: 41846ffe07dce65469fe7668baf62979, type: 3}
+    role: 3
+    footprintRadius: 2.5830548
+    height: 1.0169564
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  weatherPool: []
+  groundPrefab: {fileID: 3517325972507211172, guid: 288b1c41a60e73448bd72eb35950e54d, type: 3}
+  groundMaterial: {fileID: 0}
+  groundTilingPerMetre: 0

@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 64719cc1630390c47b0ce874096f5413, type: 3}
+  m_Name: Blueprint_RefineryDelta
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.LevelBlueprint
+  randomSeed: 455400
+  playfieldSize: {x: 130, y: 75}
+  parityLayout: 0
+  protectedPrefab: {fileID: 0}
+  protectedNormalizedPos: {x: 0.765, y: 0.413}
+  routeLengthTarget: 154
+  foldWidth: 11
+  groundSpawnLegs: 2
+  airCorridor: 1
+  classMix:
+    premium: 3
+    standard: 7
+    rear: 0
+    overwatch: 0
+  envPackPool:
+  - {fileID: 11400000, guid: 7dd26d8b9e898074e93c6c72cc29c067, type: 2}
+  weatherPool:
+  - {fileID: 0}
+  - {fileID: 11400000, guid: 90f8362a3ce80e4429eef03d232270cb, type: 2}
+  - {fileID: 11400000, guid: 9e5546b1578d3bc4cb54b5f4d0433cfa, type: 2}
+  rulesTemplate: {fileID: 11400000, guid: c37a424b880d2564aaae4cb7b379fb2c, type: 2}

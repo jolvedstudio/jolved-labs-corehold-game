@@ -1,0 +1,74 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 864fd7fc3ba0c024bb59d612a850c76a, type: 3}
+  m_Name: EnvPack_RefineryDelta
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnvPack
+  themeName: RefineryDelta
+  entries:
+  - prefab: {fileID: 5510283048358293989, guid: 8c8edfaf1f206e940bef71c1d87e5a84, type: 3}
+    role: 2
+    footprintRadius: 9.905842
+    height: 12.181849
+    scaleRange: {x: 0.8, y: 0.8}
+    allowInFold: 1
+  - prefab: {fileID: 7699012893041542876, guid: 456cc2f9005644c4dba91bf3a49acb3e, type: 3}
+    role: 2
+    footprintRadius: 48.258762
+    height: 134.08463
+    scaleRange: {x: 0.28, y: 0.28}
+    allowInFold: 1
+  - prefab: {fileID: 4020334627570003417, guid: 0dc5838434e48604eab47ed083afbd8f, type: 3}
+    role: 1
+    footprintRadius: 56.32318
+    height: 94.71738
+    scaleRange: {x: 0.3, y: 0.3}
+    allowInFold: 0
+  - prefab: {fileID: 5510283048358293989, guid: ec4ca78a9f7fba041859a44675d06491, type: 3}
+    role: 1
+    footprintRadius: 9.905842
+    height: 12.181849
+    scaleRange: {x: 0.9, y: 0.9}
+    allowInFold: 0
+  - prefab: {fileID: 5462930987787989419, guid: 3b4030ef9c1f99c44b4792d8f351d902, type: 3}
+    role: 3
+    footprintRadius: 3.776413
+    height: 2.7500005
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 5462930987787989419, guid: 16272ac246f49ee46ac599179d350269, type: 3}
+    role: 3
+    footprintRadius: 3.776413
+    height: 2.7500005
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 6214851351226317529, guid: 9e045a391a5029f49acfc8e5ada08c31, type: 3}
+    role: 3
+    footprintRadius: 5.0787663
+    height: 0.5952785
+    scaleRange: {x: 1.5, y: 1.5}
+    allowInFold: 0
+  - prefab: {fileID: 6257476996176888427, guid: bc9d986acda94104880a3c1a3fd65e95, type: 3}
+    role: 2
+    footprintRadius: 6.2154417
+    height: 13.978552
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 6596725424947540127, guid: b1f090d0b22a1a242b4c4fdae7ba639c, type: 3}
+    role: 4
+    footprintRadius: 5.3200264
+    height: 13.02195
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  weatherPool: []
+  groundPrefab: {fileID: 3517325972507211172, guid: 288b1c41a60e73448bd72eb35950e54d, type: 3}
+  groundMaterial: {fileID: 2100000, guid: c3a40f39d4fe7c2459eb35ea2af5b3bb, type: 2}
+  groundTilingPerMetre: 5

@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 47b5924ac4185b14c9bd268b50bcc92c, type: 3}
+  m_Name: Level_RockyDesert
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.LevelDefinition
+  waves:
+  - {fileID: 11400000, guid: 410146c3e9577114c8d2d58fc009c924, type: 2}
+  - {fileID: 11400000, guid: 3ef84d11a87838445aa814150cff2e81, type: 2}
+  - {fileID: 11400000, guid: 8788de6867d53564a9ae412f9e1533fe, type: 2}
+  - {fileID: 11400000, guid: fe389be3dc1b20d4d817adda13d48018, type: 2}
+  - {fileID: 11400000, guid: 4ef3631c91265184a9ffb7a74b30610d, type: 2}
+  - {fileID: 11400000, guid: 20cbddf3cd3d1e64c9aa4ce131c3b821, type: 2}
+  - {fileID: 11400000, guid: 8750f15ecc9fab54097b1b2cb1bfdb9e, type: 2}
+  - {fileID: 11400000, guid: 2d4ff21ee8363af4e82245adb8d17c73, type: 2}
+  - {fileID: 11400000, guid: 64c6d32ddb2681f4e8b7e6205b6465c8, type: 2}
+  - {fileID: 11400000, guid: 192f2a2fbd3886f47acee41d590c8ccb, type: 2}
+  startingSalvage: 300
+  coreIntegrity: 20
+  hpGrowthPerWave: 0.18
+  chainBonusPerLiveEnemy: 8
+  chainBonusCap: 80
+  maxLiveEnemies: 14
