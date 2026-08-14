@@ -134,7 +134,7 @@ namespace Corehold.Systems
         [SerializeField] private AudioClip rotationLoopClip;
 
         [Tooltip("Base volume of a single rotation loop voice.")]
-        [Range(0f, 1f)] [SerializeField] private float rotationLoopVolume = 0.4f;
+        [Range(0f, 1f)] [SerializeField] private float rotationLoopVolume = 0.465f;   // shipped Game.unity value
 
         [Tooltip("How many turrets may sound the rotation loop at once (nearest screen centre). GDD §10: three.")]
         [SerializeField] private int rotationLoopVoices = 3;

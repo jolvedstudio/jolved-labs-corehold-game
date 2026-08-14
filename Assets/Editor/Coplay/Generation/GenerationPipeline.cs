@@ -691,23 +691,65 @@ public static class GenerationPipeline
             });
 
         var shortfalls = new List<string>();
+        var hidden = new List<string>();
+        Camera cam = SceneQuery.FirstInActiveScene<Camera>();
+
         foreach (var pad in SceneQuery.InActiveScene<Corehold.Towers.HardpointCoverageGizmo>())
         {
             int need = pad.padClass == Corehold.Towers.HardpointCoverageGizmo.PadClass.Premium ? 4 : 2;
             int have = pad.CountCoveredSpansOnCurve(occluders);
             if (have < need)
                 shortfalls.Add($"{pad.name}: {have}/{need} spans with sight lines applied");
+
+            // Two DIFFERENT sight lines, and both matter: the turret's view of
+            // the route (above) decides whether the pad works, the camera's view
+            // of the pad (here) decides whether the player can find it at all.
+            if (cam != null)
+            {
+                Vector3 padPoint = pad.transform.position +
+                                   Vector3.up * Corehold.Towers.HardpointCoverageGizmo.PadVisibleHeight;
+                if (Corehold.Towers.HardpointCoverageGizmo.LineBlocked(
+                        cam.transform.position, padPoint, occluders))
+                    hidden.Add(pad.name);
+            }
         }
 
         if (shortfalls.Count > 0)
             return StageResult.Fail("occlusion re-run failed:\n  • " + string.Join("\n  • ", shortfalls));
+
+        if (hidden.Count > 0)
+            return StageResult.Fail("pads hidden from the camera by dressing — the player cannot see " +
+                                    "where to build:\n  • " + string.Join("\n  • ", hidden));
+
+        // Route occlusion, re-measured from the FINISHED scene rather than
+        // trusting the placer's running total. The two can legitimately differ:
+        // the placer charges a candidate when it places it, and the occlusion
+        // repair may later delete a prop, which only ever frees route back up.
+        // Re-measuring is what makes the budget a guarantee instead of a hope.
+        float routeHiddenMetres = 0f, routeBudget = 0f, routeTotal = 0f;
+        if (cam != null && ctx.routes.Count > 0)
+        {
+            List<Vector3> routeSamples = RouteVisibility.SampleRoutes(ctx.routes);
+            routeTotal = RouteVisibility.TotalMetres(routeSamples);
+            routeBudget = RouteVisibility.BudgetMetres(routeSamples);
+            routeHiddenMetres = RouteVisibility.HiddenMetres(routeSamples, cam, occluders);
+
+            if (routeHiddenMetres > routeBudget)
+                return StageResult.Fail(
+                    $"dressing hides {routeHiddenMetres:0.#} m of the {routeTotal:0} m route from the " +
+                    $"camera, over the {routeBudget:0.#} m budget " +
+                    $"({RouteVisibility.HiddenBudgetFraction:P0}) — the player cannot watch the " +
+                    "approach. Reseed (R29).");
+        }
 
         if (occluders.Count == 0)
             return StageResult.Ok(ctx.blueprint.parityLayout
                 ? "0 measured occluders (parity structures carry no PlacedProp markers — the validated shipped set)"
                 : "0 occluders placed — plain recount holds");
 
-        return StageResult.Ok($"all pads keep their class through {occluders.Count} occluder(s)");
+        return StageResult.Ok($"through {occluders.Count} occluder(s): every pad keeps its class and is " +
+                              $"visible; {routeHiddenMetres:0.#} m of {routeTotal:0} m route hidden " +
+                              $"(budget {routeBudget:0.#} m)");
     }
 
     private static StageResult StWeather(Context ctx)

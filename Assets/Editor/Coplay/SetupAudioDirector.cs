@@ -38,6 +38,9 @@ public static class SetupAudioDirector
     private const string RotationLoopPath = TurretSfx + "Turret/rotate_loop.wav";
     private const string MusicPath = CreepySound + "Ambiant/FreeMusic_By_CreepyCat_01.wav";
 
+    /// <summary>Turret rotation-loop volume as tuned in the shipped Game.unity.</summary>
+    private const float RotationLoopVolume = 0.465f;
+
     [MenuItem("Tools/COREHOLD/Scene Setup/Audio Director", false, 41)]
     public static void Setup()
     {
@@ -88,6 +91,14 @@ public static class SetupAudioDirector
         // Rotation loop + music.
         so.FindProperty("rotationLoopClip").objectReferenceValue = LoadAndCompress(RotationLoopPath, missing);
         so.FindProperty("musicClip").objectReferenceValue = LoadAndCompress(MusicPath, missing);
+
+        // The tuned loop volume from the shipped scene (0.465, not the class
+        // default 0.4). Same lesson as the VFX tracer: a field the setup tool
+        // never writes is a field that silently differs between a hand-tuned
+        // scene and a generated one.
+        SerializedProperty loopVol = so.FindProperty("rotationLoopVolume");
+        if (loopVol != null)
+            loopVol.floatValue = RotationLoopVolume;
 
         so.ApplyModifiedPropertiesWithoutUndo();
         EditorUtility.SetDirty(director);

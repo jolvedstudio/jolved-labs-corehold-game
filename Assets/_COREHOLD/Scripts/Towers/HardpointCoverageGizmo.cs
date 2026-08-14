@@ -182,12 +182,33 @@ namespace Corehold.Towers
         /// </summary>
         private bool SightBlocked(Vector3 padXZ, Vector3 targetXZ, IReadOnlyList<Occluder> occluders)
         {
-            if (occluders == null || occluders.Count == 0)
-                return false;
+            // The Mortar lobs its shell over obstacles by design (GDD §7.3),
+            // which is much of why Overwatch pads tolerate set-back positions.
             if (intendedTurret == TurretKind.Mortar)
                 return false;
 
-            Vector3 ab = targetXZ - padXZ;
+            return LineBlocked(padXZ + Vector3.up * MuzzleHeight,
+                               targetXZ + Vector3.up * TargetHeight, occluders);
+        }
+
+        /// <summary>
+        /// Does the 3D segment <paramref name="from"/> → <paramref name="to"/> pass
+        /// through any occluder cylinder? The XZ ray must cross the circle AND the
+        /// segment must sit at or below the cylinder's height where it crosses.
+        ///
+        /// Public and general because two different sight lines need it and must
+        /// not drift apart: the TURRET's line to a covered route span (what gate 2b
+        /// judges) and the CAMERA's line to a pad (whether the player can see the
+        /// pad at all). Occluder heights are measured from the ground plane, so
+        /// this assumes props stand on y = 0 — which the placer guarantees.
+        /// </summary>
+        public static bool LineBlocked(Vector3 from, Vector3 to, IReadOnlyList<Occluder> occluders)
+        {
+            if (occluders == null || occluders.Count == 0)
+                return false;
+
+            Vector3 a = Flat(from);
+            Vector3 ab = Flat(to) - a;
             float len2 = ab.sqrMagnitude;
             if (len2 < 1e-6f)
                 return false;
@@ -197,18 +218,24 @@ namespace Corehold.Towers
                 Occluder oc = occluders[i];
                 Vector3 c = Flat(oc.position);
 
-                float t = Mathf.Clamp01(Vector3.Dot(c - padXZ, ab) / len2);
-                Vector3 closest = padXZ + ab * t;
+                float t = Mathf.Clamp01(Vector3.Dot(c - a, ab) / len2);
+                Vector3 closest = a + ab * t;
                 if ((closest - c).sqrMagnitude > oc.radius * oc.radius)
                     continue;
 
-                // Height of the sight line where it crosses the cylinder.
-                float y = Mathf.Lerp(MuzzleHeight, TargetHeight, t);
+                float y = Mathf.Lerp(from.y, to.y, t);
                 if (y <= oc.height)
                     return true;
             }
             return false;
         }
+
+        /// <summary>
+        /// Height above a pad that must stay visible to the camera. The PadMarker
+        /// disc tops out around 0.17 m, so testing 0.2 m is the strict reading:
+        /// clear this and the whole marker is in view.
+        /// </summary>
+        public const float PadVisibleHeight = 0.2f;
 
         /// <summary>
         /// The original straight-chord count, kept for the R9 before/after table:

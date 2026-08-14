@@ -36,7 +36,7 @@ You just rebuilt Refinery Delta through the full gated pipeline. The scene is at
 ## 3. Quick start B — your first generated map (5 minutes)
 
 1. In the Project window: **duplicate `Blueprint_RefineryDelta`** (Ctrl+D), rename it — the name feeds the scene and asset filenames.
-2. In the Inspector: **untick `parityLayout`**. That's the switch between "rebuild the shipped map" and "synthesize from the seed".
+2. In the Generator window, switch the mode to **Generate new map**. That toolbar is *the* switch between "rebuild the shipped map" and "synthesize from the seed" (it writes `parityLayout` on the blueprint, so it sticks with the asset).
 3. Pick a **seed** (any integer). Leave everything else at shipped values for a first run.
 4. Select your blueprint in the Generator window → **Generate**.
 5. Didn't like it, or a gate refused the seed? **Seed +1 → Generate.** Reseeding is free and is the intended loop — see §10.
@@ -48,7 +48,10 @@ You just rebuilt Refinery Delta through the full gated pipeline. The scene is at
 Top to bottom:
 
 - **Blueprint** — the asset being generated. The window offers to create the parity blueprint when none exists.
-- **Seed** — with **Seed +1** and **Random** buttons. Changing it clears stale results. Seed edits are undoable.
+- **Mode** — the two-button toolbar, and the most consequential control here:
+  - **Rebuild shipped map** (`parityLayout` on) — reproduce Refinery Delta exactly. The seed varies nothing; the gates verify rather than shape. This is the **regression test**: run it after any generator change to prove the pipeline still reproduces the live map.
+  - **Generate new map** (`parityLayout` off) — synthesize routes, hardpoints and dressing from the seed. **This is what the generator is for.**
+- **Seed** — with **Seed +1** and **Random** buttons. Changing it clears stale results; edits are undoable. Disabled in parity mode, where it does nothing.
 - **This seed draws** — a preview of the theme, weather, and ground *this exact seed* will pick from the pools, before you spend any time generating.
 - **Validation** — live errors/warnings for the blueprint. Errors disable Generate: the pipeline refuses to start on an invalid blueprint rather than emit a half-right scene.
 - **Generate** — labelled with the stage and gate count. During the run a **cancelable progress bar** shows stage n/18 plus sub-stage detail (candidate scoring, model elapsed time). **Cancel is safe**: it routes through the same discard as a gate failure and leaves nothing behind.
@@ -91,7 +94,15 @@ Any ✗ triggers the **Discard** row: half-built scene closed unsaved, created a
 
 **GATE 2 — coverage (pads).** Judged by the actual `HardpointCoverageGizmo` components in the scene — the same validator the shipped map was authored with. Every pad ≥ 2 covered spans; every Premium ≥ 4; at least 3 Premium pads; the class census must equal the blueprint's mix.
 
-**GATE 2b — occlusion re-run (dressing).** The distance-based count can't see a 12 m tank parked between a pad and its route. Every pad is recounted through **sight lines**: muzzle (1.5 m) to target (1.0 m) against every placed prop's cylinder at its *placed* size. The Mortar is exempt (arcing shell). The placer already self-repairs — it deletes the prop blocking the most spans, up to 10 removals — so this gate only fails when dressing and pads genuinely cannot coexist on this seed.
+**GATE 2b — occlusion re-run (dressing).** Two different sight lines, both checked, because they answer different questions.
+
+*Does the pad still work?* The distance-based count can't see a 12 m tank parked between a pad and its route. Every pad is recounted through **turret sight lines**: muzzle (1.5 m) to target (1.0 m) against every placed prop's cylinder at its *placed* size. The Mortar is exempt (arcing shell). The placer self-repairs first — deleting the prop that blocks the most spans, up to 10 removals — so this only fails when dressing and pads genuinely cannot coexist on this seed.
+
+*Can the player see the pad?* The **camera sight line**, camera → pad, is a separate test. At the fixed 38° pitch a 12 m landmark hides roughly 15 m of ground behind it, well past the 6 m pad keep-out, so a prop can leave a pad fully functional and completely invisible. The placer refuses any position that would hide a pad, and this gate re-verifies it: a hidden pad fails the seed.
+
+*Can the player watch the approach?* The route gets a **budget** rather than absolute protection, because it is 150 m of ground rather than a point — protecting every metre would exclude a band behind every prop position and leave the field bare. At most **6% of the route** may be hidden from the camera (~9 m on the shipped 154 m route: a couple of short stretches behind props, not a screen). The placer spends the budget as it places, charging each prop only for route nothing else was hiding; this gate re-measures the finished scene and fails the seed if the total is over. Shared route between the two entrances is counted once, so "a metre of route" means a metre of ground.
+
+Both apply to **generated** dressing. Parity dressing is the shipped set a human placed and the map was validated with, so it carries no `PlacedProp` markers and is reported as 0 occluders.
 
 **GATE 3 — model margins (balance).** The scene's real geometry (route lengths, pad positions and turrets) goes to `docs/balance_model.py`. For generated maps the model **solves** `hpGrowthPerWave` so the boss wave lands mid-band (~1.10); for parity it verifies the shipped 0.18. Every wave's margin must sit in the accepted band (≥1.00 all waves, boss ≤1.20). Out of band at the solved value means this geometry can't be balanced by growth alone — reseed.
 
@@ -161,6 +172,8 @@ Vendor prefabs you can't move: add the role as an **asset label** (`Landmark`, `
 | "could not reach … ±5%" | `routeLengthTarget` out of range for this field/foldWidth | Adjust the target or the field |
 | Gate 2: "no candidate for Premium slot…" | This seed's pockets can't host the mix | Seed +1; persistent across many seeds → widen `foldWidth` or reduce the mix |
 | Gate 2b: "pads still sight-blocked" | Dressing and pads can't coexist on this seed | Seed +1; recurring → your theme's MidField props are too tall/wide for the fold pockets — check `allowInFold` and measured heights |
+| Gate 2b: "pads hidden from the camera" | A prop stands between the camera and a pad | Seed +1. Recurring means the theme's tall props are too numerous for the field |
+| Gate 2b: "dressing hides N m of route… over budget" | Too much of the approach is behind props | Seed +1. Recurring → lower the theme's Landmark/MidField heights, or raise `RouteVisibility.HiddenBudgetFraction` if 6% is stricter than you want |
 | Gate 3: "margins out of band" | Geometry can't be balanced by growth alone | Seed +1. The flagged waves in the report say which side (LOW = defense starved, HIGH = too easy) |
 | Hierarchy verify: "unrecognised root(s)" | A tool emitted a root the container table doesn't know | Add the name to `SceneContainers.Groups` — one line |
 | Gate 2 census is a **multiple** of the blueprint mix (e.g. 6/4/4/2 against 3/2/2/1) | Another scene was loaded and its pads were counted too | Fixed — every generation query is scoped to the active scene. If stage 3 still reports "N scenes are loaded", close the others |

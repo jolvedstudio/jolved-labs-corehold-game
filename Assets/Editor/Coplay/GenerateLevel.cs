@@ -134,7 +134,18 @@ public static class GenerateLevel
             errors.Add($"protectedNormalizedPos must be inside [0,1] (is {b.protectedNormalizedPos}).");
 
         if (b.protectedPrefab == null)
-            warnings.Add("protectedPrefab is unassigned — the generated level would have nothing to defend.");
+        {
+            warnings.Add("protectedPrefab is unassigned — the level falls back to the shipped platform + " +
+                         "shield-generator stack. Assign a PROJECT PREFAB (a ScriptableObject cannot " +
+                         "reference a scene object, which is why the picker refuses one).");
+        }
+        else if (b.protectedPrefab.GetComponentInChildren<Renderer>() == null)
+        {
+            // Same failure shape as a ground object with no renderer: it exists,
+            // the pipeline reports success, and the player sees nothing to defend.
+            warnings.Add($"protectedPrefab '{b.protectedPrefab.name}' has no renderer anywhere in it — " +
+                         "the Core would be invisible.");
+        }
 
         if (b.routeLengthTarget <= 0f)
             errors.Add("routeLengthTarget must be positive.");
