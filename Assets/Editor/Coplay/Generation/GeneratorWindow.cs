@@ -93,29 +93,72 @@ public class GeneratorWindow : EditorWindow
             return;
         }
 
-        // Seed edits go through Undo so a designer can back out of them.
-        EditorGUI.BeginChangeCheck();
-        int seed = EditorGUILayout.IntField(
-            new GUIContent("Seed", "Every random draw derives from this. Same seed = same map, " +
-                                   "same theme, same weather — on every machine."),
-            _blueprint.randomSeed);
-        using (new EditorGUILayout.HorizontalScope())
+        DrawModeSwitch();
+
+        // Seed edits go through Undo so a designer can back out of them. On a
+        // parity blueprint the seed changes nothing, so the field is disabled
+        // rather than left inviting a change that does nothing.
+        using (new EditorGUI.DisabledScope(_blueprint.parityLayout))
         {
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Seed +1", GUILayout.Width(70f))) seed = _blueprint.randomSeed + 1;
-            if (GUILayout.Button("Random", GUILayout.Width(70f))) seed = Random.Range(1, 1_000_000);
+            EditorGUI.BeginChangeCheck();
+            int seed = EditorGUILayout.IntField(
+                new GUIContent("Seed", "Every random draw derives from this. Same seed = same map, " +
+                                       "same theme, same weather — on every machine."),
+                _blueprint.randomSeed);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("Seed +1", GUILayout.Width(70f))) seed = _blueprint.randomSeed + 1;
+                if (GUILayout.Button("Random", GUILayout.Width(70f))) seed = Random.Range(1, 1_000_000);
+            }
+            if (EditorGUI.EndChangeCheck() && seed != _blueprint.randomSeed)
+            {
+                Undo.RecordObject(_blueprint, "Change blueprint seed");
+                _blueprint.randomSeed = seed;
+                EditorUtility.SetDirty(_blueprint);
+                _ran = false;                                // stale results would mislead
+            }
         }
-        if (EditorGUI.EndChangeCheck() && seed != _blueprint.randomSeed)
+    }
+
+    /// <summary>
+    /// THE mode switch: rebuild the shipped map, or synthesize a new one.
+    ///
+    /// It lives here rather than only on the asset because it is the single
+    /// most consequential choice in the tool — it decides whether the seed and
+    /// half the blueprint's fields mean anything — and "untick a bool in the
+    /// Inspector" is not a discoverable way to express that.
+    /// </summary>
+    private void DrawModeSwitch()
+    {
+        EditorGUILayout.Space(2f);
+        int current = _blueprint.parityLayout ? 0 : 1;
+        int picked = GUILayout.Toolbar(current, new[]
         {
-            Undo.RecordObject(_blueprint, "Change blueprint seed");
-            _blueprint.randomSeed = seed;
+            new GUIContent("Rebuild shipped map",
+                "Parity: reproduce Refinery Delta exactly. The seed varies nothing and the " +
+                "gates verify rather than shape. This is the regression test."),
+            new GUIContent("Generate new map",
+                "Synthesize routes, pads and dressing from the seed. This is what the " +
+                "generator is for."),
+        }, GUILayout.Height(24f));
+
+        if (picked != current)
+        {
+            Undo.RecordObject(_blueprint, "Change generation mode");
+            _blueprint.parityLayout = picked == 0;
             EditorUtility.SetDirty(_blueprint);
-            _ran = false;                                    // stale results would mislead
+            _ran = false;                                    // the previous run described the other mode
         }
 
-        if (_blueprint.parityLayout)
-            EditorGUILayout.HelpBox("PARITY blueprint — rebuilds the shipped map exactly; the seed varies " +
-                                    "nothing. Gates verify rather than shape.", MessageType.None);
+        EditorGUILayout.LabelField(
+            _blueprint.parityLayout
+                ? "Parity — the shipped layout, seed ignored. Use it to prove the pipeline still " +
+                  "reproduces the live map after a change."
+                : "Synthesis — routes, hardpoints and dressing come from the seed. Reseed freely; " +
+                  "a refused seed costs nothing.",
+            EditorStyles.wordWrappedMiniLabel);
+        EditorGUILayout.Space(2f);
     }
 
     private void DrawDrawPreview()

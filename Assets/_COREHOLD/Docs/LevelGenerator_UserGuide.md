@@ -36,7 +36,7 @@ You just rebuilt Refinery Delta through the full gated pipeline. The scene is at
 ## 3. Quick start B — your first generated map (5 minutes)
 
 1. In the Project window: **duplicate `Blueprint_RefineryDelta`** (Ctrl+D), rename it — the name feeds the scene and asset filenames.
-2. In the Inspector: **untick `parityLayout`**. That's the switch between "rebuild the shipped map" and "synthesize from the seed".
+2. In the Generator window, switch the mode to **Generate new map**. That toolbar is *the* switch between "rebuild the shipped map" and "synthesize from the seed" (it writes `parityLayout` on the blueprint, so it sticks with the asset).
 3. Pick a **seed** (any integer). Leave everything else at shipped values for a first run.
 4. Select your blueprint in the Generator window → **Generate**.
 5. Didn't like it, or a gate refused the seed? **Seed +1 → Generate.** Reseeding is free and is the intended loop — see §10.
@@ -48,7 +48,10 @@ You just rebuilt Refinery Delta through the full gated pipeline. The scene is at
 Top to bottom:
 
 - **Blueprint** — the asset being generated. The window offers to create the parity blueprint when none exists.
-- **Seed** — with **Seed +1** and **Random** buttons. Changing it clears stale results. Seed edits are undoable.
+- **Mode** — the two-button toolbar, and the most consequential control here:
+  - **Rebuild shipped map** (`parityLayout` on) — reproduce Refinery Delta exactly. The seed varies nothing; the gates verify rather than shape. This is the **regression test**: run it after any generator change to prove the pipeline still reproduces the live map.
+  - **Generate new map** (`parityLayout` off) — synthesize routes, hardpoints and dressing from the seed. **This is what the generator is for.**
+- **Seed** — with **Seed +1** and **Random** buttons. Changing it clears stale results; edits are undoable. Disabled in parity mode, where it does nothing.
 - **This seed draws** — a preview of the theme, weather, and ground *this exact seed* will pick from the pools, before you spend any time generating.
 - **Validation** — live errors/warnings for the blueprint. Errors disable Generate: the pipeline refuses to start on an invalid blueprint rather than emit a half-right scene.
 - **Generate** — labelled with the stage and gate count. During the run a **cancelable progress bar** shows stage n/18 plus sub-stage detail (candidate scoring, model elapsed time). **Cancel is safe**: it routes through the same discard as a gate failure and leaves nothing behind.
