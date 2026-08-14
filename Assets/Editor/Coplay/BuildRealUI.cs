@@ -140,7 +140,14 @@ namespace CoreholdEditor
             var integTitle = MakeText(tl, "Title", "CORE INTEGRITY", _small, TextAlignmentOptions.TopLeft,
                 new Vector2(16, -8), new Vector2(300, 24));
             integTitle.color = Cyan;
-            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(16, -8), new Vector2(340, 26));
+            // Pivot AT the anchor. MakeRect leaves the pivot centred, so a rect
+            // anchored to the panel's left edge is centred ON that edge and half of
+            // it hangs outside the frame — 170 of 340 px, off the left of the
+            // screen. The shipped scene carries the fix (pivot 0,0.5 and 280 wide,
+            // hand-set after this tool ran); those values are ground truth and now
+            // live here, so a generated HUD looks like the shipped one.
+            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(16, -8), new Vector2(280, 26));
+            segRoot.pivot = new Vector2(0f, 0.5f);
             var seghlg = segRoot.gameObject.AddComponent<Image>();
             seghlg.color = new Color(0, 0, 0, 0); // parent flashes; keep transparent
             var hl = segRoot.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -154,6 +161,7 @@ namespace CoreholdEditor
             var integVal = MakeText(tl, "Value", "20/20", _large, TextAlignmentOptions.Right,
                 new Vector2(-90, -48), new Vector2(140, 40));
             SetAnchors(integVal.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-16, -50));
+            integVal.rectTransform.pivot = new Vector2(1f, 0.5f);   // same overflow, right edge (shipped value)
 
             // ---- Top-centre: wave + preview ----
             var tc = MakePanel(canvas.transform, "WavePanel",

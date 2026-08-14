@@ -24,7 +24,9 @@ namespace Corehold.Core
     ///   • Supports more than one active wave at once, so pressing Start Wave while
     ///     a wave is on the field chains the next one on top (GDD §8.4). Chaining
     ///     pays 8 salvage per enemy still alive at the moment of the call, capped
-    ///     at 80.
+    ///     at 80 — and is bounded to <see cref="MaxWavesInFlight"/> waves on the
+    ///     field. Unbounded, the call is no longer a pacing choice: the bonus pays
+    ///     once per press, and every remaining wave lands as a single pile.
     ///   • Applies the wave HP scalar 1.0 + 0.18·(wave − 1) and the difficulty
     ///     multipliers (§8.2) at spawn time.
     ///
@@ -63,6 +65,10 @@ namespace Corehold.Core
         [Tooltip("Maximum chain bonus per call (GDD §8.4).")]
         [SerializeField] private int chainBonusCapFallback = 80;
 
+        [Tooltip("How many waves may be on the field at once. 2 = call the next wave while one runs, " +
+                 "but not a third until the first clears. 0 or less = unbounded.")]
+        [SerializeField] private int maxWavesInFlightFallback = 2;
+
         [Header("Navigation liveness (GDD redesign §Gap 4)")]
         [Tooltip("Seconds a live enemy may make no path progress before the watchdog culls it silently (no Core damage, no bounty). Should never fire if navigation is healthy; it exists so a regression logs loudly instead of bricking the session.")]
         [SerializeField] private float stallWatchdogSeconds = 8f;
@@ -75,6 +81,8 @@ namespace Corehold.Core
         private float _hpGrowthPerWave = 0.18f;
         private int _chainBonusPerLiveEnemy = 8;
         private int _chainBonusCap = 80;
+        private int _maxWavesInFlight = 2;
+        private bool _spreadGroundGroups;
 
         // ----- Runtime state -----
 
@@ -92,6 +100,49 @@ namespace Corehold.Core
 
         private int _activeSpawnGroups;   // groups still emitting (not yet drained)
         private int _nextWaveIndex;       // 0-based index of the next wave to start
+
+        /// <summary>Wave number per still-emitting group — one entry per group, so two
+        /// groups of the same wave both have to drain before that wave leaves flight.</summary>
+        private readonly List<int> _emittingWaves = new List<int>();
+
+        /// <summary>Reused by <see cref="WavesInFlight"/> so a per-frame UI query allocates nothing.</summary>
+        private readonly HashSet<int> _inFlightScratch = new HashSet<int>();
+
+        /// <summary>
+        /// How many DISTINCT waves currently have anything on the field — live
+        /// enemies, queued spawns, or groups still emitting. This is the quantity
+        /// the chain cap bounds; a live-enemy count cannot answer it, because one
+        /// wave of 20 and four waves of 5 are the same number and very different
+        /// situations.
+        /// </summary>
+        public int WavesInFlight
+        {
+            get
+            {
+                _inFlightScratch.Clear();
+                for (int i = 0; i < _live.Count; i++)
+                    if (_live[i] != null)
+                        _inFlightScratch.Add(_live[i].WaveNumber);
+                foreach (PendingSpawn p in _pending)
+                    _inFlightScratch.Add(p.WaveNumber);
+                for (int i = 0; i < _emittingWaves.Count; i++)
+                    _inFlightScratch.Add(_emittingWaves[i]);
+                return _inFlightScratch.Count;
+            }
+        }
+
+        /// <summary>Waves allowed on the field at once; 0 or less means unbounded.</summary>
+        public int MaxWavesInFlight => _maxWavesInFlight;
+
+        /// <summary>
+        /// Whether the Start/Chain button may fire. Chaining stays free while the
+        /// field is inside the cap — the risk/reward of calling early is the point
+        /// (GDD §8.4) — but an unbounded queue turns it into two different things:
+        /// a bonus farmed once per call, and every remaining wave arriving as one
+        /// pile no defence can answer.
+        /// </summary>
+        public bool CanStartNextWave =>
+            HasNextWave && (_maxWavesInFlight <= 0 || !WaveInProgress || WavesInFlight < _maxWavesInFlight);
 
         /// <summary>Number of enemies alive on the field right now.</summary>
         public int LiveCount => _live.Count;
@@ -244,6 +295,8 @@ namespace Corehold.Core
                 _hpGrowthPerWave = level.hpGrowthPerWave > 0f ? level.hpGrowthPerWave : hpGrowthPerWaveFallback;
                 _chainBonusPerLiveEnemy = level.chainBonusPerLiveEnemy > 0 ? level.chainBonusPerLiveEnemy : chainBonusPerLiveEnemyFallback;
                 _chainBonusCap = level.chainBonusCap > 0 ? level.chainBonusCap : chainBonusCapFallback;
+                _maxWavesInFlight = level.maxWavesInFlight > 0 ? level.maxWavesInFlight : maxWavesInFlightFallback;
+                _spreadGroundGroups = level.spreadGroundGroupsAcrossSpawners;
             }
             else
             {
@@ -251,6 +304,8 @@ namespace Corehold.Core
                 _hpGrowthPerWave = hpGrowthPerWaveFallback;
                 _chainBonusPerLiveEnemy = chainBonusPerLiveEnemyFallback;
                 _chainBonusCap = chainBonusCapFallback;
+                _maxWavesInFlight = maxWavesInFlightFallback;
+                _spreadGroundGroups = false;
             }
         }
 
@@ -278,17 +333,20 @@ namespace Corehold.Core
         {
             int target = Mathf.Clamp(waveNumber, 1, WaveCount);
             _nextWaveIndex = target - 1; // 0-based index of the wave to start
-            return StartNextWave();
+            return StartWave(ignoreFlightCap: true);   // a debug jump is not a chain
         }
 
         /// <summary>
-        /// Start the next wave (GDD §8.4). Available at all times — pressing it
-        /// while a wave is on the field chains the next one on top and pays the
-        /// chain bonus. Returns false if there is no wave left to start.
+        /// Start the next wave (GDD §8.4). Pressing it while a wave is on the field
+        /// chains the next one on top and pays the chain bonus — but only up to
+        /// <see cref="MaxWavesInFlight"/>. Returns false if there is no wave left,
+        /// or if the field already holds the maximum number of waves.
         /// </summary>
-        public bool StartNextWave()
+        public bool StartNextWave() => StartWave(ignoreFlightCap: false);
+
+        private bool StartWave(bool ignoreFlightCap)
         {
-            if (!HasNextWave)
+            if (ignoreFlightCap ? !HasNextWave : !CanStartNextWave)
                 return false;
 
             // Chain bonus: 8 salvage per live enemy at the moment of the call,
@@ -327,13 +385,29 @@ namespace Corehold.Core
             if (wave == null || wave.groups == null)
                 return;
 
+            int groundOrdinal = 0;
             foreach (var group in wave.groups)
             {
                 if (group.enemy == null || group.count <= 0)
                     continue;
 
+                // R40: a siege map has more approaches than the wave tables know
+                // how to address, so its ground groups are dealt out across the
+                // spawners that exist. Rotating by wave as well as by group keeps
+                // the same approach from always going first. Air is left alone —
+                // it has one spawner and the tables address it correctly.
+                int spawnerIndex = group.spawnerIndex;
+                if (_spreadGroundGroups && !(group.enemy != null && group.enemy.isAir))
+                {
+                    int[] ground = GroundSpawnerIndices();
+                    if (ground.Length > 0)
+                        spawnerIndex = ground[(groundOrdinal + waveNumber) % ground.Length];
+                    groundOrdinal++;
+                }
+
                 _activeSpawnGroups++;
-                Coroutine c = StartCoroutine(SpawnGroupRoutine(group, waveNumber));
+                _emittingWaves.Add(waveNumber);
+                Coroutine c = StartCoroutine(SpawnGroupRoutine(group, waveNumber, spawnerIndex));
                 _spawnRoutines.Add(c);
             }
         }
@@ -343,20 +417,21 @@ namespace Corehold.Core
         /// spaced by <c>spawnGap</c>. Timing uses <see cref="WaitForSeconds"/> so it
         /// scales with <c>Time.timeScale</c> (the 2× toggle, GDD §9.6).
         /// </summary>
-        private IEnumerator SpawnGroupRoutine(SpawnGroup group, int waveNumber)
+        private IEnumerator SpawnGroupRoutine(SpawnGroup group, int waveNumber, int spawnerIndex)
         {
             if (group.startOffset > 0f)
                 yield return new WaitForSeconds(group.startOffset);
 
             for (int i = 0; i < group.count; i++)
             {
-                RequestSpawn(group.enemy, group.spawnerIndex, waveNumber);
+                RequestSpawn(group.enemy, spawnerIndex, waveNumber);
 
                 if (i < group.count - 1 && group.spawnGap > 0f)
                     yield return new WaitForSeconds(group.spawnGap);
             }
 
             _activeSpawnGroups = Mathf.Max(0, _activeSpawnGroups - 1);
+            _emittingWaves.Remove(waveNumber);   // one entry per group, so remove one
             CheckWaveComplete();
         }
 
@@ -481,6 +556,8 @@ namespace Corehold.Core
             var bridge = enemy.GetComponent<EnemyAnimatorBridge>();
             if (bridge != null)
                 bridge.SetDefinition(def);
+
+            enemy.SetWaveNumber(waveNumber);
 
             // Wave HP scalar (GDD §8.2): 1 + growth·(wave − 1).
             float waveScalar = 1f + _hpGrowthPerWave * (waveNumber - 1);
@@ -617,6 +694,24 @@ namespace Corehold.Core
         {
             Difficulty diff = GameManager.Instance != null ? GameManager.Instance.Difficulty : Difficulty.Normal;
             return Mathf.RoundToInt(amount * DifficultyEconomyMultiplier(diff));
+        }
+
+        /// <summary>
+        /// Indices of the spawners that own a route, ascending — the ground
+        /// approaches. Air has no route, which is what distinguishes it, so this
+        /// never redirects an air group onto the floor.
+        /// </summary>
+        private int[] GroundSpawnerIndices()
+        {
+            if (spawners == null)
+                return System.Array.Empty<int>();
+
+            var indices = new List<int>();
+            foreach (Spawner s in spawners)
+                if (s != null && s.Route != null)
+                    indices.Add(s.Index);
+            indices.Sort();
+            return indices.ToArray();
         }
 
         private Spawner FindSpawner(int index)

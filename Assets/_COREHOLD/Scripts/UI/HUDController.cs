@@ -491,9 +491,18 @@ namespace Corehold.UI
             bool waveLive = waveManager.WaveInProgress;
             int nextNum = waveManager.NextWaveIndex + 1;
 
+            // The chain cap has to be VISIBLE, not just enforced: a button that
+            // does nothing when pressed reads as a broken button.
+            bool canStart = waveManager.CanStartNextWave;
+            startWaveButton.interactable = canStart;
+
             if (startWaveLabel != null)
             {
-                if (waveLive)
+                if (!canStart)
+                {
+                    startWaveLabel.text = $"WAVE {nextNum}\nFIELD FULL";
+                }
+                else if (waveLive)
                 {
                     // Show the chain bonus: 8 per live enemy, capped 80 (GDD §8.4).
                     int bonus = Mathf.Min(waveManager.LiveCount * 8, 80);

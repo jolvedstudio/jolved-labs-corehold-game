@@ -22,6 +22,15 @@ public class LevelLayout
 
     public Vector3 airSpawn;
 
+    /// <summary>
+    /// Whether the ground routes MERGE onto one shared tail. True for the shipped
+    /// map and for corridor synthesis with two legs — those need R7's world-space
+    /// tangent pin, without which AutoSmooth diverges the duplicated knots. Siege
+    /// approaches never merge; they only converge at the Core, so pinning them
+    /// would be pinning a join that does not exist.
+    /// </summary>
+    public bool sharedTail;
+
     /// <summary>Pads, when the layout dictates them (parity). Null ⇒ R28 selects.
     /// Internal because <see cref="RefineryDeltaBlockout.HP"/> is internal — a public
     /// member may not expose a less-accessible type (CS0052), and the pad spec is
@@ -71,6 +80,8 @@ public static class ShippedLayout
             },
             routeNames = new[] { "Route_West", "Route_North" },
             airSpawn = RefineryDeltaBlockout.ShippedAirSpawn,
+            sharedTail = true,          // the shipped legs merge — R7's pin is required
+
             pads = new[]
             {
                 RefineryDeltaBlockout.MakeHP("HP_Premium_1",  new Vector3(-3.488f, 0f, 4.5f),    Kind.Missile,    Cls.Premium),

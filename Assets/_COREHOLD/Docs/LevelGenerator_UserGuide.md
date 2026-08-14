@@ -73,7 +73,7 @@ Top to bottom:
 | 3 | New scene + containers | Fresh scene; the five hierarchy containers (`_Systems`…`_Rendering`) created first so everything is born grouped. Offers to save your open scene — never builds over unsaved work. |
 | 4 | Scene skeleton | GameManager, WaveManager, PoolRegistry, RouteTraffic, DebugConsole, ResultScreen, directors, all three UI canvases — and the EventSystem's input module swapped to the new Input System (otherwise the menu renders but no click registers). |
 | 5 | Protected structure | The Core, at the blueprint's normalized position, using `protectedPrefab` if set (else the shipped platform stack). |
-| 6 | Routes + spawners | **Parity:** the shipped waypoints. **Generated:** seeded synthesis — entrance legs, merge at ~20% of route length, 2–3 hairpin folds at exactly `foldWidth`, length fitted to ±5% of target. Merge tangent pinned (two legs would otherwise diverge on the shared tail). Spawners created and wired. |
+| 6 | Routes + spawners | **Parity:** the shipped waypoints. **Generated:** seeded synthesis — entrance legs, merge at ~20% of route length, 2–3 hairpin folds at exactly `foldWidth`, length fitted to ±5% of target. Merge tangent pinned (two legs would otherwise diverge on the shared tail). **Siege:** one inward spiral per sector, all congruent, sweep fitted to the length target; no merge to pin. Spawners created and wired — ground approaches step over index 2, which every shipped wave table uses for air. |
 | 7 | **⛨ GATE 1 — clearance** | See §6. |
 | 8 | Hardpoints | **Parity:** the live map's pad set. **Generated:** grid candidates filtered by clearance, scored by the real coverage validator, classified from measurement, picked deterministically with 5 m spacing. Each pad gets a visible `PadMarker` disc — a bare TowerHardpoint has no renderer. |
 | 9 | **⛨ GATE 2 — coverage** | See §6. |
@@ -85,7 +85,7 @@ Top to bottom:
 | 15 | Group & verify hierarchy | Sweeps stray roots into containers, then verifies: a second pass must move **zero** objects. Failure names the root to add to `SceneContainers.Groups`. |
 | 16 | Emit LevelDefinition | Clones `rulesTemplate`; **generated maps get a solved `hpGrowthPerWave` and a derived `maxLiveEnemies`**; parity clones verbatim and verifies instead. Runs the balance model (needs Python). |
 | 17 | **⛨ GATE 3 — model margins** | See §6. |
-| 18 | Save scene | Only reachable with every gate green. Scene + asset written. |
+| 18 | Save scene | Only reachable with every gate green. Scene + asset written, and the scene is **registered in Build Settings** — `SceneManager.LoadScene` only accepts scenes on that list, so without it the map plays but Retry cannot reload it. Generated-scene entries whose file was deleted are pruned in the same pass. |
 
 Any ✗ triggers the **Discard** row: half-built scene closed unsaved, created assets deleted. A failed run's only output is its report.
 
@@ -119,9 +119,12 @@ Both apply to **generated** dressing. Parity dressing is the shipped set a human
 | `protectedPrefab` | What you're defending. Empty = shipped platform stack. | warning if empty |
 | `protectedNormalizedPos` | Core position, 0–1 from the field's SW corner. | (0.765, 0.413) → world (34.5, −6.5) |
 | `routeLengthTarget` | Spline length the synthesis fits to ±5%. Balance-load-bearing. | 154 m |
-| `foldWidth` | Hairpin pocket width — **hard constraint**. <7.5 m: no pad fits the pocket (validation error). >20 m: Arc Node can't reach both legs (error). <12 m with an Overwatch in the mix: warning — the Mortar pad will sit outside the folds. | 10–11 m shipped; field default 11 |
+| `foldWidth` | Hairpin pocket width — **hard constraint**. <7.5 m: no pad fits the pocket (validation error). >20 m: Arc Node can't reach both legs (error). <12 m with an Overwatch in the mix: warning — the Mortar pad will sit outside the folds. | 10–11 m shipped; field default **12** (the default mix asks for an Overwatch pad, which needs ≥12) |
 | `groundSpawnLegs` | 1 or 2 entrance legs. 1-leg maps get a warning: shipped wave tables send groups to spawner 1. | 2 |
 | `airCorridor` | Straight air lane to the Core. | on |
+| `approachPattern` | **Corridor** = the shipped shape (legs merge into one folded run). **Siege** = attackers spiral inward on a centred Core from several bearings. Parity is always Corridor. | Corridor |
+| `approachSectors` | SIEGE ONLY. How many approaches surround the Core. On the shipped 130×75 field at a 154 m target: **2–3 hold at any arc, 4 need the arc pulled in to ~270°, 5 never separate** — synthesis measures and refuses, and reseeding cannot help because nothing here varies with the seed. | 3 |
+| `sectorArcDegrees` | SIEGE ONLY. Arc the approaches spread over. 360 = every side; 270 leaves one side safe. Which side is safe is drawn from the seed. | 360 |
 | `classMix` | Premium/Standard/Rear/Overwatch counts — **and the pad count, which is their sum.** There is no separate total field. **Premium < 3 is a validation error** — the coverage rule needs three pads at 4+ spans. | 3/2/2/1 (8 pads) |
 | `envPackPool` | Theme candidates; the seed picks one. **One entry = pinned theme.** Every pack in the pool is validated, not just the drawn one. | see §8 |
 | `weatherPool` | **Override only.** Empty = the drawn theme's own pool decides (an ice map can't draw desert dust). Empty in both = the authored look, pixel-identical. | empty |
@@ -177,6 +180,7 @@ Vendor prefabs you can't move: add the role as an **asset label** (`Landmark`, `
 | Gate 3: "margins out of band" | Geometry can't be balanced by growth alone | Seed +1. The flagged waves in the report say which side (LOW = defense starved, HIGH = too easy) |
 | Hierarchy verify: "unrecognised root(s)" | A tool emitted a root the container table doesn't know | Add the name to `SceneContainers.Groups` — one line |
 | Gate 2 census is a **multiple** of the blueprint mix (e.g. 6/4/4/2 against 3/2/2/1) | Another scene was loaded and its pads were counted too | Fixed — every generation query is scoped to the active scene. If stage 3 still reports "N scenes are loaded", close the others |
+| Retry / Main Menu drops me into Refinery Delta | Fixed — both used to carry a serialized scene name defaulting to `Game`. Retry now reloads the ACTIVE scene | If a scene still refuses to reload, it is not in Build Settings: generate it again (stage 18 registers it) or add it by hand |
 | "envPackPool is empty" warning | No theme assigned | Fine for greybox testing; assign packs for visuals |
 | Parity blueprint runs synthesis | Asset predates `parityLayout` | Re-run **Create Refinery Delta Blueprint** |
 | Missing-prefab warnings on parity dressing | `Assets/Vendor/` kit not installed on this machine | Cosmetic only; install the kit for visuals |

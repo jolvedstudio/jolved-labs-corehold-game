@@ -23,6 +23,20 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class GenerationPipeline
 {
+    /// <summary>Where generated scenes are saved — and the prefix Build Settings pruning trusts.</summary>
+    private const string GeneratedDir = "Assets/_COREHOLD/Scenes/Generated";
+
+    /// <summary>The air spawner's index in every shipped wave table.</summary>
+    private const int AirSpawnerIndex = 2;
+
+    /// <summary>
+    /// Spawner index for ground approach <paramref name="sector"/>. The shipped
+    /// tables address ground 0 and 1 and air 2, so ground approaches beyond the
+    /// second step over the air index and continue at 3.
+    /// </summary>
+    internal static int GroundSpawnerIndex(int sector) =>
+        sector < AirSpawnerIndex ? sector : sector + 1;
+
     // ------------------------------------------------------------------ results
 
     public struct StageResult
@@ -397,26 +411,32 @@ public static class GenerationPipeline
 
         // Two legs sharing a tail REQUIRE the R7 world-space tangent pin — the
         // AutoSmooth divergence is inherited wholesale by any merged pair (R27).
-        string pinNote = "single route, no merge to pin";
-        if (ctx.routes.Count == 2)
+        // Siege approaches never share a tail, so there is no join to pin.
+        string pinNote = ctx.layout.sharedTail ? null : "no merge (approaches converge only at the Core)";
+        if (ctx.layout.sharedTail && ctx.routes.Count == 2)
         {
             if (!MergeKnotPinning.Pin(ctx.routes[0], ctx.routes[1], out string pinReport))
                 return StageResult.Fail("merge-knot pin failed:\n" + pinReport);
             pinNote = "merge pinned, shared tails identical (divergence gate PASS)";
         }
+        pinNote ??= "single route, no merge to pin";
 
         // Spawners: created fresh (a generated scene has none to find), wired
         // by the same WireOne the shipped map used, parented under _Level.
+        //
+        // Index 2 is the AIR spawner in every shipped wave table, so ground
+        // approaches step over it rather than take it. Renumbering air instead
+        // would silently send the air groups of every existing table down a
+        // ground route.
         Transform levelRoot = SceneContainers.Ensure("_Level");
-        Corehold.Core.PathRoute west = ctx.routes[0];
-        Corehold.Core.PathRoute north = ctx.routes.Count > 1 ? ctx.routes[1] : null;
-        RefineryDeltaBlockout.WireOne("Spawner_West", 0, west, ctx.coreTarget,
-            ctx.layout.groundRoutes[0][0], log, levelRoot);
-        if (north != null)
-            RefineryDeltaBlockout.WireOne("Spawner_North", 1, north, ctx.coreTarget,
-                ctx.layout.groundRoutes[1][0], log, levelRoot);
+        for (int i = 0; i < ctx.routes.Count; i++)
+        {
+            RefineryDeltaBlockout.WireOne($"Spawner_{ctx.layout.routeNames[i].Replace("Route_", "")}",
+                GroundSpawnerIndex(i), ctx.routes[i], ctx.coreTarget,
+                ctx.layout.groundRoutes[i][0], log, levelRoot);
+        }
         if (ctx.blueprint.airCorridor)
-            RefineryDeltaBlockout.WireOne("Spawner_Air", 2, null, ctx.coreTarget,
+            RefineryDeltaBlockout.WireOne("Spawner_Air", AirSpawnerIndex, null, ctx.coreTarget,
                 ctx.layout.airSpawn, log, levelRoot);
 
         // Spawners exist only now, so this is where the WaveManager learns about
@@ -644,7 +664,13 @@ public static class GenerationPipeline
 
     private static StageResult StDressing(Context ctx)
     {
-        GroundAndSkirt.BuildSilhouetteBand();  // far-band silhouettes (R11)
+        // Far-band silhouettes (R11). Parity gets the shipped refinery horizon
+        // because that IS the shipped map; every other map gets its own theme's
+        // silhouettes, or a bare horizon if the theme has none.
+        if (ctx.blueprint.parityLayout)
+            GroundAndSkirt.BuildSilhouetteBand();
+        else
+            GroundAndSkirt.BuildSilhouetteBand(ctx.theme, ctx.blueprint.randomSeed);
 
         if (ctx.blueprint.parityLayout)
         {
@@ -845,12 +871,23 @@ public static class GenerationPipeline
 
         clone.hpGrowthPerWave = ctx.model.solved_hp_growth;
         clone.maxLiveEnemies = derivedMaxLive;
+
+        // The wave tables address two ground spawners. A siege map has up to five,
+        // so without this its extra approaches are built, gated, dressed — and
+        // never walked. Regenerating the tables properly is R33; dealing the
+        // existing groups out across the spawners that exist is the honest
+        // interim, and it is recorded in the transcript rather than done quietly.
+        clone.spreadGroundGroupsAcrossSpawners = ctx.routes.Count > 2;
         EditorUtility.SetDirty(clone);
         AssetDatabase.SaveAssets();
 
         return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; SOLVED hpGrowthPerWave = " +
                               $"{ctx.model.solved_hp_growth:0.####} (close targeted mid-band), " +
-                              $"maxLiveEnemies = {derivedMaxLive} (derived from route capacity)");
+                              (clone.spreadGroundGroupsAcrossSpawners
+                                  ? $"ground groups dealt across {ctx.routes.Count} approaches (R33 regenerates tables), "
+                                  : "") +
+                              $"maxLiveEnemies = {derivedMaxLive} (the shipped {BalanceModelRunner.ShippedMaxLive} " +
+                              "scaled by route length, clamped to what fits)");
     }
 
     private static StageResult StModelGate(Context ctx)
@@ -883,11 +920,10 @@ public static class GenerationPipeline
     private static StageResult StSave(Context ctx)
     {
         LevelBlueprint b = ctx.blueprint;
-        const string dir = "Assets/_COREHOLD/Scenes/Generated";
-        if (!AssetDatabase.IsValidFolder(dir))
+        if (!AssetDatabase.IsValidFolder(GeneratedDir))
             AssetDatabase.CreateFolder("Assets/_COREHOLD/Scenes", "Generated");
 
-        ctx.scenePath = $"{dir}/{Sanitise(b.name)}_s{b.randomSeed}.unity";
+        ctx.scenePath = $"{GeneratedDir}/{Sanitise(b.name)}_s{b.randomSeed}.unity";
 
         Scene scene = SceneManager.GetActiveScene();
         if (!EditorSceneManager.SaveScene(scene, ctx.scenePath))
@@ -895,7 +931,54 @@ public static class GenerationPipeline
 
         ctx.sceneSaved = true;
         AssetDatabase.SaveAssets();
-        return StageResult.Ok($"{ctx.scenePath} — press Play to run it");
+
+        string build = RegisterInBuildSettings(ctx.scenePath);
+        return StageResult.Ok($"{ctx.scenePath} — press Play to run it{build}");
+    }
+
+    /// <summary>
+    /// Put the generated scene in Build Settings.
+    ///
+    /// Not a packaging nicety — <see cref="SceneManager.LoadScene(string)"/> only
+    /// accepts scenes in that list, so an unregistered map plays fine but dies on
+    /// Retry, which is the one control a tester presses most. Registering here
+    /// keeps it with the save that created the scene.
+    ///
+    /// Entries under Scenes/Generated whose file is gone are dropped in the same
+    /// pass, so deleting a map you did not like cleans up after itself instead of
+    /// leaving the list to grow one dead row per seed.
+    /// </summary>
+    private static string RegisterInBuildSettings(string scenePath)
+    {
+        var scenes = new List<EditorBuildSettingsScene>();
+        bool present = false;
+        int pruned = 0;
+
+        foreach (EditorBuildSettingsScene s in EditorBuildSettings.scenes)
+        {
+            if (s.path == scenePath)
+            {
+                present = true;
+            }
+            else if (s.path.StartsWith(GeneratedDir, System.StringComparison.Ordinal) &&
+                     AssetDatabase.LoadAssetAtPath<SceneAsset>(s.path) == null)
+            {
+                pruned++;
+                continue;
+            }
+            scenes.Add(s);
+        }
+
+        if (present && pruned == 0)
+            return ", already in Build Settings";
+
+        if (!present)
+            scenes.Add(new EditorBuildSettingsScene(scenePath, true));
+        EditorBuildSettings.scenes = scenes.ToArray();
+
+        string added = present ? "" : ", added to Build Settings so Retry can reload it";
+        string gone = pruned > 0 ? $", {pruned} deleted generated scene(s) pruned from it" : "";
+        return added + gone;
     }
 
     // ------------------------------------------------------------------ helpers

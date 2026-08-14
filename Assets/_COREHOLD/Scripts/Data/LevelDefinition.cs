@@ -32,5 +32,16 @@ namespace Corehold.Data
 
         [Tooltip("Hard cap on concurrently live enemies (GDD §8.1).")]
         public int maxLiveEnemies;
+
+        [Tooltip("How many waves may be on the field at once (GDD §8.4, bounded). 2 = you may call the next " +
+                 "wave while one runs, but not a third until the first clears. 0 uses the WaveManager default. " +
+                 "Unbounded chaining pays the bonus once per call and lands every wave as a single pile.")]
+        public int maxWavesInFlight;
+
+        [Tooltip("Deal each wave's GROUND groups out across every ground spawner in the scene, ignoring the " +
+                 "spawner index the group asks for. Set by the generator on siege maps (R40): the wave tables " +
+                 "address two ground spawners, and a map with four approaches would otherwise leave half of " +
+                 "them silent. Air groups are never redirected. Off for the shipped map.")]
+        public bool spreadGroundGroupsAcrossSpawners;
     }
 }

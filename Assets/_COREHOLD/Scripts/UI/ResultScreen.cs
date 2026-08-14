@@ -27,7 +27,6 @@ namespace Corehold.UI
         [Header("Wiring")]
         [SerializeField] private WaveManager waveManager;
         [SerializeField] private UITheme theme;
-        [SerializeField] private string gameSceneName = "Game";
 
         [Header("Layout")]
         [SerializeField] private GameObject root;
@@ -172,19 +171,15 @@ namespace Corehold.UI
         private void Retry()
         {
             if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
-            Corehold.Enemies.Enemy.Live.Clear();
-            Time.timeScale = 1f;
-            string scene = string.IsNullOrEmpty(gameSceneName) ? SceneManager.GetActiveScene().name : gameSceneName;
-            SceneManager.LoadScene(scene, LoadSceneMode.Single);
+            GameFlow.RestartCurrentLevel();
         }
 
         private void MainMenu()
         {
             if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
-            Corehold.Enemies.Enemy.Live.Clear();
-            Time.timeScale = 1f;
-            string scene = string.IsNullOrEmpty(gameSceneName) ? SceneManager.GetActiveScene().name : gameSceneName;
-            SceneManager.LoadScene(scene, LoadSceneMode.Single);
+            // Single-scene build: there is no separate title scene, so "menu" is a
+            // reload of THIS level, which comes back up on its own title overlay.
+            GameFlow.RestartCurrentLevel();
         }
     }
 }

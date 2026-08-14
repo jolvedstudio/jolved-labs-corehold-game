@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using Corehold.Data;
 using UnityEditor;
 using UnityEngine;
 
@@ -225,8 +226,31 @@ public static class GroundAndSkirt
         (new[] { CreepyRoot + "Props/Machine/P_Pumping_Station_01.prefab" },          0.60f, 0.94f, 1.2f),
     };
 
+    /// <summary>Hand tool / parity path: the shipped refinery band.</summary>
     [MenuItem("Tools/COREHOLD/Look/Build Silhouette Band (R11)", false, 63)]
-    public static void BuildSilhouetteBand()
+    public static void BuildSilhouetteBand() => Build(null, 0, true);
+
+    /// <summary>
+    /// Themed band. A null theme (or one with no Silhouette entries) yields an
+    /// EMPTY band — never the shipped refinery set, which is the whole point.
+    /// </summary>
+    public static void BuildSilhouetteBand(EnvPack theme, int seed) => Build(theme, seed, false);
+
+    /// <summary>
+    /// Fill the far band, from <paramref name="theme"/> when there is one.
+    ///
+    /// The band used to be four hardcoded Creepy Cat prefabs — wind turbine,
+    /// solar array, cistern, pumping station. That is right for the refinery and
+    /// wrong for every other theme: a rocky desert map came out with a refinery
+    /// on its horizon, because the band was the one piece of dressing the theme
+    /// never reached. The SLOTS are still fixed geometry (they are a camera
+    /// solve, not an art choice); what stands in them now comes from the pack.
+    ///
+    /// A theme with no Silhouette entries gets an EMPTY band, which is exactly
+    /// what the blueprint validator warns will happen. Borrowing another theme's
+    /// props to avoid a bare horizon is how the wrong horizon got there.
+    /// </summary>
+    private static void Build(EnvPack theme, int seed, bool shippedSet)
     {
         Camera cam = Object.FindFirstObjectByType<Camera>();
         if (cam == null)
@@ -253,21 +277,67 @@ public static class GroundAndSkirt
         Vector3 farHit = GroundHit(pos, rot * new Vector3(0f, Mathf.Tan(vHalf), 1f));
         float widestHalf = RequiredHalfExtent(cam, out _).x - EdgeMargin;
 
-        int placed = 0;
-        foreach (var (candidates, normX, normZ, scale) in Band)
+        var themed = new List<EnvPack.Entry>();
+        if (theme != null && theme.entries != null)
         {
+            foreach (EnvPack.Entry e in theme.entries)
+                if (e.prefab != null && e.role == EnvPack.PropRole.Silhouette)
+                    themed.Add(e);
+        }
+
+        if (!shippedSet && themed.Count == 0)
+        {
+            string who = theme != null ? $"Theme '{theme.themeName}' has" : "This map has no theme and so has";
+            log.AppendLine($"{who} no Silhouette entries — band left EMPTY. " +
+                           "Add tall props to the theme's Silhouettes folder and re-run Build Env Packs " +
+                           "From Folders; the band is deliberately not filled from another theme.");
+            MarkSceneDirty(cam);
+            Debug.Log(log.ToString());
+            return;
+        }
+
+        // Deterministic: same seed, same horizon. A separate stream from the
+        // dressing so adding a Silhouette entry cannot shuffle the prop layout.
+        uint state = GenerationPipeline.Fnv1a(seed, "silhouette");
+
+        int placed = 0;
+        for (int i = 0; i < Band.Length; i++)
+        {
+            var (candidates, normX, normZ, scale) = Band[i];
             float z = Mathf.Lerp(nearHit.z, farHit.z, normZ);
             float x = pos.x + normX * widestHalf;
-            GameObject go = PlaceFirstAvailable(candidates, root.transform,
-                                                new Vector3(x, 0f, z), scale, log);
+
+            GameObject go;
+            if (shippedSet)
+            {
+                go = PlaceFirstAvailable(candidates, root.transform, new Vector3(x, 0f, z), scale, log);
+            }
+            else
+            {
+                // Walk the entries rather than drawing with replacement: four
+                // slots filled from a two-prop theme should show both props, not
+                // the same one four times by chance.
+                EnvPack.Entry e = themed[(i + (int)(Next(ref state) % (uint)themed.Count)) % themed.Count];
+                float lo = Mathf.Max(0.01f, e.scaleRange.x <= 0f ? 1f : e.scaleRange.x);
+                float hi = Mathf.Max(lo, e.scaleRange.y <= 0f ? lo : e.scaleRange.y);
+                float s = lo + (Next(ref state) / 4294967296f) * (hi - lo);
+
+                go = (GameObject)PrefabUtility.InstantiatePrefab(e.prefab, root.transform);
+                go.transform.position = new Vector3(x, 0f, z);
+                go.transform.rotation = Quaternion.Euler(0f, (Next(ref state) / 4294967296f) * 360f, 0f);
+                go.transform.localScale = Vector3.one * s;
+                log.AppendLine($"[ok] {e.prefab.name} at ({x:0.0}, {z:0.0}) ×{s:0.##}");
+            }
+
             if (go == null)
                 continue;
             RecedeIntoBackground(go);
             placed++;
         }
 
-        log.AppendLine($"Placed {placed}/{Band.Length} silhouettes between z {Mathf.Lerp(nearHit.z, farHit.z, 0.88f):0.0} " +
-                       $"and {Mathf.Lerp(nearHit.z, farHit.z, 0.96f):0.0}");
+        string source = shippedSet ? "shipped set" : $"theme '{theme.themeName}'";
+        log.AppendLine($"Placed {placed}/{Band.Length} silhouettes from the {source} between z " +
+                       $"{Mathf.Lerp(nearHit.z, farHit.z, 0.88f):0.0} and {Mathf.Lerp(nearHit.z, farHit.z, 0.96f):0.0}");
         log.AppendLine("Each is lightmap-excluded, shadow-free and darkened via a property block " +
                        "(no vendor material is edited).");
 
@@ -280,6 +350,16 @@ public static class GroundAndSkirt
         if (dir.y >= -0.0001f)
             return pos;
         return pos + dir * (-pos.y / dir.y);
+    }
+
+    /// <summary>xorshift32 — the same stream shape the synthesizer and placer use.</summary>
+    private static uint Next(ref uint state)
+    {
+        if (state == 0) state = 2463534242u;
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        return state;
     }
 
     private static GameObject PlaceFirstAvailable(string[] candidates, Transform parent,

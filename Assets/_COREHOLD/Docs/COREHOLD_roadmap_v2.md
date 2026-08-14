@@ -103,10 +103,11 @@ Operating discipline, standing constraints, and the gate ritual are defined once
 **Objective:** Turn the shipped map into a deterministic pipeline; produce map 2; enable daily-seed.
 **Tickets:** R25 (LevelBlueprint SO + menu), R26 (parity rebuild), R27 (route synthesis → splines), R28 (hardpoint candidate scoring + selection), R29 `[GATE]` (three-stage generation gate), R30 (model-driven LevelDefinition emission), R31 (contact-sheet tool), R32 `[MANUAL]` (map-2 authoring day).
 **Exit gate:** Universal ritual on generated geometry; a failing blueprint emits no scene; map 2 ships.
+**Follow-on:** R40 (approach topology — siege maps). R27 synthesizes one shape; until this lands, "variety" means different folds on the same map.
 
 ## P7 — Retention loop (researched features). Three drops.
 **Objective:** Add the local-first, server-free return mechanics, now that the generator and mutators exist.
-**Tickets:** R33 (endless survival — model-driven wave extension), R34 (score attack + local leaderboard + share code), R35 (per-map medals → stars → cosmetic/loadout meta), R36 (weekly mutator rotation), R37 (daily-seed challenge), R38 (optional portal leaderboard adapter).
+**Tickets:** R33 (endless survival — model-driven wave extension), R34 (score attack + local leaderboard + share code), R35 (per-map medals → stars → cosmetic/loadout meta), R36 (weekly mutator rotation), R37 (daily-seed challenge), R38 (optional portal leaderboard adapter), R39 (turret auto-placement assistant — premium).
 **Exit gate:** Universal ritual; all persistence via existing SaveData; determinism verified (same seed → identical run); no power locked behind money.
 
 ---
@@ -542,6 +543,45 @@ Add a thin, optional adapter that submits scores to a **host-provided sanctioned
 
 ---
 
+### R39 — Turret auto-placement assistant (P7, premium)
+`Pin: @HardpointCoverageGizmo.cs @HardpointSelector.cs @BuildMenu.cs @LevelDefinition.cs @SaveData.cs @docs/balance_model.py`
+A **solver**, not a language model: given the pad set, the wave table and current salvage, recommend which turret to build on which pad, in what order. Every quantity it needs is already measured — `HardpointCoverageGizmo` gives covered spans per pad **per turret kind**, `DamageTable` gives the type-vs-armour multiplier, `TowerTier.TotalDps` gives output, and the generator computed all of it at emission time. Score each empty (pad, kind) pair by expected damage against the next N waves per salvage spent, take the best, repeat while salvage lasts. Same state ⇒ same advice: the ordering must be deterministic, or it cannot be tested and two players comparing notes see different games.
+
+Validate the plan, do not just print it: run the recommended build through R1's model (the R30 runner already shells out) and refuse to recommend a build whose per-wave margins fall out of band — an assistant that confidently proposes a losing opener is worse than none. Surface it as a **suggestion** — ghost the recommended turret on its pad with the reason ("4 covered spans, hits Breaker armour ×1.5") and let the player accept or ignore. Never auto-build; autopilot is not the ask and it removes the game.
+
+**The premium gate is the risky part of this ticket, and it is a design decision, not an implementation detail.** P7's exit gate says no power behind money, and an assistant that plays better than the player is power. The way through is that it must sell **convenience, not information**: every number it reasons from stays visible to every player (pad coverage ratings are already rendered by the gizmo — expose them in the build menu for free), and premium buys the solved ordering. Keep it out of competitive surfaces regardless — disable it in the R37 daily-seed run, or stamp its use into the R34 share code so a leaderboard entry says whether it was used.
+**Done when:** the assistant recommends a full build for the shipped map that the balance model puts in band, its output is identical for identical game state, accepting a suggestion is a normal build (no special path), it is inert with the entitlement off, the coverage numbers it uses are visible to all players, and it is disabled or flagged in daily-seed and leaderboard runs. *(Anti-goal: an LLM in the hot path. If a model is ever wanted here it belongs at authoring time — explaining a plan in the editor — where latency and per-call cost are not in the player's way.)*
+
+---
+
+### R40 — Approach topology: siege maps (P6 follow-on)
+`Pin: @RouteSynthesizer.cs @HardpointSelector.cs @LevelBlueprint.cs @CameraFramingSetup.cs @WaveManager.cs @docs/balance_model.py`
+**Every generated map currently reads as Refinery Delta, and that is by construction.** R27 synthesizes ONE topology — two entrances west and north, a merge at 20% of the route, a folded snake, the Core to the east — because it was written to reproduce the shipped map and then vary it. The seed moves the folds; it cannot move the shape. A player who learns one defensive layout has learned them all, which defeats the point of a generator.
+
+Make topology a drawn property. Add `approachPattern` (`Corridor` = today's folded diagonal, `Siege` = the new one) and, for Siege, `approachSectors` (2–5) plus `sectorArcDegrees` (360 = all sides, 270 = all but one — the classic castle siege with a safe back). The Core moves to the field centre (`protectedNormalizedPos` already expresses this; no new field). Each sector draws an entrance azimuth with a minimum angular separation, then folds its own approach to `routeLengthTarget` ±5% using the existing fold machinery, which is topology-agnostic.
+
+**What does NOT relax.** The 3.75 m clearance envelope, the 4.5 m route-to-route separation (merges exempt), the 7.5–20 m fold band, the coverage rule, and above all the FIXED CAMERA: every route must sit inside the frustum's ground trapezoid, which is narrower at the near edge, so southern sectors have materially less room than northern ones. The synthesizer must refuse a sector count the frustum cannot hold rather than push routes off-screen.
+
+**What it forces downstream, and these are the real cost of the ticket.**
+- **Spawners and wave tables.** `groundSpawnLegs` extends from 2 to 5, and wave groups are assigned by spawner index — today's tables only address 0 and 1. Until R33 regenerates tables, a 4-sector map must distribute groups round-robin across live spawners, and the blueprint validator must say so.
+- **Pad classes invert.** `Rear` and `Overwatch` are defined against a single final approach. On a ring the CENTRE is premium — a pad by the Core covers every approach, for a short window each, instead of one approach for a long one. Redefine the classes by radius from the Core, and re-check that the coverage rule (≥2 spans, ≥3 Premium at ≥4) still discriminates rather than passing everything.
+- **The balance model.** N simultaneous approaches is not the same pressure as one route of N× the length: damage is delivered per-approach while enemies arrive together. The model takes per-route lengths already; it needs the concurrency to compute a per-wave margin that means anything, and R1's rule applies — the math changes in `docs/balance_model.py` and nowhere else.
+- **Live cap.** `DeriveMaxLive` scales with total path metres, so a 4-route map earns a larger cap automatically. Verify on the contact sheet that it does not reintroduce the crowding this scaling was introduced to fix.
+- **Camera framing.** A ring is wider than a diagonal, so the solve pulls back and every enemy gets smaller. Check the apparent silhouette against the legibility floor before accepting a sector count.
+
+**Done when:** a Siege blueprint generates N approaches around a centred Core, all four gates pass, no route leaves the frustum, the model reports in-band margins with concurrency accounted for, pad classes are measured from the ring rather than from a final approach, the R31 contact sheet visibly shows different SHAPES across seeds rather than one shape with different folds, and `Corridor` blueprints — the parity path included — generate byte-identically to today.
+
+**As shipped.** Approaches are inward SPIRALS, one per sector, each the same curve rotated. The shape is forced, not chosen: the ring fits inside min(W, D)/2 minus the field margin — about 33 m on the shipped field — and folding a 33 m radial run cannot close the gap to a 154 m target, because each fold costs its own width along the run and only one fits. Wrapping closes it: a turn and a half at a mean radius of 20 m is over 150 m of path in the same box. Sweep is the single fit knob, driven by the same secant the corridor uses.
+
+Two ticket predictions were wrong, and both were cheaper to find than to assume:
+
+- **Pad classes did not need redefining.** `HardpointSelector` already classified Rear and Overwatch by distance from the Core (≤14 m, ≤25 m), not by position along a final approach, so the ring topology was already expressible. Nothing changed.
+- **"Congruent spirals stay r·2π/N apart" is false.** Fuzzing the geometry in Python before writing the C# showed a spiral sweeping past 360° crosses its neighbours' entry spokes at a smaller radius, so the real minimum is set by RADIAL pitch. Measured on the shipped field at 154 m: 2–3 approaches hold at any arc, 4 hold only when the arc is pulled in to ~270°, 5 never separate. Those numbers are field- and length-specific and are therefore NOT hard-coded — the synthesizer measures the separation it produced and refuses, saying so, because reseeding cannot fix a shape that does not vary with the seed.
+
+Downstream, as predicted: ground approaches take spawner indices that step over index 2 (the air spawner in every shipped wave table — renumbering air instead would have sent existing air groups down a ground route); the emitted `LevelDefinition` sets `spreadGroundGroupsAcrossSpawners` so a four-approach map does not leave half its sectors silent, with the identical rotation implemented in `balance_model.py` so gate 3 scores the map the game actually runs; and `LevelLayout.sharedTail` now says whether a merge exists, since R7's tangent pin must run for the shipped map and must NOT run for approaches that only converge at the Core.
+
+---
+
 # SUGGESTED ORDER & DEPENDENCY SUMMARY
 
 ## Suggested order (weekly drops)
@@ -552,14 +592,14 @@ Add a thin, optional adapter that submits scores to a **host-provided sanctioned
 5. **Drops 7–8 — P4:** R18–R19 (status + Strike Wing), then R20–R22 (mutators, veterancy, model gate).
 6. **Drop 9 — P5:** R23–R24 (night + Floodlight).
 7. **Drops 10–12 — P6:** R25–R26 (blueprint + parity), R27–R28 (route + hardpoint synthesis), R29–R32 (gate, emission, contact sheet, map-2 day).
-8. **Drops 13–14 — P7:** R33–R35 (endless, score attack, medals/stars), R36–R38 (weekly mutators, daily seed, portal adapter).
+8. **Drops 13–14 — P7:** R33–R35 (endless, score attack, medals/stars), R36–R38 (weekly mutators, daily seed, portal adapter), R39 (auto-placement assistant). **R40 (siege topology) slots wherever map variety becomes the priority — it is a P6 follow-on, not a P7 feature.**
 
 ## One-page dependency summary
 - **R1 (balance model) blocks everything balance-touching** — it is the universal gate re-run in R10, R22, R30, R33, and every "re-run before tuning" line.
 - **R6 (spline backbone) → R7 (pin) → R8 (coverage) → R9 (revalidation/flip) → R10 (model re-run).** R7 depends on R6; R8 depends on R6; R9 depends on R7+R8; R10 depends on R9. **All of P3 depends on P2 being frozen** (dressing/flyover on stable geometry).
 - **R18 (status system) is a hard dependency of R19 (Strike Wing uses stun/slow) and of the R20 Blackout ↔ R24 Floodlight interaction.** R22 depends on R2 (streak), R18 (stun), R20 (Overcharge), R21 (veterancy).
-- **Generator chain:** R25 (blueprint) → R26 (parity) → R27 (routes, which reuse R7's pin) → R28 (hardpoints, which reuse R8's curve sampler) → R29 (gate, which reuses clearance + coverage + model) → R30 (emission, which uses the R1 model as solver) → R31 (contact sheet) → R32 (map-2 day). R27 depends on P2; R28 depends on R8; R30 depends on R1.
-- **Retention chain:** R33 (endless) depends on R1 + WaveManager; R34 (score) depends on R4's SaveData extension; R35 (medals/stars) depends on R4 + R34; R36 (weekly mutators) depends on R20; **R37 (daily seed) depends on the entire generator gate (R29) + R34's share code**; R38 depends on R34.
+- **Generator chain:** R25 (blueprint) → R26 (parity) → R27 (routes, which reuse R7's pin) → R28 (hardpoints, which reuse R8's curve sampler) → R29 (gate, which reuses clearance + coverage + model) → R30 (emission, which uses the R1 model as solver) → R31 (contact sheet) → R32 (map-2 day). R27 depends on P2; R28 depends on R8; R30 depends on R1. **R40 (siege topology) depends on R27 (it replaces the shape, not the fold machinery), R28 (pad classes must be redefined by radius), R1 (concurrency term in the model) and R33 (wave tables addressing more than two spawners).**
+- **Retention chain:** R33 (endless) depends on R1 + WaveManager; R34 (score) depends on R4's SaveData extension; R35 (medals/stars) depends on R4 + R34; R36 (weekly mutators) depends on R20; **R37 (daily seed) depends on the entire generator gate (R29) + R34's share code**; R38 depends on R34; **R39 (auto-placement) depends on R28's per-kind coverage measurement and R1's model as its validator**, and touches R34/R37 only to declare itself.
 - **Nothing in P7 ships before P6's gate (R29) exists**, because the daily seed and any future generated content route through it.
 
 ## Recommendations

@@ -73,6 +73,13 @@ public static class RouteSynthesizer
     /// </summary>
     public static LevelLayout Synthesize(LevelBlueprint b, out string report)
     {
+        return b.approachPattern == LevelBlueprint.ApproachPattern.Siege
+            ? SynthesizeSiege(b, out report)
+            : SynthesizeCorridor(b, out report);
+    }
+
+    private static LevelLayout SynthesizeCorridor(LevelBlueprint b, out string report)
+    {
         var log = new StringBuilder();
         float W = b.playfieldSize.x, D = b.playfieldSize.y;
         float L = b.routeLengthTarget;
@@ -210,6 +217,7 @@ public static class RouteSynthesizer
             corePos = core,
             airSpawn = new Vector3(0f, 4f, D * 0.5f - 0.5f),
             pads = null,                               // R28 selects
+            sharedTail = b.groundSpawnLegs >= 2,       // two legs merge; one does not
         };
 
         if (b.groundSpawnLegs >= 2)
@@ -252,6 +260,284 @@ public static class RouteSynthesizer
                        $"west spline {measured:0.##} m (target {L:0.#} ±5%)");
         report = log.ToString();
         return layout;
+    }
+
+    // ------------------------------------------------------- siege topology (R40)
+
+    /// <summary>Approaches stop spiralling here and turn in to the Core.</summary>
+    private const float SiegeInnerRadius = 8f;
+
+    /// <summary>Straight radial lead-in from the field edge, when the bearing has room for one.</summary>
+    private const float SiegeMaxLeadIn = 14f;
+
+    /// <summary>Knots per full turn of spiral — enough that the AutoSmooth curve is a spiral, not a polygon.</summary>
+    private const int SiegeKnotsPerTurn = 12;
+
+    /// <summary>
+    /// Siege synthesis: N approaches spiral inward onto a centred Core.
+    ///
+    /// The shape is chosen for a geometric reason, not an aesthetic one. A
+    /// straight radial approach cannot be long enough — the ring fits inside
+    /// min(W, D)/2 minus the field margin, about 33 m on the shipped field, and
+    /// a route has to measure ~154 m to keep the balance model on its baseline.
+    /// Folding a 33 m run does not close a 120 m gap: each fold costs its width
+    /// along the run, and only one fits. Wrapping does close it — a turn and a
+    /// half at an average radius of 20 m is over 150 m of path in the same box.
+    ///
+    /// It also solves separation for free. Every approach is the SAME spiral
+    /// rotated by 2π/N, so at any radius r the gap between two of them is
+    /// r·2π/N — 9.4 m for four approaches at the inner radius, comfortably over
+    /// the 4.5 m envelope. They only crowd where they converge on the Core, and
+    /// that is the one place gate 1 exempts, exactly as it exempts a merge.
+    /// </summary>
+    private static LevelLayout SynthesizeSiege(LevelBlueprint b, out string report)
+    {
+        var log = new StringBuilder();
+        float W = b.playfieldSize.x, D = b.playfieldSize.y;
+        float L = b.routeLengthTarget;
+        int n = Mathf.Clamp(b.approachSectors, 2, 5);
+        Vector3 core = LevelLayout.FromNormalized(b.protectedNormalizedPos, b.playfieldSize);
+
+        // Ring radius is bounded by the NEAREST field edge, so an off-centre Core
+        // shrinks it — which is why a siege blueprint wants its Core centred.
+        float toEdge = Mathf.Min(
+            Mathf.Min(W * 0.5f - core.x, W * 0.5f + core.x),
+            Mathf.Min(D * 0.5f - core.z, D * 0.5f + core.z));
+        float ringMax = toEdge - FieldMargin;
+        if (ringMax < SiegeInnerRadius + 6f)
+        {
+            report = $"Core at ({core.x:0.#}, {core.z:0.#}) leaves only {ringMax:0.#} m to the nearest field " +
+                     $"edge — a siege ring needs at least {SiegeInnerRadius + 6f:0.#} m. Centre " +
+                     "protectedNormalizedPos (0.5, 0.5) or enlarge playfieldSize.";
+            return null;
+        }
+
+        // ---- draws up front, fixed order ------------------------------------
+        var rng = new Rng(GenerationPipeline.Fnv1a(b.randomSeed, "siege"));
+        float arcCentre = rng.Range(0f, 360f);                    // which way the safe side faces
+        bool clockwise = (rng.NextU() & 1u) == 0u;
+        float ringDraw = rng.Range(0.94f, 1f);                    // how much of the available ring to use
+        float bearingJitter = rng.Range(-6f, 6f);                 // whole-ring twist, keeps sectors congruent
+
+        float ring = ringMax * ringDraw;
+        float arc = Mathf.Clamp(b.sectorArcDegrees, 120f, 360f);
+
+        // ---- fit the sweep to the length target ------------------------------
+        // ONE knob, same secant as the corridor fit. Sweep is monotone in length,
+        // so this converges in a couple of iterations.
+        float sweepMin = 90f * Mathf.Deg2Rad;
+        float sweepMax = 4f * Mathf.PI;                            // two full turns
+        float sweep = 2f * Mathf.PI;
+        float prevSweep = 0f, prevErr = 0f;
+        bool have = false;
+        float measured = 0f;
+        Vector3[] probe = null;
+
+        for (int it = 0; it < MaxFitIterations; it++)
+        {
+            probe = BuildSpiral(core, ring, SiegeInnerRadius, arcCentre + bearingJitter, sweep, clockwise,
+                                W, D);
+            measured = MeasureSplineLength(probe);
+            float err = measured - L;
+            log.AppendLine($"[fit] iter {it}: sweep {sweep * Mathf.Rad2Deg:0.#}° → spline {measured:0.##} m " +
+                           $"(err {err:+0.##;-0.##})");
+            if (Mathf.Abs(err) <= L * 0.02f)
+                break;
+
+            float next;
+            if (!have)
+            {
+                // Each radian of sweep adds roughly the mean radius in metres.
+                float meanR = 0.5f * (ring + SiegeInnerRadius);
+                next = sweep - err / Mathf.Max(1f, meanR);
+                have = true;
+            }
+            else
+            {
+                float dErr = err - prevErr;
+                next = Mathf.Abs(dErr) < 0.001f ? sweep : sweep - err * (sweep - prevSweep) / dErr;
+            }
+            prevSweep = sweep; prevErr = err;
+            sweep = Mathf.Clamp(next, sweepMin, sweepMax);
+        }
+
+        if (Mathf.Abs(measured - L) > L * 0.05f)
+        {
+            report = $"siege: could not reach {L:0.#} m ±5% — best {measured:0.##} m at sweep " +
+                     $"{sweep * Mathf.Rad2Deg:0.#}° on a {ring:0.#} m ring. Shorten routeLengthTarget or " +
+                     "enlarge the field: the ring is bounded by the nearest field edge.";
+            return null;
+        }
+
+        // ---- one spiral per sector, each the same curve rotated ---------------
+        var routes = new Vector3[n][];
+        var names = new string[n];
+        float step = arc >= 359.9f ? 360f / n : (n > 1 ? arc / (n - 1) : 0f);
+        float first = arcCentre + bearingJitter - (arc >= 359.9f ? 0f : arc * 0.5f);
+
+        for (int i = 0; i < n; i++)
+        {
+            float bearing = first + step * i;
+            routes[i] = BuildSpiral(core, ring, SiegeInnerRadius, bearing, sweep, clockwise, W, D);
+            names[i] = $"Route_{Compass(bearing)}";
+        }
+        DisambiguateNames(names);
+
+        // ---- refuse rather than emit a map gate 1 will reject -----------------
+        // The intuition that congruent spirals stay r·2π/N apart is WRONG, and
+        // pre-C# fuzzing is what said so: a spiral sweeping past 360° crosses the
+        // entry spokes of its neighbours at a smaller radius, and the real
+        // minimum is set by the radial pitch, not the angular one. Measured on
+        // the shipped field at a 154 m target: 2 or 3 approaches pass at any arc,
+        // 4 pass only when the arc is tightened to ~270°, and 5 never fit.
+        //
+        // Those numbers are field- and length-specific, so they are NOT hard-coded
+        // — the synthesizer measures what it actually built. Gate 1 would catch
+        // it anyway, but a gate failure says "reseed" and reseeding cannot help:
+        // nothing here varies with the seed. The blueprint is what has to change.
+        float sep = MinPairSeparation(routes, core, SiegeInnerRadius + 2f);
+        if (sep < MinSeparation)
+        {
+            report = $"siege: {n} approaches over {arc:0}° hold only {sep:0.##} m apart " +
+                     $"(≥{MinSeparation:0.##} m required outside the Core convergence zone). Reseeding will " +
+                     "not help — nothing here varies with the seed. Reduce approachSectors, narrow " +
+                     "sectorArcDegrees (4 approaches fit at ~270° where they do not at 360°), shorten " +
+                     "routeLengthTarget so each approach wraps less, or enlarge the field.";
+            return null;
+        }
+
+        var layout = new LevelLayout
+        {
+            corePos = core,
+            groundRoutes = routes,
+            routeNames = names,
+            airSpawn = new Vector3(core.x, 4f, core.z + Mathf.Min(D * 0.5f - 0.5f - core.z, ring + 6f)),
+            pads = null,
+            sharedTail = false,                        // approaches converge, they do not merge
+        };
+
+        log.AppendLine($"[ok] {n} approach(es) on a {ring:0.#} m ring, sweep {sweep * Mathf.Rad2Deg:0.#}° " +
+                       $"{(clockwise ? "CW" : "CCW")}, arc {arc:0}° centred {arcCentre:0}°, " +
+                       $"spline {measured:0.##} m (target {L:0.#} ±5%)");
+        report = log.ToString();
+        return layout;
+    }
+
+    /// <summary>
+    /// One inward spiral: an optional straight radial lead-in from near the field
+    /// edge, then knots sweeping in to <paramref name="innerRadius"/>, then the
+    /// Core. Radius falls linearly with swept angle, which keeps the turn pitch
+    /// even — a constant-rate spiral bunches its knots near the middle, and
+    /// AutoSmooth turns bunched knots into a wobble.
+    /// </summary>
+    private static Vector3[] BuildSpiral(Vector3 core, float ring, float innerRadius, float bearingDeg,
+                                         float sweep, bool clockwise, float W, float D)
+    {
+        var pts = new List<Vector3>();
+        float dir = clockwise ? -1f : 1f;
+        float startRad = bearingDeg * Mathf.Deg2Rad;
+
+        // Lead-in: walk OUT along the entry bearing toward the field edge so the
+        // spawner sits where a player expects one, not floating mid-field. Bearings
+        // facing a near edge simply get a shorter one.
+        Vector3 outward = new Vector3(Mathf.Sin(startRad), 0f, Mathf.Cos(startRad));
+        float room = DistanceToBox(core + outward * ring, outward, W, D) - FieldMargin;
+        float leadIn = Mathf.Clamp(room, 0f, SiegeMaxLeadIn);
+        if (leadIn > 1f)
+            pts.Add(core + outward * (ring + leadIn));
+
+        int knots = Mathf.Max(4, Mathf.CeilToInt(sweep / (2f * Mathf.PI) * SiegeKnotsPerTurn));
+        for (int k = 0; k <= knots; k++)
+        {
+            float t = k / (float)knots;
+            float angle = startRad + dir * sweep * t;
+            float r = Mathf.Lerp(ring, innerRadius, t);
+            pts.Add(core + new Vector3(Mathf.Sin(angle), 0f, Mathf.Cos(angle)) * r);
+        }
+
+        pts.Add(core);
+        return pts.ToArray();
+    }
+
+    /// <summary>Lane envelope, matching gate 1's MinRouteSeparation.</summary>
+    private const float MinSeparation = 2f * (0.9f + 1.35f);
+
+    /// <summary>
+    /// Closest approach between any two routes, ignoring everything within
+    /// <paramref name="exclusion"/> of the Core where they converge by design.
+    /// Sampled on the knot polyline rather than the spline: it runs inside the
+    /// fit loop's caller, and the polyline sits within centimetres of the
+    /// AutoSmooth curve at this knot density.
+    /// </summary>
+    private static float MinPairSeparation(Vector3[][] routes, Vector3 core, float exclusion)
+    {
+        var sampled = new List<List<Vector3>>();
+        foreach (Vector3[] pts in routes)
+        {
+            var s = new List<Vector3>();
+            for (int i = 0; i < pts.Length - 1; i++)
+            {
+                float seg = Vector3.Distance(pts[i], pts[i + 1]);
+                int steps = Mathf.Max(1, Mathf.CeilToInt(seg / 0.5f));
+                for (int k = 0; k < steps; k++)
+                {
+                    Vector3 p = Vector3.Lerp(pts[i], pts[i + 1], k / (float)steps);
+                    if (Vector3.Distance(p, core) >= exclusion)
+                        s.Add(p);
+                }
+            }
+            sampled.Add(s);
+        }
+
+        float worst = float.MaxValue;
+        for (int a = 0; a < sampled.Count; a++)
+            for (int b = a + 1; b < sampled.Count; b++)
+                foreach (Vector3 p in sampled[a])
+                    foreach (Vector3 q in sampled[b])
+                        worst = Mathf.Min(worst, Vector3.Distance(p, q));
+        return worst == float.MaxValue ? float.MaxValue : worst;
+    }
+
+    /// <summary>Distance from a point to the field box along a direction (both in XZ).</summary>
+    private static float DistanceToBox(Vector3 from, Vector3 dir, float W, float D)
+    {
+        float best = float.MaxValue;
+        if (Mathf.Abs(dir.x) > 0.0001f)
+        {
+            float edge = dir.x > 0f ? W * 0.5f : -W * 0.5f;
+            best = Mathf.Min(best, (edge - from.x) / dir.x);
+        }
+        if (Mathf.Abs(dir.z) > 0.0001f)
+        {
+            float edge = dir.z > 0f ? D * 0.5f : -D * 0.5f;
+            best = Mathf.Min(best, (edge - from.z) / dir.z);
+        }
+        return Mathf.Max(0f, best);
+    }
+
+    /// <summary>Compass label for a bearing in degrees east of north.</summary>
+    private static string Compass(float bearingDeg)
+    {
+        string[] points = { "North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest" };
+        float wrapped = Mathf.Repeat(bearingDeg, 360f);
+        return points[Mathf.RoundToInt(wrapped / 45f) % 8];
+    }
+
+    /// <summary>
+    /// Two sectors can round to the same compass point; scene object names and the
+    /// gate reports that quote them have to stay distinguishable.
+    /// </summary>
+    private static void DisambiguateNames(string[] names)
+    {
+        for (int i = 0; i < names.Length; i++)
+        {
+            int dup = 0;
+            for (int j = 0; j < i; j++)
+                if (names[j] == names[i] || names[j].StartsWith(names[i] + "_", System.StringComparison.Ordinal))
+                    dup++;
+            if (dup > 0)
+                names[i] = $"{names[i]}_{dup + 1}";
+        }
     }
 
     // ------------------------------------------------------------------ helpers
