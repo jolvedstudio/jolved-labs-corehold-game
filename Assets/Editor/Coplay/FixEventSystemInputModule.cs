@@ -54,7 +54,10 @@ namespace CoreholdEditor
             {
                 var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
                 EditorSceneManager.MarkSceneDirty(scene);
-                EditorSceneManager.SaveScene(scene);
+                // The generation pipeline owns saving (its final stage); saving an
+                // untitled scene mid-run pops a modal dialog. See GenerationDriven.
+                if (!GenerationDriven.Active)
+                    EditorSceneManager.SaveScene(scene);
             }
 
             var msg = $"Fixed {fixedCount} EventSystem(s) to use the Input System UI module.";

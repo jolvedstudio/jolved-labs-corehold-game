@@ -335,6 +335,11 @@ public static class GenerationPipeline
         // to run its waves (R26's "full live object set").
         string singletons = SceneSkeleton.EnsureSingletons();
 
+        // BuildRealUI emits an EventSystem carrying the LEGACY StandaloneInputModule,
+        // which throws every frame under the new Input System and leaves the UI
+        // dead — the menu renders and nothing responds to a click.
+        FixEventSystemInputModule.Run();
+
         // These tools emit at the scene root (they predate the containers), so
         // adopt their output immediately — the scene is grouped at every stage
         // boundary, and the final verify pass proves nothing was missed.
@@ -471,8 +476,14 @@ public static class GenerationPipeline
         bool satisfied = RefineryDeltaBlockout.BuildHardpoints(
             ctx.levelContainer, ctx.routes[0], pads, log);
 
+        // A TowerHardpoint has no renderer of its own, so without this the build
+        // pads are INVISIBLE and the player cannot see where to build. The disc
+        // also becomes the pad's rimRenderer, which is what pulses while empty
+        // (GDD §5.3) — the shipped scene's eight PadMarkers come from here.
+        HardpointMarkers.Run();
+
         // The rule verdict belongs to GATE 2; this stage only reports placement.
-        return StageResult.Ok($"{pads.Length} pads placed ({how})" +
+        return StageResult.Ok($"{pads.Length} pads placed ({how}) with visible PadMarkers" +
                               (satisfied ? "" : " — coverage shortfalls, gate 2 will judge"));
     }
 
@@ -492,17 +503,34 @@ public static class GenerationPipeline
 
     private static StageResult StGround(Context ctx)
     {
+        // GroundAndSkirt only FINDS and fits a Floor — it never creates one, and
+        // a generated scene has none, so the level had no ground at all. The
+        // plane's size is irrelevant here: the fit below drives it from the
+        // camera frustum (R11).
+        bool createdFloor = false;
+        if (SceneLookup.Find("Floor") == null)
+        {
+            var plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            plane.name = "Floor";
+            plane.transform.SetParent(SceneContainers.Ensure("_Level"), false);
+            plane.transform.position = Vector3.zero;
+            Undo.RegisterCreatedObjectUndo(plane, "Generate Level");
+            createdFloor = true;
+        }
+
         GroundAndSkirt.FitGroundAndFog();      // frustum-sized, never the design box (R11)
 
+        string floorNote = createdFloor ? "floor created + fit to frustum" : "floor fit to frustum";
+
         if (ctx.theme == null)
-            return StageResult.Ok("floor fit to frustum; no theme, shipped ground kept");
+            return StageResult.Ok($"{floorNote}; no theme, shipped ground kept");
 
         var floor = SceneLookup.Find("Floor");
         var renderer = floor != null ? floor.GetComponent<Renderer>() : null;
         if (renderer == null)
             return StageResult.Fail("no Floor renderer to apply the theme ground to");
 
-        var notes = new List<string> { "floor fit to frustum" };
+        var notes = new List<string> { floorNote };
 
         if (ctx.theme.groundMaterial != null)
         {

@@ -152,6 +152,14 @@ public static class RefineryDeltaBlockout
         return l;
     }
 
+    /// <summary>
+    /// Pass as <c>scale</c> to leave the prefab's OWN authored scale alone.
+    /// Forcing 1.0 is not the same thing: it overwrites whatever size the prefab
+    /// author chose, which is how the Core's shield generator ended up out of
+    /// proportion against a platform that was correctly scaled to 0.3.
+    /// </summary>
+    internal const float KeepPrefabScale = -1f;
+
     internal static GameObject Place(string assetPath, Transform parent, Vector3 pos, Vector3 euler, float scale, string name = null)
     {
         var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
@@ -164,7 +172,8 @@ public static class RefineryDeltaBlockout
         go.transform.SetParent(parent, false);
         go.transform.position = pos;
         go.transform.eulerAngles = euler;
-        go.transform.localScale = Vector3.one * scale;
+        if (scale > 0f)
+            go.transform.localScale = Vector3.one * scale;   // KeepPrefabScale => untouched
         if (!string.IsNullOrEmpty(name)) go.name = name;
         return go;
     }
@@ -285,8 +294,11 @@ public static class RefineryDeltaBlockout
                   corePos, Vector3.zero, 0.3f, "Core_Platform");
             float platTop = platform != null ? 5.92f * 0.3f : 0f;
 
+            // Keep the generator at its authored size — the shipped scene records
+            // no scale override for it, so 0.3 on the platform is deliberate and
+            // 1.0 here was just the default being written over the prefab.
             Place(FiradzoRoot + "Shield_generator_2/Shield_generator_2_1.prefab", coreRoot.transform,
-                  corePos + new Vector3(0f, platTop, 0f), Vector3.zero, 1f, "Core_ShieldGenerator");
+                  corePos + new Vector3(0f, platTop, 0f), Vector3.zero, KeepPrefabScale, "Core_ShieldGenerator");
             targetHeight = platTop + 3f;
         }
 
