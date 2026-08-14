@@ -647,7 +647,13 @@ public static class GenerationPipeline
 
     private static StageResult StDressing(Context ctx)
     {
-        GroundAndSkirt.BuildSilhouetteBand();  // far-band silhouettes (R11)
+        // Far-band silhouettes (R11). Parity gets the shipped refinery horizon
+        // because that IS the shipped map; every other map gets its own theme's
+        // silhouettes, or a bare horizon if the theme has none.
+        if (ctx.blueprint.parityLayout)
+            GroundAndSkirt.BuildSilhouetteBand();
+        else
+            GroundAndSkirt.BuildSilhouetteBand(ctx.theme, ctx.blueprint.randomSeed);
 
         if (ctx.blueprint.parityLayout)
         {
@@ -853,7 +859,8 @@ public static class GenerationPipeline
 
         return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; SOLVED hpGrowthPerWave = " +
                               $"{ctx.model.solved_hp_growth:0.####} (close targeted mid-band), " +
-                              $"maxLiveEnemies = {derivedMaxLive} (derived from route capacity)");
+                              $"maxLiveEnemies = {derivedMaxLive} (the shipped {BalanceModelRunner.ShippedMaxLive} " +
+                              "scaled by route length, clamped to what fits)");
     }
 
     private static StageResult StModelGate(Context ctx)

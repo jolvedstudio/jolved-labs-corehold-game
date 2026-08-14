@@ -55,20 +55,47 @@ public static class BalanceModelRunner
         public Row[] rows;
     }
 
+    /// <summary>Live cap the shipped map is tuned and framed around.</summary>
+    public const int ShippedMaxLive = 14;
+
+    /// <summary>Shipped ground route length, both legs summed (153.7 + 154.5 m).</summary>
+    public const float ShippedGroundMetres = 308.2f;
+
+    /// <summary>Below this a wave stops reading as a wave.</summary>
+    public const int MinMaxLive = 6;
+
     /// <summary>
-    /// Σ PathRoute.TotalCapacity(largest radius) over the ground routes plus
-    /// the air allowance — the same math RouteTraffic.DerivedCapacity runs on
-    /// live tracks in play (which cannot be called here: it reads registered
-    /// movers, and an unplayed scene has none).
+    /// How many enemies may be alive at once.
+    ///
+    /// Σ PathRoute.TotalCapacity is how many bodies PHYSICALLY FIT nose-to-tail
+    /// — several lanes × ~48 units per 154 m lane, so a two-route map computes
+    /// out around 200. That is a ceiling, not a cap, and using it as the cap is
+    /// what produced a solid wall of overlapping enemies on generated maps while
+    /// the shipped map sits at 14. Packing capacity answers "can they fit"; the
+    /// cap has to answer "how many should be on screen at once", and the shipped
+    /// map is the only measured answer to that we have.
+    ///
+    /// So: scale the shipped 14 by how much more path this map has, and clamp to
+    /// what physically fits. A map with the shipped route length reproduces 14
+    /// exactly, which keeps the parity path honest. The cap feeds the balance
+    /// model, so tightening it re-solves hpGrowthPerWave against the pressure the
+    /// player will actually face rather than against a wall that cannot happen.
     /// </summary>
     public static int DeriveMaxLive(List<PathRoute> routes, bool airCorridor)
     {
-        int total = 0;
+        int packing = 0;
+        float metres = 0f;
         foreach (PathRoute route in routes)
-            total += route.TotalCapacity(LargestBodyRadius);
+        {
+            packing += route.TotalCapacity(LargestBodyRadius);
+            metres += route.Length;
+        }
         if (airCorridor)
-            total += AirCapacityAllowance;
-        return Mathf.Max(1, total);
+            packing += AirCapacityAllowance;
+
+        packing = Mathf.Max(1, packing);
+        int presentation = Mathf.RoundToInt(ShippedMaxLive * (metres / ShippedGroundMetres));
+        return Mathf.Clamp(Mathf.Min(packing, presentation), Mathf.Min(MinMaxLive, packing), packing);
     }
 
     /// <summary>
