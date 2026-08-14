@@ -67,14 +67,14 @@ Top to bottom:
 | 1 | Validate blueprint | The same checks the window shows live. Errors stop here. |
 | 2 | Draw theme & weather | The seed picks from `envPackPool`; weather comes from the **theme's** pool unless the blueprint overrides. Empty pool = undressed (skip, not failure). |
 | 3 | New scene + containers | Fresh scene; the five hierarchy containers (`_Systems`…`_Rendering`) created first so everything is born grouped. Offers to save your open scene — never builds over unsaved work. |
-| 4 | Scene skeleton | GameManager, WaveManager, pools, directors, all three UI canvases — via the same setup tools the shipped scene used. |
+| 4 | Scene skeleton | GameManager, WaveManager, PoolRegistry, RouteTraffic, DebugConsole, ResultScreen, directors, all three UI canvases — and the EventSystem's input module swapped to the new Input System (otherwise the menu renders but no click registers). |
 | 5 | Protected structure | The Core, at the blueprint's normalized position, using `protectedPrefab` if set (else the shipped platform stack). |
 | 6 | Routes + spawners | **Parity:** the shipped waypoints. **Generated:** seeded synthesis — entrance legs, merge at ~20% of route length, 2–3 hairpin folds at exactly `foldWidth`, length fitted to ±5% of target. Merge tangent pinned (two legs would otherwise diverge on the shared tail). Spawners created and wired. |
 | 7 | **⛨ GATE 1 — clearance** | See §6. |
-| 8 | Hardpoints | **Parity:** the live map's pad set. **Generated:** grid candidates filtered by clearance, scored by the real coverage validator, classified from measurement, picked deterministically with 5 m spacing. |
+| 8 | Hardpoints | **Parity:** the live map's pad set. **Generated:** grid candidates filtered by clearance, scored by the real coverage validator, classified from measurement, picked deterministically with 5 m spacing. Each pad gets a visible `PadMarker` disc — a bare TowerHardpoint has no renderer. |
 | 9 | **⛨ GATE 2 — coverage** | See §6. |
 | 10 | Camera framing | The fixed-camera solve against the *generated* content bounds. |
-| 11 | Floor fit + theme ground | Ground sized from the **camera frustum** (never the design box), then the theme's material applied and tiling recomputed for that exact size. |
+| 11 | Floor fit + theme ground | Creates the ground plane if the scene has none, sizes it from the **camera frustum** (never the design box), then applies the theme's material and recomputes tiling for that exact size. |
 | 12 | Dressing | Silhouette band, then themed props with measured footprints/heights, each stamped with a `PlacedProp` marker. Includes automatic self-repair against sight-lines (§6, gate 2b). |
 | 13 | **⛨ GATE 2b — occlusion re-run** | See §6. |
 | 14 | Weather | The WeatherApplier wired to the drawn preset (or the null preset — pixel-identical authored look). |

@@ -22,7 +22,7 @@ namespace CoreholdEditor
             var sb = new StringBuilder();
             Directory.CreateDirectory(MatDir);
 
-            foreach (var pad in Object.FindObjectsByType<TowerHardpoint>(FindObjectsSortMode.None))
+            foreach (var pad in SceneQuery.InActiveScene<TowerHardpoint>())
             {
                 Color c = ColorForPad(pad.name);
                 var mat = GetOrCreateMat(c);
@@ -57,7 +57,10 @@ namespace CoreholdEditor
 
             var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
             UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(scene);
-            UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
+            // The generation pipeline owns saving (its final stage); saving an
+            // untitled scene mid-run pops a modal dialog. See GenerationDriven.
+            if (!GenerationDriven.Active)
+                UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene);
             AssetDatabase.SaveAssets();
 
             Debug.Log("[COREHOLD] HardpointMarkers:\n" + sb);
