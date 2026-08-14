@@ -508,6 +508,12 @@ public static class GenerationPipeline
         // (GDD §5.3) — the shipped scene's eight PadMarkers come from here.
         HardpointMarkers.Run();
 
+        // The glow halo that breathes over an empty pad (GDD §5.3, ticket f).
+        // The shipped scene has these from the menu tool; a generated map only
+        // has them if the pipeline runs the same pass — this call is why pads
+        // on generated maps glow at all.
+        HardpointAura.Run();
+
         // The rule verdict belongs to GATE 2; this stage only reports placement.
         return StageResult.Ok($"{pads.Length} pads placed ({how}) with visible PadMarkers" +
                               (satisfied ? "" : " — coverage shortfalls, gate 2 will judge"));

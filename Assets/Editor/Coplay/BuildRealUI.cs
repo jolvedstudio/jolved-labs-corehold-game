@@ -145,10 +145,11 @@ namespace CoreholdEditor
             // it hangs outside the frame — 170 of 340 px, off the left of the
             // screen.
             //
-            // Inset 36: the panel sprite's bevel plus its inner glow run ~30 px in,
-            // and 28 still left the first lit segment kissing the frame. The right
-            // edge stays at 296 (36 + 260), which keeps the 8 px gap to the value.
-            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(36, -8), new Vector2(260, 26));
+            // Inset 44 and raised to −4: sized against the shipped panel sprite's
+            // cavity by screenshot iteration — the frame's bevel and inner glow
+            // eat more left margin than any guess survived. The right edge stays
+            // at 296 (44 + 252), keeping the 8 px gap to the value label.
+            var segRoot = MakeRect(tl, "Segments", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(44, -4), new Vector2(252, 26));
             segRoot.pivot = new Vector2(0f, 0.5f);
             var seghlg = segRoot.gameObject.AddComponent<Image>();
             seghlg.color = new Color(0, 0, 0, 0); // parent flashes; keep transparent
