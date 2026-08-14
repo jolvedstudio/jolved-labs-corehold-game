@@ -506,7 +506,12 @@ public static class GenerationPipeline
         // GroundAndSkirt only FINDS and fits a Floor — it never creates one, and
         // a generated scene has none, so the level had no ground at all.
         var notes = new List<string>();
-        GameObject floor = SceneLookup.Find("Floor");
+        // SceneQuery.FindGround, never a bare name search: the pads (a vendor
+        // floor-cache prefab) and the Core platform are built BEFORE this stage,
+        // and a mesh named "Floor" inside one of them was being adopted as the
+        // ground — 43 m of prop wearing the terrain material, with no real
+        // ground ever created.
+        GameObject floor = SceneQuery.FindGround();
         bool fromPrefab = false;
 
         if (floor == null)
@@ -523,14 +528,16 @@ public static class GenerationPipeline
                 floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
                 notes.Add("ground plane created");
             }
-            floor.name = "Floor";                       // the name every tool looks for
+            floor.name = "Floor";
             floor.transform.SetParent(SceneContainers.Ensure("_Level"), false);
             floor.transform.position = Vector3.zero;
+            floor.AddComponent<Corehold.Systems.LevelGround>().source =
+                fromPrefab ? "theme groundPrefab" : "primitive plane";
             Undo.RegisterCreatedObjectUndo(floor, "Generate Level");
         }
         else
         {
-            notes.Add("existing Floor reused");
+            notes.Add($"existing ground reused ('{floor.name}')");
         }
 
         GroundAndSkirt.FitGroundAndFog();      // frustum-sized, never the design box (R11)

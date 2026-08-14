@@ -69,6 +69,40 @@ public static class SceneQuery
         return null;
     }
 
+    /// <summary>
+    /// THE level ground, resolved safely (see <see cref="Corehold.Systems.LevelGround"/>).
+    ///
+    /// Order: the marker component first; failing that, an object named "Floor"
+    /// that is a SCENE ROOT or a direct child of a container — which is what the
+    /// hand-built Game.unity has. Never an arbitrary descendant: vendor prefabs
+    /// contain meshes called "Floor", and matching one of those silently makes a
+    /// 43 m prop "the ground".
+    /// </summary>
+    public static GameObject FindGround()
+    {
+        var marked = FirstInActiveScene<Corehold.Systems.LevelGround>();
+        if (marked != null)
+            return marked.gameObject;
+
+        Scene active = SceneManager.GetActiveScene();
+        if (!active.IsValid())
+            return null;
+
+        foreach (GameObject root in active.GetRootGameObjects())
+        {
+            if (root.name == "Floor")
+                return root;
+            // One level down covers "Floor" sitting inside a container.
+            for (int i = 0; i < root.transform.childCount; i++)
+            {
+                Transform child = root.transform.GetChild(i);
+                if (child.name == "Floor")
+                    return child.gameObject;
+            }
+        }
+        return null;
+    }
+
     /// <summary>Names of matches living outside the active scene, for an actionable report.</summary>
     public static List<string> StraysOutsideActiveScene<T>() where T : Component
     {
