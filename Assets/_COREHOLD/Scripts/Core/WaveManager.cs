@@ -276,11 +276,30 @@ namespace Corehold.Core
                 return;
 
             float now = Time.time;
+            _strandedScratch.Clear();
             for (int i = _live.Count - 1; i >= 0; i--)
             {
                 Enemy e = _live[i];
-                if (e == null || !e.IsAlive)
+
+                // A destroyed or already-dead enemy still on this list will NEVER
+                // leave it on its own — OnDied fires once, and an entry that
+                // missed it is stranded permanently. Skipping it (which is what
+                // this loop used to do) means the live count never falls, so the
+                // wave cannot complete and the chain lock never releases. The
+                // observed cause was an exception in the kill-streak HUD, now
+                // contained at the source; this is the net that makes any future
+                // cause cost a log line instead of the run.
+                if (e == null)
+                {
+                    _live.RemoveAt(i);
+                    _liveDirty = true;
                     continue;
+                }
+                if (!e.IsAlive)
+                {
+                    _strandedScratch.Add(e);
+                    continue;
+                }
                 var mover = e.Mover;
                 if (mover == null)
                     continue;
@@ -304,7 +323,30 @@ namespace Corehold.Core
                     e.CullSilently();
                 }
             }
+
+            // Reclaimed AFTER the walk: HandleEnemyGone removes from _live and can
+            // drain pending spawns back into it, which is not something to do to a
+            // list mid-iteration.
+            for (int i = 0; i < _strandedScratch.Count; i++)
+            {
+                Debug.LogWarning($"[Corehold] Reclaimed '{_strandedScratch[i].name}': dead but still on the " +
+                                 "live list, so something threw before OnDied was raised. The wave would " +
+                                 "otherwise never complete — check the Console for the exception above.");
+                HandleEnemyGone(_strandedScratch[i]);
+            }
+            _strandedScratch.Clear();
+
+            if (_liveDirty)
+            {
+                _liveDirty = false;
+                OnLiveCountChanged?.Invoke(_live.Count);
+                CheckWaveComplete();
+            }
         }
+
+        /// <summary>Reused per frame so the watchdog's recovery path allocates nothing.</summary>
+        private readonly List<Enemy> _strandedScratch = new List<Enemy>();
+        private bool _liveDirty;
 
         private void ResolveRules()
         {
