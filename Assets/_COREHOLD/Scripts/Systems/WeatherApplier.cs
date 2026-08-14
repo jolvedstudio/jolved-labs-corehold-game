@@ -300,21 +300,25 @@ namespace Corehold.Systems
                     : new GameObject("Precipitation");
                 _precipitationSource = p.precipitationPrefab;
                 _precipitationBuilt = true;
+                _prefabBaseScale = _precipitation.transform.localScale;
             }
 
-            _precipitation.transform.SetParent(cam.transform, false);
-            // Sit the volume in front of the camera so it fills the view without
-            // spraying particles behind it.
-            _precipitation.transform.localPosition = new Vector3(0f, 0f, 12f);
-            _precipitation.transform.localRotation = Quaternion.identity;
             SetPrecipitationActive(true);
 
             if (p.precipitationPrefab != null)
             {
-                // An authored prefab (CFXR or otherwise) configures itself — but it
-                // still has to live inside R14's overdraw budget, and a kit effect
-                // built from half a dozen stacked systems will blow it silently.
-                // Count once, at apply, and say so rather than shipping the cost.
+                // An authored prefab is a WORLD effect and is placed as one. The
+                // camera-parenting below is right only for the procedural sheet:
+                // parented at (0,0,12) with identity local rotation, a prefab's
+                // emitter sits at a point mid-view — pitched 38° with the camera —
+                // and rains a tilted column onto the middle of the screen. World
+                // placement over the camera's ground footprint is what "falls from
+                // the top" actually means for an authored volume.
+                PlaceAuthoredPrefab(cam);
+
+                // It still has to live inside R14's overdraw budget, and a kit
+                // effect built from half a dozen stacked systems will blow it
+                // silently. Count once, at apply, and say so.
                 int layers = _precipitation.GetComponentsInChildren<ParticleSystem>(true).Length;
                 if (layers > MaxAlphaLayers)
                 {
@@ -326,7 +330,96 @@ namespace Corehold.Systems
                 return;
             }
 
+            // Procedural sheet: camera-attached and screen-spanning by design.
+            _precipitation.transform.SetParent(cam.transform, false);
+            _precipitation.transform.localPosition = new Vector3(0f, 0f, 12f);
+            _precipitation.transform.localRotation = Quaternion.identity;
             ConfigureProceduralParticles(_precipitation, p, cam);
+        }
+
+        private Vector3 _prefabBaseScale = Vector3.one;
+
+        /// <summary>
+        /// Anchor an authored precipitation prefab in WORLD space: centred over the
+        /// camera's ground footprint, upright, spawning from above the highest
+        /// thing the camera can see, and scaled out until its emitters cover the
+        /// footprint. Then pre-simulated, because a correctly-placed rain volume
+        /// that starts empty spends its first seconds visibly raining only at the
+        /// top of the screen.
+        /// </summary>
+        private void PlaceAuthoredPrefab(Camera cam)
+        {
+            _precipitation.transform.SetParent(null);
+            _precipitation.transform.rotation = Quaternion.identity;
+
+            // Ground footprint: all four frustum corner rays hit the ground on this
+            // camera (it pitches 38° down with a 17.5° half-FOV, so even the top
+            // edge aims 20.5° below horizontal).
+            Vector3 origin = cam.transform.position;
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minZ = float.MaxValue, maxZ = float.MinValue;
+            foreach (Vector2 c in new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1), new Vector2(1, 1) })
+            {
+                Ray ray = cam.ViewportPointToRay(new Vector3(c.x, c.y, 1f));
+                if (ray.direction.y > -0.001f)
+                    continue;
+                float t = -ray.origin.y / ray.direction.y;
+                Vector3 hit = ray.origin + ray.direction * t;
+                minX = Mathf.Min(minX, hit.x); maxX = Mathf.Max(maxX, hit.x);
+                minZ = Mathf.Min(minZ, hit.z); maxZ = Mathf.Max(maxZ, hit.z);
+            }
+            if (minX > maxX)
+                return;                                   // camera looking at sky — leave the prefab authored
+
+            var centre = new Vector3((minX + maxX) * 0.5f, origin.y + 2f, (minZ + maxZ) * 0.5f);
+            _precipitation.transform.position = centre;
+
+            // Coverage: measure the prefab's own emitter footprint and scale the
+            // root until it spans the frustum. Shape modules follow transform
+            // scale, so this holds for the box/cone volumes rain kits use.
+            Vector2 need = new Vector2((maxX - minX) * 0.5f, (maxZ - minZ) * 0.5f);
+            Vector2 have = MeasureEmitterHalfExtent(_precipitation);
+            float scale = 1f;
+            if (have.x > 0.25f && have.y > 0.25f)
+                scale = Mathf.Clamp(Mathf.Max(need.x / have.x, need.y / have.y), 1f, 40f);
+            _precipitation.transform.localScale = _prefabBaseScale * scale;
+
+            foreach (var ps in _precipitation.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                ps.Clear(false);
+                ps.Simulate(3f, false, true);
+                ps.Play(false);
+            }
+        }
+
+        /// <summary>Half-extent (x, z) of the widest emitter shape in the prefab, at its current scale.</summary>
+        private static Vector2 MeasureEmitterHalfExtent(GameObject root)
+        {
+            var best = Vector2.zero;
+            foreach (var ps in root.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                var shape = ps.shape;
+                if (!shape.enabled)
+                    continue;
+                Vector3 ls = ps.transform.lossyScale;
+                Vector2 half;
+                switch (shape.shapeType)
+                {
+                    case ParticleSystemShapeType.Box:
+                    case ParticleSystemShapeType.BoxShell:
+                    case ParticleSystemShapeType.BoxEdge:
+                        half = new Vector2(Mathf.Abs(shape.scale.x * ls.x) * 0.5f,
+                                           Mathf.Abs(shape.scale.z * ls.z) * 0.5f);
+                        break;
+                    default:
+                        float r = shape.radius * Mathf.Max(Mathf.Abs(ls.x), Mathf.Abs(ls.z));
+                        half = new Vector2(r, r);
+                        break;
+                }
+                if (half.x * half.y > best.x * best.y)
+                    best = half;
+            }
+            return best;
         }
 
         /// <summary>Destroy that works whether the applier is driven in play mode or from an editor tool.
@@ -397,8 +490,29 @@ namespace Corehold.Systems
                 Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
                 if (shader == null) shader = Shader.Find("Sprites/Default");
                 _precipitationMaterial = new Material(shader) { name = "Weather_Precipitation (shared)" };
+
+                // The FULL transparent surface state, not just the _Surface float.
+                // URP materials get their blend state and queue from the shader GUI
+                // at edit time; a material configured from code has to set the
+                // keyword, the blend factors and the queue itself, or it stays on
+                // the shader's defaults — effectively opaque-queue. That is what
+                // made rain and dust vanish over the pads and paths: every ground
+                // overlay there (pad auras, blob shadows, pips — queue 3000+) drew
+                // AFTER the sheet and painted over it. Queue 3080 puts the sheet
+                // above those and below the health bars (5000), which matches the
+                // physical layout — the sheet hangs 12 m from the camera, nearer
+                // than anything it was losing to.
                 if (_precipitationMaterial.HasProperty("_Surface")) _precipitationMaterial.SetFloat("_Surface", 1f);
+                if (_precipitationMaterial.HasProperty("_Blend")) _precipitationMaterial.SetFloat("_Blend", 0f);
+                if (_precipitationMaterial.HasProperty("_SrcBlend"))
+                    _precipitationMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (_precipitationMaterial.HasProperty("_DstBlend"))
+                    _precipitationMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
                 if (_precipitationMaterial.HasProperty("_ZWrite")) _precipitationMaterial.SetFloat("_ZWrite", 0f);
+                _precipitationMaterial.SetOverrideTag("RenderType", "Transparent");
+                _precipitationMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                _precipitationMaterial.DisableKeyword("_ALPHATEST_ON");
+                _precipitationMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 80;
             }
             renderer.sharedMaterial = _precipitationMaterial;
             renderer.renderMode = rain
