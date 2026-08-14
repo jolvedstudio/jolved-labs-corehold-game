@@ -57,7 +57,11 @@ namespace Corehold.Data
         public bool parityLayout;
 
         [Header("Protected structure (the Core)")]
-        [Tooltip("Prefab placed as the thing being defended.")]
+        [Tooltip("PROJECT PREFAB placed as the thing being defended — not a scene object. " +
+                 "A ScriptableObject lives in the project, so Unity refuses to let it reference " +
+                 "anything that only exists in an open scene; drag the Core's PREFAB from the " +
+                 "Project window, or make one from the scene object first. Leave empty to get the " +
+                 "shipped platform + shield-generator stack.")]
         public GameObject protectedPrefab;
 
         [Tooltip("Position on the playfield, normalized from its south-west corner. Default matches the shipped Core at world (34.5, −6.5) on a 130 × 75 field.")]
