@@ -3,21 +3,22 @@ difficulty=normal  focus=0.8/0.95(heavy)  dwell=1.8  band=[>=1.00 all, close<=1.
 geometry: Route_West 153.742 m, Route_North 154.518 m, air corridor 55.52 m, 8 pads  [spline geometry — the adopted baseline, R10]
 
 wv requiredHP deliverable margin      worst-group live salv-pre income  flags / builds
- 1        225         338   1.50    scuttler=5.41    5       50    118  - | HP_Premium_2:autocannon@T1, HP_Premium_1:missile_battery@T1
- 2        425         637   1.50    scuttler=5.45    8       48    160  - | HP_Premium_3:arc_node@T1
- 3        830        1244   1.50       drone=2.30    6        8    186  - | HP_Standard_1:autocannon@T1, HP_Rear_1:autocannon@T1
- 4       1232        1848   1.50     strider=3.42   12       44    244  - | HP_Standard_2:missile_battery@T1
- 5        826        1238   1.50       drone=2.30    3      168    246  - | HP_Rear_2:arc_node@T1
- 6       2556        3833   1.50       drone=1.78   14       34    352  - | HP_Premium_1:missile_battery@T2, HP_Overwatch:siege_mortar@T1
- 7       2912        4368   1.50      lancer=3.78    8      116    336  - | HP_Premium_1:missile_battery@T3
- 8       3842        5763   1.50       drone=2.05   14      122    434  - | HP_Rear_1:autocannon@T3
- 9       5954        8930   1.50       drone=1.93   13       16    483  - | HP_Overwatch:siege_mortar@T3
-10       8908        9521   1.07    colossus=0.98   11       29    602  - | HP_Premium_3:arc_node@T3, HP_Standard_1:autocannon@T2
+ 1        225         338   1.50    scuttler=5.41    5       50    120  - | HP_Premium_2:autocannon@T1, HP_Premium_1:missile_battery@T1
+ 2        425         637   1.50    scuttler=5.45    8       50    163  - | HP_Premium_3:arc_node@T1
+ 3        830        1244   1.50       drone=2.35    6       13    190  - | HP_Standard_1:autocannon@T1, HP_Rear_1:autocannon@T1
+ 4       1232        1848   1.50     strider=3.67   12       53    141  SW×1 | HP_Standard_2:missile_battery@T1
+ 5        826        1238   1.50       drone=2.44    3       74    251  - | HP_Rear_2:arc_node@T1
+ 6       2556        3833   1.50       drone=2.14   14      125    260  SW×1 | HP_Overwatch:siege_mortar@T1
+ 7       2912        4368   1.50      lancer=3.70    8       55    344  - | HP_Rear_1:autocannon@T3
+ 8       3842        5763   1.50       drone=2.57   14       39    348  SW×1 | HP_Premium_1:missile_battery@T2, HP_Standard_2:missile_battery@T2
+ 9       5954        8930   1.50       drone=2.41   13      117    402  SW×1 | HP_Premium_1:missile_battery@T3
+10       8908        9624   1.08    colossus=0.99   11       49    536  SW×1 | HP_Premium_3:arc_node@T3, HP_Standard_1:autocannon@T2
 
 All waves in band — baseline healthy (opens ~1.5, mid 1.2-1.5, closes 1.0-1.2 on the boss; Appendix A's accepted shape).
 
 Assumptions: focus 0.80 swarm / 0.95 heavy (>=800 effHP), queue dwell x1.80 (ground), splash +0.25 targets/m (packs >= 3), chain uptime 0.70/0.25, overkill cap 1.50, enrage from 70% path.
 Income assumes full clears, no chain bonuses. Builds happen between waves; upgrades are coverage-aware (live T1 rings are LARGER than T2/T3 — see the model header).
+R22 terms ON: streak income +15%/+5% (dense>=12), veterancy +2%/wave from w3 cap +12%, Strike Wing auto (+4.5 enemy-s to the worst group, -120 salvage; SW× flags mark uses), mutator flags honoured (none authored on this table). --r22-off reproduces the pre-R22 report.
 
 ==============================================================================
 
@@ -26,21 +27,22 @@ difficulty=veteran  focus=0.8/0.95(heavy)  dwell=1.8  band=[>=1.00 all, close<=1
 geometry: Route_West 153.742 m, Route_North 154.518 m, air corridor 55.52 m, 8 pads  [spline geometry — the adopted baseline, R10]
 
 wv requiredHP deliverable margin      worst-group live salv-pre income  flags / builds
- 1        281         422   1.50    scuttler=4.33    5       86    132  - | HP_Premium_2:autocannon@T1, HP_Premium_1:missile_battery@T1
- 2        531         796   1.50    scuttler=4.36    8       98    180  - | HP_Premium_3:arc_node@T1
- 3       1037        1532   1.48       drone=1.27    6       28    209  - | HP_Standard_1:autocannon@T1, HP_Standard_2:missile_battery@T1
- 4       1540        2310   1.50     strider=3.64   12       17    273  - | HP_Rear_1:autocannon@T1, HP_Rear_2:arc_node@T1
- 5       1032        1548   1.50       drone=1.84    3       90    276  - | HP_Overwatch:siege_mortar@T1
- 6       3194        4792   1.50       drone=2.40   14       36    394  - | HP_Rear_1:autocannon@T3
- 7       3640        5460   1.50      lancer=3.51    8       10    376  - | HP_Premium_1:missile_battery@T2, HP_Overwatch:siege_mortar@T2
- 8       4802        7204   1.50       drone=1.64   14      116    486  - | HP_Premium_1:missile_battery@T3
- 9       7442       11163   1.50       drone=1.54   13      122    541  - | HP_Standard_2:missile_battery@T2, HP_Overwatch:siege_mortar@T3
-10      11135       10596   0.95    colossus=0.83   11       53    674  LOW,GROUP-STARVED(colossus) | HP_Premium_3:arc_node@T3, HP_Standard_2:missile_battery@T3
+ 1        281         422   1.50    scuttler=4.33    5       86    134  - | HP_Premium_2:autocannon@T1, HP_Premium_1:missile_battery@T1
+ 2        531         796   1.50    scuttler=5.23    8        0    183  - | HP_Premium_3:arc_node@T1, HP_Standard_1:autocannon@T1
+ 3       1037        1534   1.48       drone=1.29    6       33    213  - | HP_Standard_2:missile_battery@T1
+ 4       1540        2310   1.50     strider=3.89   12       26    172  SW×1 | HP_Rear_1:autocannon@T1, HP_Rear_2:arc_node@T1
+ 5       1032        1548   1.50       drone=1.95    3      198    281  -
+ 6       3194        4792   1.50       drone=1.71   14       99    305  SW×1 | HP_Premium_1:missile_battery@T2, HP_Overwatch:siege_mortar@T1
+ 7       3640        5460   1.50      lancer=3.60    8        4    384  - | HP_Premium_1:missile_battery@T3, HP_Rear_1:autocannon@T2
+ 8       4802        7204   1.50       drone=2.05   14        8    404  SW×1 | HP_Standard_2:missile_battery@T2, HP_Rear_1:autocannon@T3
+ 9       7442       11163   1.50       drone=3.22   13       72    465  SW×1 | HP_Premium_3:arc_node@T3
+10      11135       11712   1.05    colossus=0.96   11      207    615  SW×1 | HP_Standard_1:autocannon@T3
 
-FLAGGED WAVES: wave 10 [LOW,GROUP-STARVED(colossus)]
+All waves in band — baseline healthy (opens ~1.5, mid 1.2-1.5, closes 1.0-1.2 on the boss; Appendix A's accepted shape).
 
 Assumptions: focus 0.80 swarm / 0.95 heavy (>=800 effHP), queue dwell x1.80 (ground), splash +0.25 targets/m (packs >= 3), chain uptime 0.70/0.25, overkill cap 1.50, enrage from 70% path.
 Income assumes full clears, no chain bonuses. Builds happen between waves; upgrades are coverage-aware (live T1 rings are LARGER than T2/T3 — see the model header).
+R22 terms ON: streak income +15%/+5% (dense>=12), veterancy +2%/wave from w3 cap +12%, Strike Wing auto (+4.5 enemy-s to the worst group, -120 salvage; SW× flags mark uses), mutator flags honoured (none authored on this table). --r22-off reproduces the pre-R22 report.
 NOTE: sub-1.0 closes are BY DESIGN on Veteran/Nightmare — the model is conservative, so sub-1.0 means 'requires above-model play' (GDD Appendix A). The gate difficulty is Normal.
 
 ==============================================================================
@@ -50,19 +52,20 @@ difficulty=nightmare  focus=0.8/0.95(heavy)  dwell=1.8  band=[>=1.00 all, close<
 geometry: Route_West 153.742 m, Route_North 154.518 m, air corridor 55.52 m, 8 pads  [spline geometry — the adopted baseline, R10]
 
 wv requiredHP deliverable margin      worst-group live salv-pre income  flags / builds
- 1        349         523   1.50    scuttler=4.60    5       16    144  - | HP_Premium_2:autocannon@T1, HP_Premium_1:missile_battery@T1, HP_Standard_1:autocannon@T1
- 2        658         988   1.50    scuttler=4.22    8       40    195  - | HP_Premium_3:arc_node@T1
- 3       1286        1868   1.45       drone=1.02    6       85    227  - | HP_Standard_2:missile_battery@T1
- 4       1910        2864   1.50     strider=2.94   12       92    298  - | HP_Rear_1:autocannon@T1, HP_Rear_2:arc_node@T1
- 5       1280        1901   1.49       drone=1.49    3       10    300  - | HP_Premium_1:missile_battery@T2, HP_Overwatch:siege_mortar@T1
- 6       3961        5691   1.44       drone=1.15   14       40    429  - | HP_Premium_1:missile_battery@T3
- 7       4514        6770   1.50      lancer=3.29    8        9    410  - | HP_Standard_1:autocannon@T2, HP_Rear_1:autocannon@T3
- 8       5955        8749   1.47       drone=1.32   14       39    530  - | HP_Standard_1:autocannon@T3, HP_Standard_2:missile_battery@T2
- 9       9228       13550   1.47       drone=1.24   13       29    589  - | HP_Overwatch:siege_mortar@T3
-10      13807       12976   0.94    colossus=0.82   11        8    735  LOW,GROUP-STARVED(colossus) | HP_Premium_3:arc_node@T3, HP_Standard_2:missile_battery@T3
+ 1        349         523   1.50    scuttler=4.60    5       16    146  - | HP_Premium_2:autocannon@T1, HP_Premium_1:missile_battery@T1, HP_Standard_1:autocannon@T1
+ 2        658         988   1.50    scuttler=4.22    8       42    199  - | HP_Premium_3:arc_node@T1
+ 3       1286        1871   1.45       drone=1.04    6       91    231  - | HP_Standard_2:missile_battery@T1
+ 4       1910        2864   1.50     strider=3.14   12      102    198  SW×1 | HP_Rear_1:autocannon@T1, HP_Rear_2:arc_node@T1
+ 5       1280        1920   1.50       drone=1.57    3      100    306  - | HP_Overwatch:siege_mortar@T1
+ 6       3961        5942   1.50       drone=2.34   14       76    343  SW×1 | HP_Rear_1:autocannon@T3
+ 7       4514        6770   1.50      lancer=3.00    8       59    419  - | HP_Premium_1:missile_battery@T2, HP_Standard_2:missile_battery@T2
+ 8       5955        8933   1.50       drone=1.66   14       78    452  SW×1 | HP_Premium_1:missile_battery@T3, HP_Standard_1:autocannon@T2
+ 9       9228       13842   1.50       drone=1.55   13       60    517  SW×1 | HP_Standard_1:autocannon@T3, HP_Standard_2:missile_battery@T3
+10      13807       13738   0.99    colossus=0.89   11       37    681  SW×1,LOW,GROUP-STARVED(colossus) | HP_Overwatch:siege_mortar@T3
 
 FLAGGED WAVES: wave 10 [LOW,GROUP-STARVED(colossus)]
 
 Assumptions: focus 0.80 swarm / 0.95 heavy (>=800 effHP), queue dwell x1.80 (ground), splash +0.25 targets/m (packs >= 3), chain uptime 0.70/0.25, overkill cap 1.50, enrage from 70% path.
 Income assumes full clears, no chain bonuses. Builds happen between waves; upgrades are coverage-aware (live T1 rings are LARGER than T2/T3 — see the model header).
+R22 terms ON: streak income +15%/+5% (dense>=12), veterancy +2%/wave from w3 cap +12%, Strike Wing auto (+4.5 enemy-s to the worst group, -120 salvage; SW× flags mark uses), mutator flags honoured (none authored on this table). --r22-off reproduces the pre-R22 report.
 NOTE: sub-1.0 closes are BY DESIGN on Veteran/Nightmare — the model is conservative, so sub-1.0 means 'requires above-model play' (GDD Appendix A). The gate difficulty is Normal.
