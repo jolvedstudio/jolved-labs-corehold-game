@@ -16,6 +16,8 @@
 # ---- Vendored assets (excluded from version control) ----
 /[Aa]ssets/Vendor/
 /[Aa]ssets/Vendor.meta
+/[Aa]ssets/Yoge/
+/[Aa]ssets/Yoge.meta
 
 # ---- Visual Studio / Rider / VS Code ----
 .vs/
@@ -51,3 +53,12 @@ desktop.ini
 # ---- Python (docs/balance_model.py) ----
 __pycache__/
 *.pyc
+
+# ---- Generator output (reproducible from blueprint + seed) ----
+/[Aa]ssets/_COREHOLD/Scenes/Generated/
+/[Aa]ssets/_COREHOLD/Scenes/Generated.meta
+/[Aa]ssets/_COREHOLD/Data/Levels/Generated/
+/[Aa]ssets/_COREHOLD/Data/Levels/Generated.meta
+
+# ---- IDE ----
+*.slnx

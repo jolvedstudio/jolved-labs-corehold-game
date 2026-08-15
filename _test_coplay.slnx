@@ -1,10 +1,7 @@
 ﻿<Solution>
   <Project Path="Assembly-CSharp.csproj" />
-<<<<<<< Updated upstream
-=======
   <Project Path="ToonyColorsPro.Demo.Editor.csproj" />
   <Project Path="Unity.Splines.Examples.Editor.csproj" />
->>>>>>> Stashed changes
   <Project Path="BezierSolution.Runtime.csproj" />
   <Project Path="CFXRRuntime.csproj" />
   <Project Path="Uween.Runtime.csproj" />
@@ -12,6 +9,7 @@
   <Project Path="KinoBloom.Runtime.csproj" />
   <Project Path="CFXR.WelcomeScreen.csproj" />
   <Project Path="CFXRDemo.csproj" />
+  <Project Path="Unity.Splines.Examples.csproj" />
   <Project Path="BezierSolution.Editor.csproj" />
   <Project Path="CFXREditor.csproj" />
 </Solution>
