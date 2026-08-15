@@ -5,9 +5,9 @@ using Cls = Corehold.Towers.HardpointCoverageGizmo.PadClass;
 
 /// <summary>
 /// The geometric content of one map, as data: core position, ground routes, air
-/// spawn. This is the seam between R26 and R27/R28: the synthesis
-/// layout returns the shipped map, the synthesizer returns a seeded one, and
-/// the pipeline builds whichever it is handed without caring which.
+/// spawn. This is the seam between synthesis (R27/R28) and construction: the
+/// synthesizer returns a seeded layout, and the pipeline builds what it is
+/// handed without knowing how the geometry was chosen.
 /// </summary>
 public class LevelLayout
 {
