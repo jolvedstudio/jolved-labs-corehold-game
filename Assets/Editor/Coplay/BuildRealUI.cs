@@ -608,16 +608,27 @@ namespace CoreholdEditor
             // The mark is a generated, committed sprite (EnsureCoreMarkSprite);
             // the letters stay live TMP text, crisper than any bake.
             var logoRow = MakeRect(root, "Logo", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 260), new Vector2(1200, 150));
-            var cTxt = MakeText(logoRow, "C", "C", 96f, TextAlignmentOptions.Right, new Vector2(-64, 0), new Vector2(220, 130));
-            SetAnchors(cTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-174, 0));
+            var cTxt = MakeText(logoRow, "C", "C", 96f, TextAlignmentOptions.Right, new Vector2(0, 0), new Vector2(220, 130));
             cTxt.color = Cyan;
             var markRect = MakeRect(logoRow, "CoreMark", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 2), new Vector2(116, 116));
             var markImg = markRect.gameObject.AddComponent<Image>();
             markImg.sprite = EnsureCoreMarkSprite();
             markImg.preserveAspect = true;
             var restTxt = MakeText(logoRow, "REHOLD", "<color=#33D9FF>RE</color><color=#DFE9F0>HOLD</color>",
-                96f, TextAlignmentOptions.Left, new Vector2(64, 0), new Vector2(520, 130));
-            SetAnchors(restTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(324, 0));
+                96f, TextAlignmentOptions.Left, new Vector2(0, 0), new Vector2(520, 130));
+
+            // Centre the WHOLE WORD, not the mark: REHOLD is far wider than C, so
+            // anchoring the mark at zero shoved the lockup ~180 px right of centre.
+            // Measure the real glyph widths and solve the layout symmetrically.
+            float cW = cTxt.GetPreferredValues("C").x;
+            float restW = restTxt.GetPreferredValues("REHOLD").x;
+            const float markW = 116f, markGap = 6f;
+            float wordLeft = -(cW + markGap + markW + markGap + restW) * 0.5f;
+            SetAnchors(cTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(wordLeft + cW - 110f, 0));                       // right edge = wordLeft + cW
+            markRect.anchoredPosition = new Vector2(wordLeft + cW + markGap + markW * 0.5f, 2f);
+            SetAnchors(restTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(wordLeft + cW + markGap + markW + markGap + 260f, 0)); // left edge starts after the mark
             var tag = MakeText(root, "Tagline", "HOLD THE LINE", _small, TextAlignmentOptions.Center, new Vector2(0, 190), new Vector2(1200, 30));
             tag.color = new Color(0.8f,0.9f,0.95f,1f);
             SetAnchors(tag.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 185));
