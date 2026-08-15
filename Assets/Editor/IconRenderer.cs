@@ -144,16 +144,35 @@ namespace Corehold.EditorTools
             int rendered = 0;
             var pngPaths = new List<string>();
             var sheet = new List<(string name, Color[] pixels)>();
+            var skipped = new List<string>();
 
             try
             {
                 foreach (var job in jobs)
                 {
-                    var source = job.prefab != null ? job.prefab : fallbackPrefab;
+                    var source = job.prefab;
                     if (source == null)
                     {
-                        Debug.LogWarning($"[IconRenderer] '{job.name}' has no prefab and no fallback exists. Skipping.");
-                        continue;
+                        // A tower must never ship a stand-in icon of an enemy
+                        // mech — a missing basePrefab is a wiring bug to surface,
+                        // not to paper over with the fallback.
+                        if (job.isTower)
+                        {
+                            Debug.LogWarning($"[IconRenderer] Tower '{job.name}' has no basePrefab on its " +
+                                             "TowerDefinition (or the reference is broken). Assign the prefab and re-run.");
+                            skipped.Add(job.name);
+                            continue;
+                        }
+
+                        source = fallbackPrefab;
+                        if (source == null)
+                        {
+                            Debug.LogWarning($"[IconRenderer] '{job.name}' has no prefab and no fallback exists. Skipping.");
+                            skipped.Add(job.name);
+                            continue;
+                        }
+                        Debug.LogWarning($"[IconRenderer] '{job.name}' has no prefab — using the fallback mech " +
+                                         "as a placeholder, so its row on the contact sheet is not this unit's real look.");
                     }
 
                     var path = RenderOne(cam, rt, source, job.name, out Color[] pixels);
@@ -162,6 +181,10 @@ namespace Corehold.EditorTools
                         pngPaths.Add(path);
                         sheet.Add((job.name, pixels));
                         rendered++;
+                    }
+                    else
+                    {
+                        skipped.Add(job.name);
                     }
                 }
             }
@@ -194,8 +217,15 @@ namespace Corehold.EditorTools
             string sheetNote = WriteContactSheet(sheet);
             AssetDatabase.Refresh();
 
-            Debug.Log($"[IconRenderer] Rendered {rendered} icon(s) to {IconDir} and assigned them to definitions.\n" +
-                      sheetNote);
+            // A unit that silently drops off the sheet is how stale icons linger:
+            // the loop keeps going, the old PNG stays on disk, and nothing looks
+            // wrong until the build bar does. Name every casualty in one place.
+            string skipNote = skipped.Count == 0
+                ? ""
+                : $"\nSKIPPED {skipped.Count} of {jobs.Count}: {string.Join(", ", skipped)} — reasons in the warnings/errors above; " +
+                  "their PNGs on disk (if any) are stale, from an older bake.";
+            Debug.Log($"[IconRenderer] Rendered {rendered} of {jobs.Count} icon(s) to {IconDir} and assigned them to definitions." +
+                      skipNote + "\n" + sheetNote);
         }
 
         private struct IconJob
@@ -264,7 +294,8 @@ namespace Corehold.EditorTools
             var instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
             if (instance == null)
             {
-                Debug.LogWarning($"[IconRenderer] Could not instantiate prefab for '{iconName}'.");
+                Debug.LogWarning($"[IconRenderer] Could not instantiate prefab for '{iconName}' — the prefab asset " +
+                                 $"'{prefab.name}' failed to spawn (broken or partially imported asset?).");
                 return null;
             }
 
@@ -284,7 +315,33 @@ namespace Corehold.EditorTools
 
                 if (!TryGetRenderBounds(instance, out var bounds))
                 {
-                    Debug.LogWarning($"[IconRenderer] No renderers found for '{iconName}'.");
+                    // Every renderer matched the decal/aura filters (or the GO
+                    // carrying the model is inactive). A cluttered icon beats a
+                    // missing one: undo the cosmetic filtering and try again —
+                    // effects and the blob shadow stay hidden either way.
+                    RestoreForRescue(instance);
+                    if (!TryGetRenderBounds(instance, out bounds))
+                    {
+                        Debug.LogError($"[IconRenderer] '{iconName}' has no renderable geometry at all. " +
+                                       DescribeChildren(instance) +
+                                       "\nIf the model child shows 'Missing Prefab' in the hierarchy, or is marked " +
+                                       "NO MESH above, its source geometry (often a Vendor kit piece) is broken or " +
+                                       "absent on this machine — re-link it in the prefab and re-run.");
+                        return null;
+                    }
+                    Debug.LogWarning($"[IconRenderer] '{iconName}': every renderer matched the shadow/decal/aura name " +
+                                     "filters, so it was rendered unfiltered instead. If the icon shows stray flat " +
+                                     "quads, rename the model parts so they stop matching. " + DescribeChildren(instance));
+                }
+
+                // A dangling mesh reference still has its MeshRenderer, but the
+                // bounds collapse to a point — the bake would frame 1 m of nothing
+                // and write a blank PNG that LOOKS like a successful run.
+                if (bounds.size.magnitude < 0.001f)
+                {
+                    Debug.LogError($"[IconRenderer] '{iconName}' has renderers but zero-size bounds — its meshes are " +
+                                   "missing (broken mesh references, often a kit piece absent on this machine). " +
+                                   DescribeChildren(instance));
                     return null;
                 }
 
@@ -392,6 +449,55 @@ namespace Corehold.EditorTools
                 if (widest > 0.05f && s.y < widest * 0.04f)
                     r.enabled = false;
             }
+        }
+
+        /// <summary>
+        /// Undoes the cosmetic filtering for a unit whose EVERY renderer matched
+        /// it — a support tower named "CryoGlow_Rings" must not lose its whole
+        /// icon to a halo filter. Effects and the blob shadow are never
+        /// silhouette, so they stay hidden. Inactive GameObjects are left alone:
+        /// an authored-off child (LOD variant, alt state) is a choice, not an
+        /// accident, and DescribeChildren reports it instead.
+        /// </summary>
+        private static void RestoreForRescue(GameObject root)
+        {
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null) continue;
+                if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
+                if (r.GetComponent("BlobShadow") != null) continue;
+                r.enabled = true;
+            }
+        }
+
+        /// <summary>
+        /// One line per child naming what the bake can see — renderer type,
+        /// filtered/inactive state, missing meshes — so a failed unit's console
+        /// entry IS the diagnosis and nobody has to bisect the prefab by hand.
+        /// </summary>
+        private static string DescribeChildren(GameObject root)
+        {
+            var parts = new List<string>();
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == root.transform) continue;
+                var r = t.GetComponent<Renderer>();
+                string what;
+                if (r == null)
+                {
+                    what = "no renderer";
+                }
+                else
+                {
+                    what = r.GetType().Name;
+                    if (!r.enabled) what += ", hidden by filter";
+                    var mf = t.GetComponent<MeshFilter>();
+                    if (r is MeshRenderer && (mf == null || mf.sharedMesh == null)) what += ", NO MESH";
+                }
+                if (!t.gameObject.activeInHierarchy) what += ", INACTIVE";
+                parts.Add($"{t.name} ({what})");
+            }
+            return "Children: " + (parts.Count == 0 ? "none — the prefab root is empty" : string.Join("; ", parts));
         }
 
         // ------------------------------------------------------------ edge halo
