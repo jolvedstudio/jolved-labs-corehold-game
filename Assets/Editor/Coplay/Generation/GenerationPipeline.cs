@@ -805,9 +805,14 @@ public static class GenerationPipeline
         presetProp.objectReferenceValue = ctx.weather;
         so.ApplyModifiedPropertiesWithoutUndo();
 
+        // Night scaffold (R23, extended to every generated map on request): the
+        // lamp auto-placement reads this scene's routes, which exist by this
+        // stage. StHierarchy then sweeps the "NightVariant" root into _Rendering.
+        SetupNightVariant.Setup();
+
         return StageResult.Ok(ctx.weather != null
-            ? $"applier wired to '{ctx.weather.name}' (applies at map load)"
-            : "applier wired to the null preset — authored look, pixel-identical (R13)");
+            ? $"applier wired to '{ctx.weather.name}' (applies at map load); night scaffold placed"
+            : "applier wired to the null preset — authored look, pixel-identical (R13); night scaffold placed");
     }
 
     private static StageResult StHierarchy(Context ctx)

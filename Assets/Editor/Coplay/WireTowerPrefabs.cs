@@ -21,6 +21,12 @@ namespace CoreholdEditor
             ("Assets/_COREHOLD/Data/Towers/Tower_SiegeMortar.asset",    "Assets/_COREHOLD/Prefabs/Towers/Tower_SiegeMortar.prefab"),
             ("Assets/_COREHOLD/Data/Towers/Tower_ScanRelay.asset",      "Assets/_COREHOLD/Prefabs/Towers/Tower_ScanRelay.prefab"),
             ("Assets/_COREHOLD/Data/Towers/Tower_Floodlight.asset",     "Assets/_COREHOLD/Prefabs/Towers/Tower_Floodlight.prefab"),
+            // Roster expansion — chassis prefabs are human-authored; rows link
+            // them once they exist (missing prefabs are logged, not errors).
+            ("Assets/_COREHOLD/Data/Towers/Tower_Railgun.asset",        "Assets/_COREHOLD/Prefabs/Towers/Tower_Railgun.prefab"),
+            ("Assets/_COREHOLD/Data/Towers/Tower_CryoNode.asset",       "Assets/_COREHOLD/Prefabs/Towers/Tower_CryoNode.prefab"),
+            ("Assets/_COREHOLD/Data/Towers/Tower_FlakArray.asset",      "Assets/_COREHOLD/Prefabs/Towers/Tower_FlakArray.prefab"),
+            ("Assets/_COREHOLD/Data/Towers/Tower_SalvageRig.asset",     "Assets/_COREHOLD/Prefabs/Towers/Tower_SalvageRig.prefab"),
         };
 
         public static string Run()

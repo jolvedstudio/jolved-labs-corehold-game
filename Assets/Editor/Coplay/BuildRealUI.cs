@@ -110,8 +110,10 @@ namespace CoreholdEditor
             theme.starEmpty = Load(StarEmpty);
             theme.cyan = Cyan; theme.amber = Amber; theme.danger = Danger;
 
-            // Catalogues, in menu order.
-            string[] order = { "Autocannon", "MissileBattery", "ArcNode", "SiegeMortar", "ScanRelay", "Floodlight" };
+            // Catalogues, in menu order (10-slot roster; the build menu is a
+            // carousel showing six at a time).
+            string[] order = { "Autocannon", "MissileBattery", "ArcNode", "SiegeMortar", "ScanRelay",
+                               "Floodlight", "Railgun", "CryoNode", "FlakArray", "SalvageRig" };
             var defs = AssetDatabase.FindAssets("t:TowerDefinition", new[] { "Assets/_COREHOLD/Data/Towers" })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Select(AssetDatabase.LoadAssetAtPath<TowerDefinition>)
@@ -301,7 +303,8 @@ namespace CoreholdEditor
             towerPanel = BuildTowerPanel(canvas, theme, ring);
             pauseScreen = BuildPauseScreen(canvas, theme);
             resultScreen = BuildResultScreen(canvas, theme);
-            titleScreen = BuildTitleScreen(canvas, theme);
+            var settingsPanel = BuildSettingsPanel(canvas, theme);
+            titleScreen = BuildTitleScreen(canvas, theme, settingsPanel);
 
             // cross-link build menu -> tower panel
             var bmSo = new SerializedObject(buildMenu);
@@ -327,8 +330,9 @@ namespace CoreholdEditor
 
         static BuildMenu BuildBuildMenu(Canvas canvas, UITheme theme, RangeRing ring)
         {
-            // Width fits SIX 140-wide entries + 5×8 spacing (R24 added the
-            // Floodlight): 6·140 + 40 = 880 row, 904 panel.
+            // The viewport shows SIX 140-wide entries + spacing (880); the full
+            // 10-slot roster scrolls behind it as a carousel (drag, wheel, or
+            // the edge arrows). 904 panel = 880 viewport + margins.
             var root = MakePanel(canvas.transform, "BuildMenu",
                 new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(904, 150), theme.panel);
             var comp = canvas.gameObject.AddComponent<BuildMenu>();
@@ -336,9 +340,40 @@ namespace CoreholdEditor
             var title = MakeText(root, "Title", "BUILD", _small, TextAlignmentOptions.TopLeft, new Vector2(16, -6), new Vector2(200, 22));
             title.color = Cyan;
 
-            var entriesRow = MakeRect(root, "Entries", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(880, 110));
+            // Viewport (clips) → Content (the row BuildMenu populates).
+            var viewport = MakeRect(root, "Entries_Viewport", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(880, 110));
+            viewport.gameObject.AddComponent<RectMask2D>();
+            var viewportImg = viewport.gameObject.AddComponent<Image>();
+            viewportImg.color = new Color(0, 0, 0, 0.001f);   // raycast catcher for drags
+
+            var entriesRow = MakeRect(viewport, "Entries", new Vector2(0, 0), new Vector2(0, 1), Vector2.zero, Vector2.zero);
+            entriesRow.pivot = new Vector2(0f, 0.5f);
+            entriesRow.offsetMin = Vector2.zero; entriesRow.offsetMax = Vector2.zero;
             var hlg = entriesRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            hlg.spacing = 8; hlg.childAlignment = TextAnchor.MiddleCenter; hlg.childControlWidth = false; hlg.childControlHeight = false;
+            hlg.spacing = 8; hlg.childAlignment = TextAnchor.MiddleLeft; hlg.childControlWidth = false; hlg.childControlHeight = false;
+            var fitter = entriesRow.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            scroll.viewport = viewport;
+            scroll.content = entriesRow;
+            scroll.horizontal = true; scroll.vertical = false;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.inertia = true; scroll.decelerationRate = 0.08f;
+            scroll.scrollSensitivity = 24f;
+
+            var leftArrow = MakeButton(root, "ArrowLeft", "<", theme,
+                new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(6, -6), new Vector2(30, 96));
+            var rightArrow = MakeButton(root, "ArrowRight", ">", theme,
+                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-6, -6), new Vector2(30, 96));
+
+            var carousel = root.gameObject.AddComponent<BuildMenuCarousel>();
+            var carSo = new SerializedObject(carousel);
+            SetRef(carSo, "scrollRect", scroll);
+            SetRef(carSo, "leftButton", leftArrow.GetComponent<Button>());
+            SetRef(carSo, "rightButton", rightArrow.GetComponent<Button>());
+            carSo.ApplyModifiedPropertiesWithoutUndo();
+
             var entryTemplate = BuildTurretEntryTemplate(entriesRow, theme);
 
             var so = new SerializedObject(comp);
@@ -564,14 +599,25 @@ namespace CoreholdEditor
             return comp;
         }
 
-        static TitleScreen BuildTitleScreen(Canvas canvas, UITheme theme)
+        static TitleScreen BuildTitleScreen(Canvas canvas, UITheme theme, SettingsPanel settingsPanel)
         {
             var root = MakeFullscreenDim(canvas.transform, "TitleScreen", 0.85f);
             var comp = canvas.gameObject.AddComponent<TitleScreen>();
 
-            var logo = MakeText(root, "Logo", "COREHOLD", 96f, TextAlignmentOptions.Center, new Vector2(0, 260), new Vector2(1200, 140));
-            logo.color = Cyan;
-            SetAnchors(logo.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 260));
+            // Logo lockup (variant B): the Core mark IS the O in CORE — C⬡REHOLD.
+            // The mark is a generated, committed sprite (EnsureCoreMarkSprite);
+            // the letters stay live TMP text, crisper than any bake.
+            var logoRow = MakeRect(root, "Logo", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 260), new Vector2(1200, 150));
+            var cTxt = MakeText(logoRow, "C", "C", 96f, TextAlignmentOptions.Right, new Vector2(-64, 0), new Vector2(220, 130));
+            SetAnchors(cTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-174, 0));
+            cTxt.color = Cyan;
+            var markRect = MakeRect(logoRow, "CoreMark", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 2), new Vector2(116, 116));
+            var markImg = markRect.gameObject.AddComponent<Image>();
+            markImg.sprite = EnsureCoreMarkSprite();
+            markImg.preserveAspect = true;
+            var restTxt = MakeText(logoRow, "REHOLD", "<color=#33D9FF>RE</color><color=#DFE9F0>HOLD</color>",
+                96f, TextAlignmentOptions.Left, new Vector2(64, 0), new Vector2(520, 130));
+            SetAnchors(restTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(324, 0));
             var tag = MakeText(root, "Tagline", "HOLD THE LINE", _small, TextAlignmentOptions.Center, new Vector2(0, 190), new Vector2(1200, 30));
             tag.color = new Color(0.8f,0.9f,0.95f,1f);
             SetAnchors(tag.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 185));
@@ -587,7 +633,8 @@ namespace CoreholdEditor
             var (vBtn, vBest, vLock) = BuildDifficultyCard(diffRow, "VETERAN", theme);
             var (mBtn, mBest, mLock) = BuildDifficultyCard(diffRow, "NIGHTMARE", theme);
 
-            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 60), new Vector2(200, 60));
+            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-120, 60), new Vector2(200, 60));
+            var settingsBtn = MakeButton(root, "Settings", "SETTINGS", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(120, 60), new Vector2(200, 60));
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -602,9 +649,91 @@ namespace CoreholdEditor
             SetRef(so, "muteLabel", mute.GetComponentInChildren<TMP_Text>());
             SetRef(so, "veteranLock", vLock);
             SetRef(so, "nightmareLock", mLock);
+            SetRef(so, "settingsButton", settingsBtn.GetComponent<Button>());
+            SetRef(so, "settingsPanel", settingsPanel);
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return comp;
+        }
+
+        static SettingsPanel BuildSettingsPanel(Canvas canvas, UITheme theme)
+        {
+            // Dim + centered popup, PauseScreen's pattern; hidden until opened.
+            var dim = MakeFullscreenDim(canvas.transform, "SettingsScreen", 0.7f);
+            var comp = canvas.gameObject.AddComponent<SettingsPanel>();
+
+            var panel = MakePanel(dim, "Panel", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, new Vector2(640, 560), theme.popup);
+            panel.pivot = new Vector2(0.5f, 0.5f);
+
+            var title = MakeText(panel, "Title", "SETTINGS", _large, TextAlignmentOptions.Top,
+                new Vector2(0, -22), new Vector2(600, 44));
+            title.color = Cyan;
+            SetAnchors(title.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -22));
+
+            var master = MakeSliderRow(panel, "MASTER VOLUME", -110, theme);
+            var sfx = MakeSliderRow(panel, "SFX VOLUME", -180, theme);
+            var music = MakeSliderRow(panel, "MUSIC VOLUME", -250, theme);
+
+            var shake = MakeButton(panel, "ShakeToggle", "SCREEN SHAKE: ON", theme,
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -330), new Vector2(420, 58));
+            var night = MakeButton(panel, "NightToggle", "NIGHT MODE: OFF", theme,
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -400), new Vector2(420, 58));
+            var close = MakeButton(panel, "Close", "CLOSE", theme,
+                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(280, 60));
+
+            var so = new SerializedObject(comp);
+            SetRef(so, "root", dim.gameObject);
+            SetRef(so, "masterSlider", master);
+            SetRef(so, "sfxSlider", sfx);
+            SetRef(so, "musicSlider", music);
+            SetRef(so, "shakeButton", shake.GetComponent<Button>());
+            SetRef(so, "shakeLabel", shake.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "nightButton", night.GetComponent<Button>());
+            SetRef(so, "nightLabel", night.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "closeButton", close.GetComponent<Button>());
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            dim.gameObject.SetActive(false);
+            return comp;
+        }
+
+        /// <summary>A labelled horizontal slider row inside the settings panel.</summary>
+        static Slider MakeSliderRow(RectTransform panel, string label, float y, UITheme theme)
+        {
+            var lbl = MakeText(panel, label + "_Label", label, _small, TextAlignmentOptions.Left,
+                new Vector2(-160, y), new Vector2(240, 26));
+            SetAnchors(lbl.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-160, y));
+
+            // Slider anatomy: background bar → fill area → fill, plus a handle.
+            var rt = MakeRect(panel, label + "_Slider", new Vector2(0.5f, 1), new Vector2(0.5f, 1),
+                new Vector2(120, y), new Vector2(300, 26));
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            var bg = rt.gameObject.AddComponent<Image>();
+            bg.sprite = theme.barBackground; bg.type = Image.Type.Sliced;
+            bg.color = new Color(0.10f, 0.12f, 0.16f, 1f);
+
+            var fillArea = MakeRect(rt, "FillArea", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            fillArea.offsetMin = new Vector2(4, 4); fillArea.offsetMax = new Vector2(-4, -4);
+            var fill = MakeRect(fillArea, "Fill", Vector2.zero, new Vector2(0, 1), Vector2.zero, Vector2.zero);
+            fill.offsetMin = Vector2.zero; fill.offsetMax = Vector2.zero;
+            var fillImg = fill.gameObject.AddComponent<Image>();
+            fillImg.sprite = theme.barFill; fillImg.type = Image.Type.Sliced;
+            fillImg.color = Cyan;
+
+            var handleArea = MakeRect(rt, "HandleArea", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            handleArea.offsetMin = new Vector2(10, 0); handleArea.offsetMax = new Vector2(-10, 0);
+            var handle = MakeRect(handleArea, "Handle", new Vector2(0, 0), new Vector2(0, 1), Vector2.zero, new Vector2(20, 0));
+            var handleImg = handle.gameObject.AddComponent<Image>();
+            handleImg.sprite = theme.buttonNormal; handleImg.type = Image.Type.Sliced;
+
+            var slider = rt.gameObject.AddComponent<Slider>();
+            slider.fillRect = fill;
+            slider.handleRect = handle;
+            slider.targetGraphic = handleImg;
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.minValue = 0f; slider.maxValue = 1f; slider.value = 1f;
+            return slider;
         }
 
         static (RectTransform btn, TMP_Text best, GameObject lockGo) BuildDifficultyCard(RectTransform parent, string label, UITheme theme)
@@ -757,6 +886,158 @@ namespace CoreholdEditor
             importer.mipmapEnabled = false;
             importer.filterMode = FilterMode.Bilinear;
             importer.SaveAndReimport();
+
+            return AssetDatabase.LoadAssetAtPath<Sprite>(path);
+        }
+
+        /// <summary>
+        /// The COREHOLD logo mark (chosen variant B): the Core hex crystal inside
+        /// a broken rampart ring — turret pads on the diagonals, amber siege
+        /// arrows pressing in through the compass gaps. Rendered procedurally at
+        /// 1024² in a ±150 design space, box-downscaled to a committed 512² PNG —
+        /// same doctrine as every generated sprite: deterministic, no kit assets.
+        /// Delete the PNG and re-run to regenerate after a design change.
+        /// </summary>
+        static Sprite EnsureCoreMarkSprite()
+        {
+            const string dir = "Assets/_COREHOLD/Art/UI";
+            const string path = dir + "/UI_CoreMark.png";
+
+            var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
+            if (existing != null)
+                return existing;
+
+            if (!AssetDatabase.IsValidFolder(dir))
+                AssetDatabase.CreateFolder("Assets/_COREHOLD/Art", "UI");
+
+            const int hi = 1024, lo = 512;
+            const float half = 150f;                  // design space ±150
+            Color cyan = new Color(0.20f, 0.85f, 1f, 1f);
+            Color amber = new Color(1f, 0.63f, 0.10f, 1f);
+            Color hexFill = new Color(0.05f, 0.087f, 0.133f, 1f);
+            Color glowCol = new Color(0.50f, 0.91f, 1f, 1f);
+
+            // Pointy-top hexagon test, R = centre-to-vertex.
+            static bool InHex(float x, float y, float r) =>
+                Mathf.Abs(x) <= r * 0.8660254f &&
+                Mathf.Abs(x) * 0.5773503f + Mathf.Abs(y) <= r;
+
+            var px = new Color[hi * hi];
+            for (int j = 0; j < hi; j++)
+            {
+                float y = (j + 0.5f) / hi * (2f * half) - half;
+                for (int i = 0; i < hi; i++)
+                {
+                    float x = (i + 0.5f) / hi * (2f * half) - half;
+                    Color c = Color.clear;
+                    void Over(Color src, float a)
+                    {
+                        a = Mathf.Clamp01(a) * src.a;
+                        if (a <= 0f) return;
+                        float outA = a + c.a * (1f - a);
+                        if (outA <= 0f) return;
+                        c = new Color(
+                            (src.r * a + c.r * c.a * (1f - a)) / outA,
+                            (src.g * a + c.g * c.a * (1f - a)) / outA,
+                            (src.b * a + c.b * c.a * (1f - a)) / outA,
+                            outA);
+                    }
+
+                    float r = Mathf.Sqrt(x * x + y * y);
+                    float ax = Mathf.Abs(x), ay = Mathf.Abs(y);
+
+                    // Rampart ring: radius 95, stroke 7, arcs 15°–75° per quadrant
+                    // (gaps at the four compass approaches).
+                    if (Mathf.Abs(r - 95f) <= 3.5f)
+                    {
+                        float deg = Mathf.Atan2(ay, ax) * Mathf.Rad2Deg; // folded to one quadrant
+                        if (deg >= 15f && deg <= 75f)
+                            Over(cyan, 1f);
+                    }
+
+                    // Turret pads: diamonds on the diagonals at (±67.2, ±67.2).
+                    if (Mathf.Abs(ax - 67.2f) + Mathf.Abs(ay - 67.2f) <= 11.3f)
+                        Over(cyan, 1f);
+
+                    // Siege arrows at N/E/S/W: tip at 106 pointing inward, base 126.
+                    {
+                        float lon = Mathf.Max(ax, ay), lat = Mathf.Min(ax, ay);
+                        if (lon >= 106f && lon <= 126f && lat <= 10f * (lon - 106f) / 20f)
+                            Over(amber, 1f);
+                    }
+
+                    // Core hex: dark fill R49, cyan stroke to R55, facet spokes,
+                    // inner glass, glowing heart.
+                    if (InHex(x, y, 55f))
+                    {
+                        if (InHex(x, y, 49f))
+                            Over(hexFill, 1f);
+                        else
+                            Over(cyan, 1f);
+
+                        if (InHex(x, y, 49f))
+                        {
+                            // Facet spokes: distance to the 6 centre→vertex segments.
+                            for (int v = 0; v < 6; v++)
+                            {
+                                float angD = 90f + 60f * v;
+                                float vxD = Mathf.Cos(angD * Mathf.Deg2Rad) * 49f;
+                                float vyD = Mathf.Sin(angD * Mathf.Deg2Rad) * 49f;
+                                float t = Mathf.Clamp01((x * vxD + y * vyD) / (49f * 49f));
+                                float dx = x - vxD * t, dy = y - vyD * t;
+                                if (dx * dx + dy * dy <= 1.2f * 1.2f)
+                                    Over(cyan, 0.45f);
+                            }
+                            if (InHex(x, y, 30f))
+                                Over(cyan, 0.22f);
+                            if (r <= 26f)
+                                Over(glowCol, 0.55f * (1f - r / 26f) * (1f - r / 26f));
+                            if (InHex(x, y, 14f))
+                                Over(glowCol, 1f);
+                        }
+                    }
+
+                    px[j * hi + i] = c;
+                }
+            }
+
+            // 2×2 premultiplied box downscale (the IconRenderer lesson: averaging
+            // straight alpha bleeds dark fringes).
+            var outPx = new Color[lo * lo];
+            for (int j = 0; j < lo; j++)
+            {
+                for (int i = 0; i < lo; i++)
+                {
+                    float pr = 0, pg = 0, pb = 0, pa = 0;
+                    for (int dj = 0; dj < 2; dj++)
+                    {
+                        for (int di = 0; di < 2; di++)
+                        {
+                            Color s = px[(j * 2 + dj) * hi + i * 2 + di];
+                            pr += s.r * s.a; pg += s.g * s.a; pb += s.b * s.a; pa += s.a;
+                        }
+                    }
+                    pa *= 0.25f; pr *= 0.25f; pg *= 0.25f; pb *= 0.25f;
+                    outPx[j * lo + i] = pa > 0f
+                        ? new Color(pr / pa, pg / pa, pb / pa, pa)
+                        : Color.clear;
+                }
+            }
+
+            var tex = new Texture2D(lo, lo, TextureFormat.ARGB32, false);
+            tex.SetPixels(outPx);
+            tex.Apply();
+            System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+
+            var markImporter = (TextureImporter)AssetImporter.GetAtPath(path);
+            markImporter.textureType = TextureImporterType.Sprite;
+            markImporter.spriteImportMode = SpriteImportMode.Single;
+            markImporter.alphaIsTransparency = true;
+            markImporter.mipmapEnabled = false;
+            markImporter.filterMode = FilterMode.Bilinear;
+            markImporter.SaveAndReimport();
 
             return AssetDatabase.LoadAssetAtPath<Sprite>(path);
         }

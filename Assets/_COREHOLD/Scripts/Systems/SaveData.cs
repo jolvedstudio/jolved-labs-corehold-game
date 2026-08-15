@@ -91,6 +91,39 @@ namespace Corehold.Systems
             set { PlayerPrefs.SetInt(MuteKey, value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
+        // ----- Settings (Welcome & Settings screen) -----
+
+        private const string SettingsPrefix = "corehold.settings.";
+
+        /// <summary>
+        /// Persisted volume for a channel ("master"/"sfx"/"music"), or −1 when the
+        /// player has never moved that slider — callers keep their authored scene
+        /// value in that case, so defaults stay tuned in one place.
+        /// </summary>
+        public static float GetVolume(string channel) =>
+            PlayerPrefs.GetFloat(SettingsPrefix + channel, -1f);
+
+        /// <summary>Persist a channel volume (clamped 0..1).</summary>
+        public static void SetVolume(string channel, float value01)
+        {
+            PlayerPrefs.SetFloat(SettingsPrefix + channel, Mathf.Clamp01(value01));
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>Accessibility: camera shake master switch (default ON).</summary>
+        public static bool ShakeEnabled
+        {
+            get => PlayerPrefs.GetInt(SettingsPrefix + "shake", 1) != 0;
+            set { PlayerPrefs.SetInt(SettingsPrefix + "shake", value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
+        /// <summary>Night lighting preference — applied at map load when the scene has the rig (R23).</summary>
+        public static bool NightPreferred
+        {
+            get => PlayerPrefs.GetInt(SettingsPrefix + "night", 0) != 0;
+            set { PlayerPrefs.SetInt(SettingsPrefix + "night", value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
         // ----- Per-map + per-difficulty personal records (R4) -----
         //
         // Same store, new keys: corehold.record.<map>.<difficulty>.<stat>. The

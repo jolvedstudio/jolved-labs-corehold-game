@@ -51,6 +51,7 @@ namespace Corehold.Towers
         private float _range;
         private float _minRange;
         private bool _canTargetAir;
+        private bool _targetAirOnly;
 
         private Enemy _current;
         private EnemyMover _currentMover;
@@ -95,6 +96,7 @@ namespace Corehold.Towers
             _range = tier.range;
             _minRange = tier.minRange;
             _canTargetAir = definition.canTargetAir;
+            _targetAirOnly = definition.targetAirOnly;
         }
 
         /// <summary>
@@ -215,9 +217,14 @@ namespace Corehold.Towers
             return Floodlight.IsLit(e.HitPoint) ? 1f : s;
         }
 
-        /// <summary>Air-target gate (GDD §7.2). Ground-only turrets skip air enemies.</summary>
+        /// <summary>
+        /// Air-target gate (GDD §7.2). Ground-only turrets skip air enemies, and an
+        /// air-ONLY turret (Flak Array, roster) skips ground contacts entirely.
+        /// </summary>
         private bool CanTarget(Enemy e)
         {
+            if (_targetAirOnly)
+                return e.IsAir;
             if (_canTargetAir)
                 return true;
             return !e.IsAir;

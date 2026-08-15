@@ -209,6 +209,84 @@ CHAIN_BONUS_PER_LIVE_ENEMY = 8   # not assumed in the baseline income
 CHAIN_BONUS_CAP = 80
 MAX_LIVE_ENEMIES = 14
 
+# ---- R22 extension terms (roadmap R22) --------------------------------------
+#
+# The live game grew four systems the R1 model could not see: kill-streak
+# income (R2), the Strike Wing active (R19), wave mutators (R20) and turret
+# veterancy (R21). Streak and veterancy are UNCONDITIONALLY part of live play,
+# so they are ON by default — the default report models the game as shipped.
+# `--r22-off` reproduces the pre-R22 report byte-for-byte (the legacy check).
+#
+#   • STREAK income: bounty payouts escalate with kill streaks. Dense waves
+#     (total spawns >= DENSE_WAVE_COUNT) chain streaks reliably: +15% on the
+#     bounty component; sparse waves +5%. Clear bonuses are unaffected.
+#   • VETERANCY: fleet-average damage ramp standing in for kill-accumulated
+#     ranks — +2% per wave from wave 3, capped at +12% (rank 3 by wave 8).
+#   • STRIKE WING: each use buys STRIKE_ENEMY_SECONDS extra enemy-seconds of
+#     engagement, credited to the wave's WORST group at that group's observed
+#     delivery rate (a strike on an uncovered group credits nothing — stun
+#     only helps where towers already shoot), and costs STRIKE_COST salvage.
+#     "auto" policy: 1 use on dense-or-boss waves, 0 otherwise; --strike-uses
+#     overrides it flat.
+#   • MUTATORS: per-wave flags (none authored on the shipped table; force with
+#     --mutate for tuning). overcharge: xMUTATOR_OC_HP effective HP and
+#     xMUTATOR_OC_BOUNTY bounty. storm: air speed xMUTATOR_STORM_AIR_SPEED
+#     (shorter traverse AND shorter exposure). convoy: every ground group
+#     funnels onto the primary ground route.
+STREAK_INCOME_DENSE = 0.15
+STREAK_INCOME_SPARSE = 0.05
+DENSE_WAVE_COUNT = 12
+VETERANCY_PER_WAVE = 0.02
+VETERANCY_CAP = 0.12
+VETERANCY_FROM_WAVE = 3
+STRIKE_ENEMY_SECONDS = 4.5
+STRIKE_COST = 120
+MUTATOR_OC_HP = 1.30
+MUTATOR_OC_BOUNTY = 1.50
+MUTATOR_STORM_AIR_SPEED = 1.30
+MUTATOR_BLACKOUT_RANGE = 0.50   # distance counts x2 -> range halves; the model
+                                # has no floodlight term (the policy never buys
+                                # one), so this is the WORST-case blackout
+
+# Run-scoped R22 state (CLI-mutated): on/off, strike policy, forced mutators.
+R22 = {
+    "on": True,
+    "strike_uses": None,        # None = auto policy; int = flat per-wave uses
+    "forced_mutators": {},      # wave_number -> set of flags, from --mutate
+}
+
+
+def r22_mutators(wave: dict, wave_number: int) -> frozenset:
+    """The mutator flags in force for a wave: authored on the table + forced."""
+    if not R22["on"]:
+        return frozenset()
+    authored = wave.get("mutators", ())
+    forced = R22["forced_mutators"].get(wave_number, ())
+    return frozenset(authored) | frozenset(forced)
+
+
+def r22_dense(wave: dict) -> bool:
+    return sum(count for _, count, _, _, _ in wave["groups"]) >= DENSE_WAVE_COUNT
+
+
+def r22_strike_uses(wave: dict, wave_number: int) -> int:
+    """Auto policy: one use on dense-or-boss waves (the panic clusters)."""
+    if not R22["on"]:
+        return 0
+    if R22["strike_uses"] is not None:
+        return max(0, R22["strike_uses"])
+    scalar = wave_scalar(wave_number)
+    boss = any(ENEMIES[eid]["hp"] * scalar >= HEAVY_HP
+               for eid, _, _, _, _ in wave["groups"])
+    return 1 if (r22_dense(wave) or boss) else 0
+
+
+def r22_veterancy_mult(wave_number: int) -> float:
+    if not R22["on"]:
+        return 1.0
+    return 1.0 + min(VETERANCY_CAP,
+                     VETERANCY_PER_WAVE * max(0, wave_number - (VETERANCY_FROM_WAVE - 1)))
+
 # ---- Generator overrides (roadmap R30) --------------------------------------
 #
 # The generator parameterizes the model per generated map: its own geometry
@@ -250,6 +328,12 @@ ENEMIES = {
     "breaker":  dict(hp=420,  armour=1, speed=3.75, bounty=35,  leak=3, air=False),
     "colossus": dict(hp=2800, armour=2, speed=3.0,  bounty=250, leak=20, air=False,
                      enrage_mult=1.4),
+    # Roster expansion — no shipped wave uses these yet; rows exist so future
+    # tables can. The Warden's ally damage-reduction bubble is deliberately
+    # UNMODELED until a wave fields one (the model stays conservative; when
+    # that happens, add a per-group protection factor next to the mutators).
+    "shrike":   dict(hp=55,   armour=0, speed=12.0, bounty=16,  leak=2, air=True, altitude=5.0),
+    "warden":   dict(hp=520,  armour=1, speed=3.4,  bounty=45,  leak=3, air=False),
 }
 
 # ---- Towers (Tower_*.asset): damage type 0=Kinetic 1=Energy 2=Explosive.
@@ -586,6 +670,11 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                  wave: dict, difficulty: str):
     hp_mult = DIFFICULTY_HP_MULT[difficulty]
     scalar = wave_scalar(wave_number)
+    mutators = r22_mutators(wave, wave_number)
+    oc_hp = MUTATOR_OC_HP if "overcharge" in mutators else 1.0
+    storm = MUTATOR_STORM_AIR_SPEED if "storm" in mutators else 1.0
+    convoy = "convoy" in mutators
+    blackout_rng = MUTATOR_BLACKOUT_RANGE if "blackout" in mutators else 1.0
 
     groups = []
     wave_duration = 0.0
@@ -594,7 +683,9 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
         enemy = ENEMIES[enemy_id]
         if enemy["air"]:
             route = None
-            traverse = geom.air_length() / enemy["speed"]
+            # Storm (R20/R22): air flies faster — shorter traverse AND, below,
+            # shorter time under every covering tower.
+            traverse = geom.air_length() / (enemy["speed"] * storm)
         else:
             if geom.spread_ground_groups:
                 # Mirrors WaveManager.StartWaveGroups exactly, rotation included.
@@ -602,27 +693,35 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                 # to prevent, so if one of them changes, change both.
                 indices = geom.ground_indices()
                 spawner = indices[(ground_ordinal + wave_number) % len(indices)]
+            if convoy:
+                # Convoy (R20/R22): every ground group funnels onto the primary
+                # ground route, mirroring WaveManager's spawner collapse.
+                spawner = min(geom.routes)
             ground_ordinal += 1
             # A wave may reference a ground spawner the map does not have (a
             # 1-leg generated map running the shipped wave table): those groups
             # walk the primary route instead, mirroring a single-entrance map.
             route = geom.routes.get(spawner) or geom.routes[min(geom.routes)]
             traverse = traverse_time(enemy, route)
-        eff_hp = enemy["hp"] * scalar * hp_mult * count
+        eff_hp = enemy["hp"] * scalar * hp_mult * count * oc_hp
         groups.append(dict(id=enemy_id, enemy=enemy, count=count, gap=gap,
                            offset=offset, route=route, traverse=traverse,
-                           eff_hp=eff_hp, delivered=0.0))
+                           eff_hp=eff_hp, delivered=0.0, exp_s=0.0,
+                           air_speed_mult=storm if enemy["air"] else 1.0))
         wave_duration = max(wave_duration, offset + max(0, count - 1) * gap + traverse)
 
     # Deliverable damage, pad by pad. Each pad has a continuous-fire budget of
     # the wave duration; when the raw exposures across groups exceed it they
     # are scaled down proportionally (a pad shoots one thing at a time).
+    vet = r22_veterancy_mult(wave_number)
     for inst in built.values():
         tower = TOWERS[inst.tower_id]
         tier = tower["tiers"][inst.tier]
         a_fire, a_range, a_dmg = aura_bonuses(geom, built, inst.pad)
-        rng = tier["range"] * (1.0 + a_range)
-        dps = tier["dps"] * (1.0 + a_fire) * (1.0 + a_dmg)
+        rng = tier["range"] * (1.0 + a_range) * blackout_rng
+        # Veterancy (R21/R22): the fleet-average damage ramp rides the same
+        # multiplier stack the live TowerWeapon uses ((1+aura)×(1+rank·4%)).
+        dps = tier["dps"] * (1.0 + a_fire) * (1.0 + a_dmg) * vet
         if dps <= 0.0:
             continue
         px, pz = geom.pads[inst.pad][0], geom.pads[inst.pad][1]
@@ -635,7 +734,7 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                 continue
             if enemy["air"]:
                 covered = air_covered_length(geom, px, pz, rng, enemy["altitude"])
-                t_per = covered / enemy["speed"]
+                t_per = covered / (enemy["speed"] * g["air_speed_mult"])
                 dwell = 1.0
             else:
                 intervals = covered_intervals(g["route"], px, pz, rng,
@@ -667,6 +766,20 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
             if tier["splash"] > 0.0 and g["count"] >= SPLASH_PACK_MIN:
                 factor *= 1.0 + SPLASH_PACK_BONUS_PER_M * tier["splash"]
             g["delivered"] += dps * mult * factor * exposure * scale * focus
+            g["exp_s"] += exposure * scale
+
+    # Strike Wing (R19/R22): each use buys extra enemy-seconds of engagement,
+    # credited to the WORST group at that group's OBSERVED delivery rate —
+    # a strike over an uncovered group credits nothing, because stunning an
+    # enemy no tower can shoot kills nothing. The salvage cost lands on this
+    # wave's income in run_model.
+    strike_uses = r22_strike_uses(wave, wave_number)
+    if strike_uses > 0 and groups:
+        target = min(groups, key=lambda g: (g["delivered"] / g["eff_hp"])
+                     if g["eff_hp"] > 0 else float("inf"))
+        if target["exp_s"] > 0.0:
+            rate = target["delivered"] / target["exp_s"]
+            target["delivered"] += rate * STRIKE_ENEMY_SECONDS * strike_uses
 
     required = sum(g["eff_hp"] for g in groups)
     deliverable = sum(min(g["delivered"], g["eff_hp"] * OVERKILL_CAP)
@@ -692,13 +805,21 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
 
     return dict(margin=margin, required=required, deliverable=deliverable,
                 worst_group=worst["id"], worst_margin=worst_margin,
-                peak_live=peak, duration=wave_duration)
+                peak_live=peak, duration=wave_duration,
+                strike_uses=strike_uses)
 
 
 def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
     eco = DIFFICULTY_ECO_MULT[difficulty]
     bounties = sum(ENEMIES[eid]["bounty"] * count
                    for eid, count, _, _, _ in wave["groups"])
+    if R22["on"]:
+        # Streak income (R2/R22): kill payouts escalate with streaks; dense
+        # waves chain them reliably. Bounty component only — clears are flat.
+        streak = STREAK_INCOME_DENSE if r22_dense(wave) else STREAK_INCOME_SPARSE
+        bounties *= 1.0 + streak
+        if "overcharge" in r22_mutators(wave, wave_number):
+            bounties *= MUTATOR_OC_BOUNTY
     clear = wave["clear"] if wave["clear"] > 0 else 60 + 18 * wave_number
     return round(bounties * eco) + round(clear * eco)
 
@@ -774,7 +895,11 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
 
         result = compute_wave(geom, built, wave_number, wave, difficulty)
         income = wave_income(wave, wave_number, difficulty)
+        # Strike Wing cost (R22): a use is salvage the build phase never sees.
+        income -= STRIKE_COST * result["strike_uses"]
 
+        # NOTE: flags is the GATE verdict (exit code + in_band in --json) —
+        # informational markers like Strike Wing usage must never enter it.
         flags = []
         if result["margin"] < BAND_MIN:
             flags.append("LOW")
@@ -812,6 +937,10 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     for r, changes in zip(rows, build_log):
         worst = f"{r['worst_group']}={r['worst_margin']:.2f}"
         flags = ",".join(r["flags"]) if r["flags"] else "-"
+        # Strike Wing usage is informational — shown in the flags cell but
+        # never stored in r["flags"], which is the gate verdict.
+        if r.get("strike_uses"):
+            flags = f"SW×{r['strike_uses']}" + ("," + flags if r["flags"] else "")
         builds = (" | " + ", ".join(changes)) if changes else ""
         w(f"{r['wave']:>2} {r['required']:>10.0f} {r['deliverable']:>11.0f} "
           f"{r['margin']:>6.2f} {worst:>16} {r['peak_live']:>4} "
@@ -835,6 +964,17 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     w("Income assumes full clears, no chain bonuses. Builds happen between "
       "waves; upgrades are coverage-aware (live T1 rings are LARGER than "
       "T2/T3 — see the model header).")
+    if R22["on"]:
+        w("R22 terms ON: streak income +%.0f%%/+%.0f%% (dense>=%d), veterancy "
+          "+%.0f%%/wave from w%d cap +%.0f%%, Strike Wing %s (+%.1f enemy-s to "
+          "the worst group, -%d salvage; SW× flags mark uses), mutator flags "
+          "honoured (none authored on this table). --r22-off reproduces the "
+          "pre-R22 report." % (
+              STREAK_INCOME_DENSE * 100, STREAK_INCOME_SPARSE * 100,
+              DENSE_WAVE_COUNT, VETERANCY_PER_WAVE * 100, VETERANCY_FROM_WAVE,
+              VETERANCY_CAP * 100,
+              ("auto" if R22["strike_uses"] is None else f"x{R22['strike_uses']}"),
+              STRIKE_ENEMY_SECONDS, STRIKE_COST))
     if difficulty != "normal":
         w("NOTE: sub-1.0 closes are BY DESIGN on Veteran/Nightmare — the model "
           "is conservative, so sub-1.0 means 'requires above-model play' "
@@ -934,7 +1074,7 @@ def solve_hp_growth(difficulty: str, geometry: Geometry):
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="COREHOLD per-wave balance model (R1, R10, R30)")
+    ap = argparse.ArgumentParser(description="COREHOLD per-wave balance model (R1, R10, R30, R22)")
     ap.add_argument("--difficulty", choices=list(DIFFICULTY_HP_MULT),
                     default="normal")
     ap.add_argument("--measured-lengths", metavar="WEST,NORTH", type=parse_measured,
@@ -957,12 +1097,35 @@ def main(argv=None) -> int:
                     help="also write the table to this file")
     ap.add_argument("--json", metavar="PATH",
                     help="also dump rows as JSON (for delta tooling and the generator gate)")
+    ap.add_argument("--r22-off", action="store_true",
+                    help="disable every R22 term (streak, veterancy, Strike Wing, mutators) "
+                         "— reproduces the pre-R22 report byte-for-byte")
+    ap.add_argument("--strike-uses", type=int, metavar="N",
+                    help="flat Strike Wing uses per wave (default: auto — 1 on "
+                         "dense-or-boss waves, 0 otherwise)")
+    ap.add_argument("--mutate", action="append", default=[], metavar="W:FLAGS",
+                    help="force mutator flags onto wave W for a tuning run, e.g. "
+                         "--mutate 8:overcharge --mutate 5:storm,convoy (repeatable)")
     args = ap.parse_args(argv)
 
     if args.hp_growth is not None:
         ACTIVE["hp_growth"] = args.hp_growth
     if args.max_live is not None:
         ACTIVE["max_live"] = args.max_live
+
+    R22["on"] = not args.r22_off
+    R22["strike_uses"] = args.strike_uses
+    for spec in args.mutate:
+        try:
+            wave_str, flag_str = spec.split(":", 1)
+            flags = {f.strip().lower() for f in flag_str.split(",") if f.strip()}
+            bad = flags - {"storm", "convoy", "overcharge", "blackout"}
+            if bad:
+                raise ValueError(f"unknown mutator(s): {', '.join(sorted(bad))}")
+            R22["forced_mutators"][int(wave_str)] = flags
+        except ValueError as e:
+            print(f"--mutate '{spec}': {e} (expected W:flag[,flag])", file=sys.stderr)
+            return 2
 
     geometry = load_geometry(args.geometry) if args.geometry else None
 

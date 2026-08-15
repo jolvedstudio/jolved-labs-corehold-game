@@ -51,7 +51,7 @@ public static class SceneContainers
         ("_Rendering", new[]
         {
             "Main Camera", "Directional Light", "Global Volume",
-            "ReflectionProbe", "LightProbeGroup"
+            "ReflectionProbe", "LightProbeGroup", "NightVariant"
         }),
     };
 

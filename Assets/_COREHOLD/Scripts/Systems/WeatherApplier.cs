@@ -230,6 +230,14 @@ namespace Corehold.Systems
         /// <summary>Clear back to the authored look.</summary>
         public void Clear() => Apply(null);
 
+        /// <summary>
+        /// Re-run the current preset (DebugConsole `W`). Weather normally applies
+        /// once at map load, so edits to a preset asset during play were invisible
+        /// until a restart — which made tuning feel like the fields did nothing.
+        /// Idempotent: the overrides converge, so pressing it twice changes nothing.
+        /// </summary>
+        public void Reapply() => Apply(Active != null ? Active : preset);
+
         // ------------------------------------------------------------ tinting
 
         private void TintTargets(Color tint)
@@ -331,7 +339,7 @@ namespace Corehold.Systems
                 // and rains a tilted column onto the middle of the screen. World
                 // placement over the camera's ground footprint is what "falls from
                 // the top" actually means for an authored volume.
-                PlaceAuthoredPrefab(cam);
+                PlaceAuthoredPrefab(cam, p);
 
                 // It still has to live inside R14's overdraw budget, and a kit
                 // effect built from half a dozen stacked systems will blow it
@@ -363,17 +371,24 @@ namespace Corehold.Systems
         /// The previous approach — spanning the camera's whole GROUND footprint —
         /// asked a rain kit to cover 100×60 m from 40 m up, and kit prefabs are
         /// authored for ~10 m of fall: drops died mid-air, which on screen read as
-        /// rain that starts and vanishes in the middle of the view. At 12 m the
-        /// visible window is only ~8 m tall, so an authored fall crosses ALL of it:
-        /// drops enter above the top edge and are still falling when they leave the
-        /// bottom — full-screen by construction, using the prefab's own lifetimes.
+        /// rain that starts and vanishes in the middle of the view.
+        ///
+        /// At 12 m the window is small — but "the prefab's own lifetimes cross it"
+        /// proved FALSE on a pitched camera: the traverse from above the top edge
+        /// to below the bottom needs lift + screenHeight/up.y + margin (≈17 m at
+        /// 38°), and kit lifetimes stop a little short, which reads as rain that
+        /// never reaches the bottom of the screen. So placement now calls
+        /// <see cref="ApplyAuthoredOverrides"/>, which EXTENDS each system's
+        /// lifetime until its fall covers the traverse — and, same trip, makes the
+        /// preset's `[TUNE]` numbers real for authored prefabs (they previously
+        /// applied only to the procedural sheet, so editing them did nothing).
         ///
         /// World-upright (yaw only), because inheriting the camera's 38° pitch is
         /// what made the prefab rain sideways; parented AFTER posing, with the
         /// world pose kept, so it follows the (fixed) camera without adopting its
         /// rotation.
         /// </summary>
-        private void PlaceAuthoredPrefab(Camera cam)
+        private void PlaceAuthoredPrefab(Camera cam, WeatherPreset p)
         {
             const float layerDistance = 12f;
 
@@ -399,6 +414,8 @@ namespace Corehold.Systems
 
             _precipitation.transform.SetParent(cam.transform, true);
 
+            ApplyAuthoredOverrides(p, cam, halfH, lift);
+
             // Pre-simulate so the column is falling through the whole window from
             // frame one instead of raining only at the top for the first seconds.
             foreach (var ps in _precipitation.GetComponentsInChildren<ParticleSystem>(true))
@@ -406,6 +423,79 @@ namespace Corehold.Systems
                 ps.Clear(false);
                 ps.Simulate(3f, false, true);
                 ps.Play(false);
+            }
+        }
+
+        /// <summary>
+        /// Make the preset's `[TUNE]` numbers authoritative for an AUTHORED prefab
+        /// (they always were for the procedural sheet):
+        ///
+        ///   • REACH — each system's lifetime is extended until its fall
+        ///     (startSpeed + velocity-over-lifetime + gravity) covers the full
+        ///     screen traverse, so drops exit below the bottom edge instead of
+        ///     dying mid-view. Falling past the screen is free; stopping short is
+        ///     what reads as broken.
+        ///   • SIZE — `particleSize` CAPS each system's start size (never
+        ///     enlarges), which is what tames kit dust motes that render fat at
+        ///     the 12 m layer.
+        ///   • RATE — every system's emission is rescaled proportionally so the
+        ///     TOTAL matches `precipitationRate`.
+        ///
+        /// All three are idempotent, so re-applying (DebugConsole `W`) is safe.
+        /// </summary>
+        private void ApplyAuthoredOverrides(WeatherPreset p, Camera cam, float halfH, float lift)
+        {
+            var systems = _precipitation.GetComponentsInChildren<ParticleSystem>(true);
+            if (systems.Length == 0)
+                return;
+
+            float upShare = Mathf.Max(0.35f, cam.transform.up.y);
+            float fallNeeded = lift + (2f * halfH) / upShare + 2f;
+
+            float totalRate = 0f;
+            for (int i = 0; i < systems.Length; i++)
+            {
+                var em = systems[i].emission;
+                if (em.enabled)
+                    totalRate += em.rateOverTime.constantMax;
+            }
+            float rateScale = totalRate > 0.01f && p.precipitationRate > 0f
+                ? Mathf.Clamp(p.precipitationRate / totalRate, 0.05f, 10f)
+                : 1f;
+
+            for (int i = 0; i < systems.Length; i++)
+            {
+                ParticleSystem ps = systems[i];
+                var main = ps.main;
+
+                // Reach: solve fall(t) = v0·t + ½g·t² ≥ fallNeeded for t.
+                float t0 = Mathf.Max(0.05f, main.startLifetime.constantMax);
+                float v0 = Mathf.Abs(main.startSpeed.constantMax);
+                var vol = ps.velocityOverLifetime;
+                if (vol.enabled)
+                    v0 += Mathf.Abs(vol.y.constantMax);
+                float g = 9.81f * Mathf.Max(0f, main.gravityModifier.constantMax);
+
+                float drop = v0 * t0 + 0.5f * g * t0 * t0;
+                if (drop + 0.01f < fallNeeded && (v0 > 0.01f || g > 0.01f))
+                {
+                    float t1 = g > 0.01f
+                        ? (-v0 + Mathf.Sqrt(v0 * v0 + 2f * g * fallNeeded)) / g
+                        : fallNeeded / v0;
+                    main.startLifetime = Mathf.Clamp(t1, t0, t0 * 8f);
+                }
+
+                // Size cap (dust motes): never enlarge an authored look.
+                if (p.particleSize > 0.004f && main.startSize.constantMax > p.particleSize)
+                    main.startSize = p.particleSize;
+
+                // Rate: proportional reshape toward the preset total.
+                var emission = ps.emission;
+                if (emission.enabled && !Mathf.Approximately(rateScale, 1f))
+                    emission.rateOverTime = emission.rateOverTime.constantMax * rateScale;
+
+                main.maxParticles = Mathf.Max(main.maxParticles,
+                    Mathf.CeilToInt(emission.rateOverTime.constantMax * main.startLifetime.constantMax) + 32);
             }
         }
 
@@ -471,7 +561,14 @@ namespace Corehold.Systems
             // intuition suggests.
             main.startSize = p.particleSize;
             main.startColor = p.particleColor;
-            main.startLifetime = height / Mathf.Max(0.1f, p.fallSpeed);
+            // Lifetime must cover the TRAVERSE, not the screen height: the camera
+            // is pitched, so world-down crosses screen-up at fallSpeed·up.y (≈0.79
+            // at 38°), and the spawn box spreads particles up to 0.3·height DEEPER
+            // than the 12 m layer, where the same screen height spans more metres.
+            // `height / fallSpeed` ignored both, and rain died ~70% down the view.
+            float upShare = Mathf.Max(0.35f, cam.transform.up.y);
+            float span = height * ((12f + height * 0.3f) / 12f);
+            main.startLifetime = (span / upShare + 2f) / Mathf.Max(0.1f, p.fallSpeed);
             main.maxParticles = Mathf.CeilToInt(p.precipitationRate * main.startLifetime.constant) + 32;
             main.gravityModifier = 0f;
 

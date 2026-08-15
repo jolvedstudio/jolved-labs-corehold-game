@@ -148,6 +148,9 @@ namespace Corehold.UI
 
                 int cost = def.tiers != null && def.tiers.Length > 0 ? def.tiers[0].cost : 0;
                 bool affordable = gm != null && gm.Salvage >= cost;
+                // Roster entries whose chassis prefab has not been authored yet
+                // exist as data but cannot be built — show WIP, never a dead click.
+                bool buildable = def.basePrefab != null;
 
                 var icon = cell.transform.Find("Icon")?.GetComponent<Image>();
                 var nameTxt = cell.transform.Find("Name")?.GetComponent<TMP_Text>();
@@ -167,11 +170,11 @@ namespace Corehold.UI
                     costTxt.text = cost.ToString();
                     costTxt.color = affordable ? (theme != null ? theme.cyan : Color.cyan) : (theme != null ? theme.danger : Color.red);
                 }
-                if (roleTxt != null) roleTxt.text = RoleTag(def);
+                if (roleTxt != null) roleTxt.text = buildable ? RoleTag(def) : "WIP";
 
                 if (btn != null)
                 {
-                    btn.interactable = affordable;
+                    btn.interactable = affordable && buildable;
                     btn.onClick.RemoveAllListeners();
                     var captured = def;
                     btn.onClick.AddListener(() => OnPick(captured));

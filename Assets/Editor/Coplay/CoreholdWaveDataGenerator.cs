@@ -54,6 +54,19 @@ namespace Corehold.EditorTools
             var breaker = CreateEnemy("Enemy_Breaker", "breaker", "Breaker", "Breaker",
                 hp: 420f, armour: ArmourType.Plated, speed: 3.75f, bounty: 35, leak: 3, air: false, log: log);
 
+            // ----- Roster expansion (approved 10-slot roster) -----
+            // Prefabs are HUMAN-authored in Unity/CoPlay; rows link them when they
+            // exist (same conditional pattern as the Colossus below). Neither is
+            // used by the shipped waves yet — they are content for future tables.
+            CreateEnemy("Enemy_Shrike", "shrike", "Shrike", "Shrike",
+                hp: 55f, armour: ArmourType.Unarmoured, speed: 12.0f, bounty: 16, leak: 2, air: true, log: log,
+                flightAltitude: 5f);
+
+            // Warden: the first enemy-side support unit — its prefab must carry a
+            // WardenAura component (damage-reduction bubble for nearby allies).
+            CreateEnemy("Enemy_Warden", "warden", "Warden", "Warden",
+                hp: 520f, armour: ArmourType.Plated, speed: 3.4f, bounty: 45, leak: 3, air: false, log: log);
+
             // Colossus prefab is conditional (GDD §4.5): may not exist yet. Link if
             // present, otherwise leave the prefab field null to be assigned later.
             var colossus = CreateEnemy("Enemy_Colossus", "colossus", "Colossus", "Colossus",

@@ -38,6 +38,10 @@ namespace Corehold.UI
         [SerializeField] private Button muteButton;
         [SerializeField] private TMP_Text muteLabel;
 
+        [Header("Settings")]
+        [SerializeField] private Button settingsButton;
+        [SerializeField] private SettingsPanel settingsPanel;
+
         [Header("Locked-state icons (optional)")]
         [SerializeField] private GameObject veteranLock;
         [SerializeField] private GameObject nightmareLock;
@@ -58,6 +62,7 @@ namespace Corehold.UI
             if (veteranButton != null) veteranButton.onClick.AddListener(() => Play(Difficulty.Veteran));
             if (nightmareButton != null) nightmareButton.onClick.AddListener(() => Play(Difficulty.Nightmare));
             if (muteButton != null) muteButton.onClick.AddListener(ToggleMute);
+            if (settingsButton != null) settingsButton.onClick.AddListener(OpenSettings);
             Refresh();
         }
 
@@ -67,6 +72,15 @@ namespace Corehold.UI
             if (veteranButton != null) veteranButton.onClick.RemoveAllListeners();
             if (nightmareButton != null) nightmareButton.onClick.RemoveAllListeners();
             if (muteButton != null) muteButton.onClick.RemoveListener(ToggleMute);
+            if (settingsButton != null) settingsButton.onClick.RemoveListener(OpenSettings);
+        }
+
+        private void OpenSettings()
+        {
+            if (AudioDirector.Instance != null)
+                AudioDirector.Instance.PlayUIClick();
+            if (settingsPanel != null)
+                settingsPanel.Show();
         }
 
         public void Show()

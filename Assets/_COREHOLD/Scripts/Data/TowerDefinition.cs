@@ -29,6 +29,9 @@ namespace Corehold.Data
         [Tooltip("Whether this turret can target air units.")]
         public bool canTargetAir;
 
+        [Tooltip("Flak Array (roster): this turret targets ONLY air units — ground contacts are skipped entirely. Requires canTargetAir.")]
+        public bool targetAirOnly;
+
         [Header("Prefabs & tiers")]
         [Tooltip("Base chassis prefab placed on a hardpoint.")]
         public GameObject basePrefab;

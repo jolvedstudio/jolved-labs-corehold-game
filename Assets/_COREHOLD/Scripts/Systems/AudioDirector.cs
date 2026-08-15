@@ -218,6 +218,16 @@ namespace Corehold.Systems
             }
             _instance = this;
 
+            // Persisted mixer preferences (Settings screen). −1 = the player never
+            // moved that slider, so the authored scene value stays authoritative.
+            float mv = SaveData.GetVolume("master");
+            if (mv >= 0f) masterVolume = mv;
+            float sv = SaveData.GetVolume("sfx");
+            if (sv >= 0f) sfxVolume = sv;
+            float uv = SaveData.GetVolume("music");
+            if (uv >= 0f) musicVolume = uv;
+            muted = SaveData.Muted;
+
             BuildClipLookup();
             BuildVoices();
             BuildRotationVoices();
