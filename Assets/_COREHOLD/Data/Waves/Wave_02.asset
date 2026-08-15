@@ -19,3 +19,4 @@ MonoBehaviour:
     startOffset: 0
     spawnerIndex: 0
   clearBonus: 96
+  mutators: 0

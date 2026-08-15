@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 734fd835cec16074fa5bce42c59bf999, type: 3}
+  m_Name: Tower_Floodlight
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
+  id: floodlight
+  displayName: Floodlight
+  icon: {fileID: 21300000, guid: 83dca907801f2ff4b80c06526c7d1e1f, type: 3}
+  description: Projects a 12 m circle of light. Lit enemies are acquired at full
+    range under a Blackout. No damage.
+  damageType: 0
+  canTargetAir: 0
+  targetAirOnly: 0
+  basePrefab: {fileID: 1411838855552200140, guid: 6ff0d8d36fc80b54ea609badfe660f0c, type: 3}
+  tiers:
+  - cost: 70
+    weapons: []
+    range: 0
+    minRange: 0
+    damage: 0
+    fireRate: 0
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 12
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0

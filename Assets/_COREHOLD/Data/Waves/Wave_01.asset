@@ -15,7 +15,13 @@ MonoBehaviour:
   groups:
   - enemy: {fileID: 11400000, guid: 17932bf9e35be0e459d8177a96e9c6df, type: 2}
     count: 5
-    spawnGap: 2.6
+    spawnGap: 5
     startOffset: 0
     spawnerIndex: 0
+  - enemy: {fileID: 11400000, guid: b7a7058d79484f54e8cce2ac2801d856, type: 2}
+    count: 1
+    spawnGap: 5
+    startOffset: 0
+    spawnerIndex: 1
   clearBonus: 78
+  mutators: 0

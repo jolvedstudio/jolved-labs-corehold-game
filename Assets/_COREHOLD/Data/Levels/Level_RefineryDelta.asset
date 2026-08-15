@@ -29,3 +29,5 @@ MonoBehaviour:
   chainBonusPerLiveEnemy: 8
   chainBonusCap: 80
   maxLiveEnemies: 14
+  chainLockFieldLoad: 0
+  spreadGroundGroupsAcrossSpawners: 0

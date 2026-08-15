@@ -16,6 +16,8 @@
 # ---- Vendored assets (excluded from version control) ----
 /[Aa]ssets/Vendor/
 /[Aa]ssets/Vendor.meta
+/[Aa]ssets/Yoge/
+/[Aa]ssets/Yoge.meta
 
 # ---- Visual Studio / Rider / VS Code ----
 .vs/

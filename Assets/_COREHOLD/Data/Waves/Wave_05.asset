@@ -13,9 +13,10 @@ MonoBehaviour:
   m_Name: Wave_05
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WaveDefinition
   groups:
-  - enemy: {fileID: 11400000, guid: ddd6ac25d0683a64b9443acde334269e, type: 2}
+  - enemy: {fileID: 11400000, guid: 4c6008c65aacdf54da499676a421088d, type: 2}
     count: 8
     spawnGap: 2.8
     startOffset: 0
     spawnerIndex: 2
   clearBonus: 150
+  mutators: 0

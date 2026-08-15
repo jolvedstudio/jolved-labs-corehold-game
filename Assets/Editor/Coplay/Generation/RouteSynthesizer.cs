@@ -214,7 +214,6 @@ public static class RouteSynthesizer
         {
             corePos = core,
             airSpawn = new Vector3(0f, 4f, D * 0.5f - 0.5f),
-            pads = null,                               // R28 selects
             sharedTail = b.GroundLegs >= 2,            // two legs merge; one does not
         };
 
@@ -404,7 +403,6 @@ public static class RouteSynthesizer
                 groundRoutes = routes,
                 routeNames = names,
                 airSpawn = new Vector3(core.x, 4f, core.z + Mathf.Min(D * 0.5f - 0.5f - core.z, R1 + 6f)),
-                pads = null,
                 sharedTail = false,                    // approaches converge, they do not merge
             };
             log.AppendLine($"[ok] {n} approach(es): run levels R1 {R1:0.#} / R2 {R2:0.#} m, span " +

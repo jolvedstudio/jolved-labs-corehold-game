@@ -18,6 +18,7 @@ MonoBehaviour:
   description: Two-barrel kinetic cannon. Hitscan, single target. The workhorse.
   damageType: 0
   canTargetAir: 1
+  targetAirOnly: 0
   basePrefab: {fileID: 7684711906550116464, guid: d8bc606dca1f55b47a2138b3a845cff4, type: 3}
   tiers:
   - cost: 100
@@ -31,6 +32,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 0}
       projectileSpeed: 0
       splashRadius: 0
+      pierce: 0
       tracerColor: {r: 766.99615, g: 482.11188, b: 175.3134, a: 1}
     range: 20
     minRange: 0
@@ -59,6 +61,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 0}
       projectileSpeed: 0
       splashRadius: 0
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 13
     minRange: 0
@@ -87,6 +90,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 0}
       projectileSpeed: 0
       splashRadius: 0
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 14
     minRange: 0
