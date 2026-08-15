@@ -19,6 +19,16 @@ namespace Corehold.EditorTools
         private const string LevelDir = "Assets/_COREHOLD/Data/Levels";
         private const string PrefabDir = "Assets/_COREHOLD/Prefabs/Enemies";
 
+        /// <summary>
+        /// Menu wrapper — this tool predates the menu convention and was only
+        /// reachable through CoPlay, while every re-run instruction assumed a
+        /// click. Safe to re-run: assets are updated in place, prefabs are
+        /// linked when they exist (Shrike/Warden/Colossus), never duplicated.
+        /// </summary>
+        [MenuItem("Tools/COREHOLD/Scene Setup/Wave Data (Enemies + Waves)", false, 52)]
+        public static void Run() =>
+            Debug.Log("[COREHOLD] Wave data generator:\n" + Execute());
+
         public static string Execute()
         {
             var log = new System.Text.StringBuilder();
