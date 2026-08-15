@@ -88,6 +88,14 @@ namespace Corehold.Systems
                 _instance = null;
         }
 
+        private void Start()
+        {
+            // The player's persisted preference (Settings screen) applies at map
+            // load — after Awake so weather/baselines have settled underneath.
+            if (Application.isPlaying && SaveData.NightPreferred && !IsNight)
+                SetNight(true);
+        }
+
         /// <summary>Flip between day and night.</summary>
         public void Toggle() => SetNight(!IsNight);
 

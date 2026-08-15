@@ -152,6 +152,10 @@ namespace Corehold.Systems
         /// </summary>
         public bool Shake(float trauma)
         {
+            // Accessibility master switch (Settings screen, persisted in SaveData).
+            if (!SaveData.ShakeEnabled)
+                return false;
+
             float now = Time.unscaledTime;
             if (now - _lastShakeTime < cooldown)
                 return false;
@@ -197,6 +201,8 @@ namespace Corehold.Systems
         public void Kick(Vector3 worldFrom, float strength)
         {
             if (strength <= 0f || effectScale <= 0f)
+                return;
+            if (!SaveData.ShakeEnabled)
                 return;
 
             float now = Time.unscaledTime;

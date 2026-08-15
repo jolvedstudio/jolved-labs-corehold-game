@@ -303,7 +303,8 @@ namespace CoreholdEditor
             towerPanel = BuildTowerPanel(canvas, theme, ring);
             pauseScreen = BuildPauseScreen(canvas, theme);
             resultScreen = BuildResultScreen(canvas, theme);
-            titleScreen = BuildTitleScreen(canvas, theme);
+            var settingsPanel = BuildSettingsPanel(canvas, theme);
+            titleScreen = BuildTitleScreen(canvas, theme, settingsPanel);
 
             // cross-link build menu -> tower panel
             var bmSo = new SerializedObject(buildMenu);
@@ -598,7 +599,7 @@ namespace CoreholdEditor
             return comp;
         }
 
-        static TitleScreen BuildTitleScreen(Canvas canvas, UITheme theme)
+        static TitleScreen BuildTitleScreen(Canvas canvas, UITheme theme, SettingsPanel settingsPanel)
         {
             var root = MakeFullscreenDim(canvas.transform, "TitleScreen", 0.85f);
             var comp = canvas.gameObject.AddComponent<TitleScreen>();
@@ -621,7 +622,8 @@ namespace CoreholdEditor
             var (vBtn, vBest, vLock) = BuildDifficultyCard(diffRow, "VETERAN", theme);
             var (mBtn, mBest, mLock) = BuildDifficultyCard(diffRow, "NIGHTMARE", theme);
 
-            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 60), new Vector2(200, 60));
+            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-120, 60), new Vector2(200, 60));
+            var settingsBtn = MakeButton(root, "Settings", "SETTINGS", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(120, 60), new Vector2(200, 60));
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -636,9 +638,91 @@ namespace CoreholdEditor
             SetRef(so, "muteLabel", mute.GetComponentInChildren<TMP_Text>());
             SetRef(so, "veteranLock", vLock);
             SetRef(so, "nightmareLock", mLock);
+            SetRef(so, "settingsButton", settingsBtn.GetComponent<Button>());
+            SetRef(so, "settingsPanel", settingsPanel);
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return comp;
+        }
+
+        static SettingsPanel BuildSettingsPanel(Canvas canvas, UITheme theme)
+        {
+            // Dim + centered popup, PauseScreen's pattern; hidden until opened.
+            var dim = MakeFullscreenDim(canvas.transform, "SettingsScreen", 0.7f);
+            var comp = canvas.gameObject.AddComponent<SettingsPanel>();
+
+            var panel = MakePanel(dim, "Panel", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                Vector2.zero, new Vector2(640, 560), theme.popup);
+            panel.pivot = new Vector2(0.5f, 0.5f);
+
+            var title = MakeText(panel, "Title", "SETTINGS", _large, TextAlignmentOptions.Top,
+                new Vector2(0, -22), new Vector2(600, 44));
+            title.color = Cyan;
+            SetAnchors(title.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -22));
+
+            var master = MakeSliderRow(panel, "MASTER VOLUME", -110, theme);
+            var sfx = MakeSliderRow(panel, "SFX VOLUME", -180, theme);
+            var music = MakeSliderRow(panel, "MUSIC VOLUME", -250, theme);
+
+            var shake = MakeButton(panel, "ShakeToggle", "SCREEN SHAKE: ON", theme,
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -330), new Vector2(420, 58));
+            var night = MakeButton(panel, "NightToggle", "NIGHT MODE: OFF", theme,
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -400), new Vector2(420, 58));
+            var close = MakeButton(panel, "Close", "CLOSE", theme,
+                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(280, 60));
+
+            var so = new SerializedObject(comp);
+            SetRef(so, "root", dim.gameObject);
+            SetRef(so, "masterSlider", master);
+            SetRef(so, "sfxSlider", sfx);
+            SetRef(so, "musicSlider", music);
+            SetRef(so, "shakeButton", shake.GetComponent<Button>());
+            SetRef(so, "shakeLabel", shake.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "nightButton", night.GetComponent<Button>());
+            SetRef(so, "nightLabel", night.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "closeButton", close.GetComponent<Button>());
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            dim.gameObject.SetActive(false);
+            return comp;
+        }
+
+        /// <summary>A labelled horizontal slider row inside the settings panel.</summary>
+        static Slider MakeSliderRow(RectTransform panel, string label, float y, UITheme theme)
+        {
+            var lbl = MakeText(panel, label + "_Label", label, _small, TextAlignmentOptions.Left,
+                new Vector2(-160, y), new Vector2(240, 26));
+            SetAnchors(lbl.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-160, y));
+
+            // Slider anatomy: background bar → fill area → fill, plus a handle.
+            var rt = MakeRect(panel, label + "_Slider", new Vector2(0.5f, 1), new Vector2(0.5f, 1),
+                new Vector2(120, y), new Vector2(300, 26));
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            var bg = rt.gameObject.AddComponent<Image>();
+            bg.sprite = theme.barBackground; bg.type = Image.Type.Sliced;
+            bg.color = new Color(0.10f, 0.12f, 0.16f, 1f);
+
+            var fillArea = MakeRect(rt, "FillArea", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            fillArea.offsetMin = new Vector2(4, 4); fillArea.offsetMax = new Vector2(-4, -4);
+            var fill = MakeRect(fillArea, "Fill", Vector2.zero, new Vector2(0, 1), Vector2.zero, Vector2.zero);
+            fill.offsetMin = Vector2.zero; fill.offsetMax = Vector2.zero;
+            var fillImg = fill.gameObject.AddComponent<Image>();
+            fillImg.sprite = theme.barFill; fillImg.type = Image.Type.Sliced;
+            fillImg.color = Cyan;
+
+            var handleArea = MakeRect(rt, "HandleArea", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            handleArea.offsetMin = new Vector2(10, 0); handleArea.offsetMax = new Vector2(-10, 0);
+            var handle = MakeRect(handleArea, "Handle", new Vector2(0, 0), new Vector2(0, 1), Vector2.zero, new Vector2(20, 0));
+            var handleImg = handle.gameObject.AddComponent<Image>();
+            handleImg.sprite = theme.buttonNormal; handleImg.type = Image.Type.Sliced;
+
+            var slider = rt.gameObject.AddComponent<Slider>();
+            slider.fillRect = fill;
+            slider.handleRect = handle;
+            slider.targetGraphic = handleImg;
+            slider.direction = Slider.Direction.LeftToRight;
+            slider.minValue = 0f; slider.maxValue = 1f; slider.value = 1f;
+            return slider;
         }
 
         static (RectTransform btn, TMP_Text best, GameObject lockGo) BuildDifficultyCard(RectTransform parent, string label, UITheme theme)
