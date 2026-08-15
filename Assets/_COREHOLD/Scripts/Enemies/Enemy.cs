@@ -283,6 +283,10 @@ namespace Corehold.Enemies
             if (!IsAlive || amount <= 0f)
                 return;
 
+            // Warden bubble (roster): allies inside a live Warden's radius take
+            // reduced damage — killing the Warden first is the counterplay.
+            amount *= WardenAura.DamageMultiplierFor(this);
+
             CurrentHealth -= amount;
 
             // Colossus enrage (GDD §6.2): below the health fraction, boost speed
@@ -600,9 +604,15 @@ namespace Corehold.Enemies
                 Corehold.Systems.AudioDirector.Instance.PlayEnemyDeath(definition);
 
             // Award salvage bounty to the player (GDD §7.3), routed through the
-            // kill-streak path (R2) so rapid kills escalate the payout.
+            // kill-streak path (R2) so rapid kills escalate the payout. A Salvage
+            // Rig (roster) covering the DEATH POSITION boosts it — rigs reward
+            // killzones, non-stacking like every aura.
             if (GameManager.Instance != null && bounty > 0)
-                GameManager.Instance.AddKillSalvage(bounty, HitPoint);
+            {
+                int payout = Mathf.RoundToInt(
+                    bounty * Corehold.Towers.SalvageRig.BountyMultiplierAt(HitPoint));
+                GameManager.Instance.AddKillSalvage(payout, HitPoint);
+            }
         }
 
         /// <summary>

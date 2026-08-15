@@ -328,6 +328,12 @@ ENEMIES = {
     "breaker":  dict(hp=420,  armour=1, speed=3.75, bounty=35,  leak=3, air=False),
     "colossus": dict(hp=2800, armour=2, speed=3.0,  bounty=250, leak=20, air=False,
                      enrage_mult=1.4),
+    # Roster expansion — no shipped wave uses these yet; rows exist so future
+    # tables can. The Warden's ally damage-reduction bubble is deliberately
+    # UNMODELED until a wave fields one (the model stays conservative; when
+    # that happens, add a per-group protection factor next to the mutators).
+    "shrike":   dict(hp=55,   armour=0, speed=12.0, bounty=16,  leak=2, air=True, altitude=5.0),
+    "warden":   dict(hp=520,  armour=1, speed=3.4,  bounty=45,  leak=3, air=False),
 }
 
 # ---- Towers (Tower_*.asset): damage type 0=Kinetic 1=Energy 2=Explosive.

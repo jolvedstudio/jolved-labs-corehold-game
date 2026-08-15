@@ -110,8 +110,10 @@ namespace CoreholdEditor
             theme.starEmpty = Load(StarEmpty);
             theme.cyan = Cyan; theme.amber = Amber; theme.danger = Danger;
 
-            // Catalogues, in menu order.
-            string[] order = { "Autocannon", "MissileBattery", "ArcNode", "SiegeMortar", "ScanRelay", "Floodlight" };
+            // Catalogues, in menu order (10-slot roster; the build menu is a
+            // carousel showing six at a time).
+            string[] order = { "Autocannon", "MissileBattery", "ArcNode", "SiegeMortar", "ScanRelay",
+                               "Floodlight", "Railgun", "CryoNode", "FlakArray", "SalvageRig" };
             var defs = AssetDatabase.FindAssets("t:TowerDefinition", new[] { "Assets/_COREHOLD/Data/Towers" })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .Select(AssetDatabase.LoadAssetAtPath<TowerDefinition>)
@@ -327,8 +329,9 @@ namespace CoreholdEditor
 
         static BuildMenu BuildBuildMenu(Canvas canvas, UITheme theme, RangeRing ring)
         {
-            // Width fits SIX 140-wide entries + 5×8 spacing (R24 added the
-            // Floodlight): 6·140 + 40 = 880 row, 904 panel.
+            // The viewport shows SIX 140-wide entries + spacing (880); the full
+            // 10-slot roster scrolls behind it as a carousel (drag, wheel, or
+            // the edge arrows). 904 panel = 880 viewport + margins.
             var root = MakePanel(canvas.transform, "BuildMenu",
                 new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(904, 150), theme.panel);
             var comp = canvas.gameObject.AddComponent<BuildMenu>();
@@ -336,9 +339,40 @@ namespace CoreholdEditor
             var title = MakeText(root, "Title", "BUILD", _small, TextAlignmentOptions.TopLeft, new Vector2(16, -6), new Vector2(200, 22));
             title.color = Cyan;
 
-            var entriesRow = MakeRect(root, "Entries", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(880, 110));
+            // Viewport (clips) → Content (the row BuildMenu populates).
+            var viewport = MakeRect(root, "Entries_Viewport", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(880, 110));
+            viewport.gameObject.AddComponent<RectMask2D>();
+            var viewportImg = viewport.gameObject.AddComponent<Image>();
+            viewportImg.color = new Color(0, 0, 0, 0.001f);   // raycast catcher for drags
+
+            var entriesRow = MakeRect(viewport, "Entries", new Vector2(0, 0), new Vector2(0, 1), Vector2.zero, Vector2.zero);
+            entriesRow.pivot = new Vector2(0f, 0.5f);
+            entriesRow.offsetMin = Vector2.zero; entriesRow.offsetMax = Vector2.zero;
             var hlg = entriesRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            hlg.spacing = 8; hlg.childAlignment = TextAnchor.MiddleCenter; hlg.childControlWidth = false; hlg.childControlHeight = false;
+            hlg.spacing = 8; hlg.childAlignment = TextAnchor.MiddleLeft; hlg.childControlWidth = false; hlg.childControlHeight = false;
+            var fitter = entriesRow.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            scroll.viewport = viewport;
+            scroll.content = entriesRow;
+            scroll.horizontal = true; scroll.vertical = false;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.inertia = true; scroll.decelerationRate = 0.08f;
+            scroll.scrollSensitivity = 24f;
+
+            var leftArrow = MakeButton(root, "ArrowLeft", "<", theme,
+                new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(6, -6), new Vector2(30, 96));
+            var rightArrow = MakeButton(root, "ArrowRight", ">", theme,
+                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-6, -6), new Vector2(30, 96));
+
+            var carousel = root.gameObject.AddComponent<BuildMenuCarousel>();
+            var carSo = new SerializedObject(carousel);
+            SetRef(carSo, "scrollRect", scroll);
+            SetRef(carSo, "leftButton", leftArrow.GetComponent<Button>());
+            SetRef(carSo, "rightButton", rightArrow.GetComponent<Button>());
+            carSo.ApplyModifiedPropertiesWithoutUndo();
+
             var entryTemplate = BuildTurretEntryTemplate(entriesRow, theme);
 
             var so = new SerializedObject(comp);

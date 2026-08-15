@@ -291,6 +291,11 @@ namespace Corehold.Towers
                 // Arc weapon: chain-lightning hitscan (GDD §7.2).
                 FireChain(origin, target, weapon, effectiveDamage);
             }
+            else if (weapon.pierce)
+            {
+                // Railgun (roster): one bolt damages everything near the line.
+                FirePierce(origin, target, effectiveDamage, trace);
+            }
             else
             {
                 // Plain hitscan: apply damage directly, draw tracer + impact spark.
@@ -358,6 +363,57 @@ namespace Corehold.Towers
                 current = NearestUnhit(fromPoint, rangeSqr);
                 damageThisHit *= falloff;
             }
+        }
+
+        /// <summary>Half-width (m) of the Railgun pierce corridor, plus each victim's body radius.</summary>
+        private const float PierceHalfWidth = 0.7f;
+
+        /// <summary>
+        /// Railgun shot (roster): full damage to EVERY live enemy whose body lies
+        /// within <see cref="PierceHalfWidth"/> of the line from the muzzle through
+        /// the primary target, out to the turret's effective range. One long tracer,
+        /// impacts on each victim. Air/ground eligibility follows the targeting gate
+        /// (a pierce cannot hit what the turret may not target).
+        /// </summary>
+        private void FirePierce(Vector3 origin, Enemy primary, float damage, Color trace)
+        {
+            float reach = _targeting != null ? Mathf.Max(4f, _targeting.Range) : 30f;
+            Vector3 dir = primary.HitPoint - origin;
+            if (dir.sqrMagnitude < 0.0001f)
+                dir = transform.forward;
+            dir.Normalize();
+            Vector3 end = origin + dir * reach;
+
+            bool airOnly = definition != null && definition.targetAirOnly;
+            bool canAir = definition != null && definition.canTargetAir;
+
+            var live = Enemy.Live;
+            for (int i = 0; i < live.Count; i++)
+            {
+                Enemy e = live[i];
+                if (e == null || !e.IsAlive)
+                    continue;
+                if (e.IsAir ? !canAir : airOnly)
+                    continue;
+
+                // Distance from the segment origin→end to the enemy's hit point.
+                Vector3 toE = e.HitPoint - origin;
+                float along = Vector3.Dot(toE, dir);
+                if (along < 0f || along > reach)
+                    continue;
+                Vector3 closest = origin + dir * along;
+                float lateral = (e.HitPoint - closest).magnitude;
+                if (lateral > PierceHalfWidth + e.BodyRadius)
+                    continue;
+
+                ApplyDamage(e, damage);
+                if (VFXDirector.Instance != null)
+                    VFXDirector.Instance.PlayImpact(e.HitPoint);
+            }
+
+            DrawTracer(origin, end, trace);
+            if (AudioDirector.Instance != null)
+                AudioDirector.Instance.PlayImpact();
         }
 
         /// <summary>

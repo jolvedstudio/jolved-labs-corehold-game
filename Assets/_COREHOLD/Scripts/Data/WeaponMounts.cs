@@ -105,6 +105,9 @@ namespace Corehold.Data
         [Tooltip("Splash radius in metres. 0 = single target. Damage falls off linearly to 40% at the edge.")]
         public float splashRadius;
 
+        [Tooltip("Railgun (roster): a hitscan shot damages EVERY enemy near the line from muzzle through the target, out to the turret's range. Ignored by projectile and chain mounts.")]
+        public bool pierce;
+
         [Header("Visuals")]
         [Tooltip("Colour of this weapon's hitscan tracer bolt. HDR-bright.")]
         [ColorUsage(true, true)]
