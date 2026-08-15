@@ -35,3 +35,4 @@ MonoBehaviour:
   secondPhaseSpeed: 4.6
   enrageAtHealthFraction: 0
   enrageSpeedMultiplier: 0
+  stunResistance: 0

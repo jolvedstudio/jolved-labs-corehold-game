@@ -14,6 +14,24 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/_COREHOLD/Scenes/Game.unity
     guid: d162f72186e17ab45a3e4a7f1fa1b21f
+<<<<<<< Updated upstream
+=======
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Generated/RockyDesert_s990168.unity
+    guid: df14f99030f86ce48af37b0e5c420515
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Generated/RockyDesert_s186988.unity
+    guid: a0f8ab296793db94f91f17bc9e74c65c
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Generated/RockyDesert_s336559.unity
+    guid: a5ef46ac0473f564394fe351f67746f2
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Generated/RockyDesert_s159102.unity
+    guid: a9d8cbe5fd807524088a125d41a35f4d
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Generated/RockyDesert_s521706.unity
+    guid: 5e3988f017a750542b18150a1d563db3
+>>>>>>> Stashed changes
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0

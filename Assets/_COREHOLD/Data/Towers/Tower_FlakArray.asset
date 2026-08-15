@@ -1,0 +1,110 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 734fd835cec16074fa5bce42c59bf999, type: 3}
+  m_Name: Tower_FlakArray
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
+  id: flakarray
+  displayName: Flak Array
+  icon: {fileID: 21300000, guid: 6d1e08ece6767914c871eb2620a7111d, type: 3}
+  description: Air only. Shreds Wasps and Shrikes; blind to everything on the ground.
+  damageType: 0
+  canTargetAir: 1
+  targetAirOnly: 1
+  basePrefab: {fileID: 2870932331256219019, guid: 74a10149925559a41bd11d990ff5bf9b, type: 3}
+  tiers:
+  - cost: 130
+    weapons:
+    - damage: 12
+      fireRate: 3.5
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      pierce: 0
+      tracerColor: {r: 3.5, g: 3, b: 1, a: 1}
+    range: 16
+    minRange: 0
+    damage: 0
+    fireRate: 0
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 170
+    weapons:
+    - damage: 18
+      fireRate: 4
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      pierce: 0
+      tracerColor: {r: 3.5, g: 3, b: 1, a: 1}
+    range: 18
+    minRange: 0
+    damage: 0
+    fireRate: 0
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0
+  - cost: 240
+    weapons:
+    - damage: 26
+      fireRate: 4.5
+      muzzleIndex: -1
+      muzzleIndices: 
+      chainTargets: 0
+      chainFalloff: 0
+      projectilePrefab: {fileID: 0}
+      projectileSpeed: 0
+      splashRadius: 0
+      pierce: 0
+      tracerColor: {r: 3.5, g: 3, b: 1, a: 1}
+    range: 20
+    minRange: 0
+    damage: 0
+    fireRate: 0
+    splashRadius: 0
+    chainTargets: 0
+    chainFalloff: 0
+    projectilePrefab: {fileID: 0}
+    projectileSpeed: 0
+    weaponVisualIndex: 0
+    muzzleVfx: {fileID: 0}
+    fireSfx: {fileID: 0}
+    auraRadius: 0
+    auraFireRateBonus: 0
+    auraRangeBonus: 0
+    auraDamageBonus: 0

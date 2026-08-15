@@ -18,6 +18,7 @@ MonoBehaviour:
   description: Plasma gun. Hitscan chain, 30% damage falloff per jump. Energy.
   damageType: 1
   canTargetAir: 1
+  targetAirOnly: 0
   basePrefab: {fileID: 5919821985147048559, guid: 03151f4ad0b84af4789dfedea8e1eb61, type: 3}
   tiers:
   - cost: 120
@@ -31,6 +32,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 0}
       projectileSpeed: 0
       splashRadius: 0
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 20
     minRange: 0
@@ -59,6 +61,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 0}
       projectileSpeed: 0
       splashRadius: 0
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 12
     minRange: 0
@@ -87,6 +90,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 0}
       projectileSpeed: 0
       splashRadius: 0
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 14
     minRange: 0

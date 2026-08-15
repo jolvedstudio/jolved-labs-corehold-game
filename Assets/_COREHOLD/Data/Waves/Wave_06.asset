@@ -23,9 +23,10 @@ MonoBehaviour:
     spawnGap: 2.2
     startOffset: 4
     spawnerIndex: 1
-  - enemy: {fileID: 11400000, guid: ddd6ac25d0683a64b9443acde334269e, type: 2}
+  - enemy: {fileID: 11400000, guid: 4c6008c65aacdf54da499676a421088d, type: 2}
     count: 4
     spawnGap: 4
     startOffset: 10
     spawnerIndex: 2
   clearBonus: 168
+  mutators: 0

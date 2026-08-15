@@ -18,6 +18,7 @@ MonoBehaviour:
   description: Big mortar. Arcing shell, 6 m minimum range, ground only. Explosive.
   damageType: 2
   canTargetAir: 0
+  targetAirOnly: 0
   basePrefab: {fileID: 1177240434419835111, guid: 9fb81ea17d668904996fb5477844357a, type: 3}
   tiers:
   - cost: 200
@@ -31,6 +32,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
       projectileSpeed: 18
       splashRadius: 4
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 20
     minRange: 6
@@ -59,6 +61,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
       projectileSpeed: 18
       splashRadius: 4.5
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 22
     minRange: 6
@@ -87,6 +90,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 3532291859841594579, guid: 0338ebf4c81dab148bdb4c4610d92f1c, type: 3}
       projectileSpeed: 18
       splashRadius: 5
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 24
     minRange: 6

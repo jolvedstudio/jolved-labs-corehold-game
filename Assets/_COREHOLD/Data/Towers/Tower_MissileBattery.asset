@@ -18,6 +18,7 @@ MonoBehaviour:
   description: Rocket launcher. Leading projectile with area splash. Explosive.
   damageType: 2
   canTargetAir: 1
+  targetAirOnly: 0
   basePrefab: {fileID: 8315169632584228583, guid: 9b44f4facb9ec064c8b4569f756ba47c, type: 3}
   tiers:
   - cost: 150
@@ -31,6 +32,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
       projectileSpeed: 22
       splashRadius: 2.5
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 13
     minRange: 0
@@ -59,6 +61,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
       projectileSpeed: 22
       splashRadius: 3
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 14
     minRange: 0
@@ -87,6 +90,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
       projectileSpeed: 22
       splashRadius: 3.5
+      pierce: 0
       tracerColor: {r: 3.5, g: 2.2, b: 0.8, a: 1}
     range: 15
     minRange: 0

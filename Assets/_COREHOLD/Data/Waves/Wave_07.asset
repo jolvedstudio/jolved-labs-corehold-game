@@ -24,3 +24,4 @@ MonoBehaviour:
     startOffset: 5
     spawnerIndex: 1
   clearBonus: 186
+  mutators: 0

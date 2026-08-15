@@ -19,6 +19,7 @@ MonoBehaviour:
     do not stack.
   damageType: 0
   canTargetAir: 1
+  targetAirOnly: 0
   basePrefab: {fileID: 4126523222679572581, guid: 963a3e22fe3fbcf48994751bb53c2504, type: 3}
   tiers:
   - cost: 90
@@ -32,6 +33,7 @@ MonoBehaviour:
       projectilePrefab: {fileID: 0}
       projectileSpeed: 0
       splashRadius: 0
+      pierce: 0
       tracerColor: {r: 0, g: 29.644934, b: 33.290565, a: 0}
     range: 20
     minRange: 0
