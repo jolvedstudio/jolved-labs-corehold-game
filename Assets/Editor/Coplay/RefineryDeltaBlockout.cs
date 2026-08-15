@@ -58,18 +58,6 @@ public static class RefineryDeltaBlockout
         CorePos,                      // arrive at the Core (34.5,-6.5)
     };
 
-    // ---- Shipped layout, exposed for the generation pipeline (R26) ----
-    //
-    // The generator's parity path rebuilds THIS geometry through the full
-    // pipeline. Route points and the core position are the blockout's own data;
-    // the parity PAD set intentionally lives in ShippedLayout instead, because
-    // the scene's pads were hand-moved after this builder ran (the clearance
-    // pass), so the scene — not the constants below — is ground truth for them.
-    internal static Vector3 ShippedCorePos => CorePos;
-    internal static Vector3[] ShippedWestRoute => WestLeg.Concat(Snake).ToArray();
-    internal static Vector3[] ShippedNorthRoute => NorthLeg.Concat(Snake).ToArray();
-    internal static readonly Vector3 ShippedAirSpawn = new Vector3(0f, 4f, 37f);
-
     [MenuItem("Tools/COREHOLD/Level/Build Refinery Delta", false, 1)]
     public static void Build()
     {

@@ -22,7 +22,7 @@ using UnityEngine;
 ///     seed a pack without owning it.
 ///   • <see cref="CreateRefineryPack"/> builds the pack the shipped map already
 ///     implies, from the nine prefab paths <c>RefineryDeltaBlockout.BuildStructures</c>
-///     places, so R26 has a dressing pack to hit parity against.
+///     places, so the shipped map's dressing exists as a reusable pack.
 ///   • <see cref="MeasureSelected"/> fills in the numbers for a pack assembled by hand.
 ///
 /// Measurement is read-only: it walks the prefab's mesh bounds directly rather than
@@ -823,24 +823,24 @@ public static class EnvPackTools
         return EnvPack.PropRole.MidField;
     }
 
-    /// <summary>Assign the pack to the shipped-map blueprint, which R26 rebuilds against.</summary>
+    /// <summary>Assign the pack to the starter blueprint, which pins the refinery theme.</summary>
     private static string WireIntoRefineryBlueprint(EnvPack pack)
     {
         const string bpPath = "Assets/_COREHOLD/Data/Blueprints/Blueprint_RefineryDelta.asset";
         var bp = AssetDatabase.LoadAssetAtPath<LevelBlueprint>(bpPath);
         if (bp == null)
-            return "Blueprint_RefineryDelta not found — run Create Refinery Delta Blueprint, then re-run this " +
+            return "Blueprint_RefineryDelta not found — run Create Starter Blueprint, then re-run this " +
                    "to wire the pack into it.";
 
-        // Parity is a single pinned theme, so a one-entry pool — not a variety pool. The
-        // shipped map must rebuild identically every time (R26), which is exactly what a
-        // seed-picked theme would break.
+        // The refinery is a single pinned theme, so a one-entry pool — not a variety pool. A
+        // pinned theme keeps the starter blueprint's look stable across seeds, which is
+        // exactly what a seed-picked theme would break.
         if (bp.envPackPool != null && bp.envPackPool.Length == 1 && bp.envPackPool[0] == pack)
             return $"{bpPath} already pins this pack.";
 
         bp.envPackPool = new[] { pack };
         EditorUtility.SetDirty(bp);
-        return $"Pinned into {bpPath} (envPackPool, one entry — parity must not vary by seed).";
+        return $"Pinned into {bpPath} (envPackPool, one entry — a pinned theme does not vary by seed).";
     }
 
     /// <summary>
