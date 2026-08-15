@@ -1,6 +1,6 @@
 ﻿<Solution>
-  <Project Path="ToonyColorsPro.Demo.Editor.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="ToonyColorsPro.Demo.Editor.csproj" />
   <Project Path="Unity.Splines.Examples.Editor.csproj" />
   <Project Path="BezierSolution.Runtime.csproj" />
   <Project Path="CFXRRuntime.csproj" />
