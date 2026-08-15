@@ -1,478 +1,438 @@
-# COREHOLD — Campaign Manager & Character Generator: Implementation Plan
+# COREHOLD — Campaign Manager & Character Forge: Implementation Plan (v2)
 
-> **Status:** Proposal / design doc. Nothing here is built yet.
-> **Scope:** Two features that sit *on top of* the existing systems without
-> rewriting them:
->   - **A. Level Sequencer / Campaign Manager** — generate and drive a whole game
->     (Welcome Screen → 10 generated Levels → Closing Screen), reusing the Level
->     Generator unchanged for the maps.
->   - **B. Character Generator** — a data-driven forge that turns a
->     developer-supplied prefab into a game-ready Enemy or Tower (prefab +
->     definition), generalizing the bespoke `CreateXEnemy.cs` builders.
+> **Status:** Validated & merged. v1 (CoPlay's proposal) was audited claim-by-claim
+> against the codebase; this v2 keeps its architecture where it held, corrects it
+> where it didn't, and merges in the Track A/B elements from the roadmap stream
+> (contact-sheet seed picking, roster registry refactor, balance-model discipline).
+> The v1 text is in git history at this path.
 >
-> **Guiding principles (inherited from the codebase):** deterministic-seed
-> ScriptableObjects, gate-validated pipelines, *emit nothing on failure*,
-> paste-ready transcripts, PlayerPrefs-only persistence, and backward
-> compatibility (single-map play must keep working untouched).
+> **Validation verdict in one line:** the shape is right — a `DontDestroyOnLoad`
+> sequencer over self-contained generated scenes, and a data-driven forge — but
+> v1's four "reused unchanged" pillars (GameManager, GameFlow, TitleScreen, the
+> shared wave tables) all require modification, and four blocker-class gaps had
+> to be designed away: title-screen takeover, the carry API, the balance-model
+> economy blind spot, and shared `WaveDefinition` assets.
 
 ---
 
-## 0. Foundation — what already exists
+## 0. Corrections to v1's foundation (audited)
 
-Both features build strictly on top of systems that already ship. Nothing below
-is modified except where explicitly noted in §A.6 and §A.7.
+What v1 got right is not repeated here — `LevelBlueprint`, `RunAll`, the
+self-contained-scene fact, PlayerPrefs-only `SaveData`, the audio gate, and
+"Retry/Main Menu both reload the current scene" all checked out. What changed:
 
-| System | Role today | Location |
+| v1 claim | Reality | Consequence |
 |---|---|---|
-| `LevelBlueprint` (SO) | Seed-deterministic recipe for one map (topology, playfield, routes, pad mix, theme/weather pools, rules template) | `Scripts/Data/LevelBlueprint.cs` |
-| `GenerationPipeline.RunAll(blueprint)` | 18-stage / 3-gate pipeline → emits a **self-contained `.unity` scene** + a `LevelDefinition` asset, wires the scene's `WaveManager`, **registers the scene in Build Settings** | `Editor/Coplay/Generation/GenerationPipeline.cs` |
-| `GenerationPipeline.Fnv1a(seed, purpose)` | Stable cross-platform hash — the determinism primitive every draw derives from | same file |
-| `GeneratorWindow` | Team UI over the pipeline; includes per-topology "Create a new map" authoring and "Generate until it passes" seed retry | `Editor/Coplay/Generation/GeneratorWindow.cs` |
-| `GameManager` (singleton) | State machine (`Boot/Title/Briefing/Build/Wave/Victory/Defeat`), salvage, integrity, difficulty, run stats, streaks, time-dip | `Scripts/Core/GameManager.cs` |
-| `GameFlow` | Title → run start wiring; `RestartCurrentLevel()` reloads the active scene by build index | `Scripts/Core/GameFlow.cs` |
-| `SaveData` | PlayerPrefs: best score / cleared-tier unlock / per-map+difficulty records | `Scripts/Systems/SaveData.cs` |
-| `TitleScreen` | Title overlay + **audio gate** (browsers need a user gesture before audio) | `Scripts/UI/TitleScreen.cs` |
-| `ResultScreen` | Victory/Defeat overlay; today only offers Retry / Main Menu (both reload the current scene) | `Scripts/UI/ResultScreen.cs` |
-| `EnemyDefinition` / `TowerDefinition` (SO) | Stats + prefab (+ towers: 3× `TowerTier`) | `Scripts/Data/` |
-| `WaveDefinition` / `SpawnGroup` | Wave = groups of `EnemyDefinition` + counts + spawner index + mutators | `Scripts/Data/WaveDefinition.cs` |
-| `CreateDroneEnemy`, `BuildColossusEnemy`, backup turret builders | Bespoke editor scripts: unpack vendor prefab → add component stack → set fields → save prefab + definition | `Editor/Coplay/` |
-| `IconRenderer` | Renders a definition icon sprite from a prefab | `Editor/IconRenderer.cs` |
+| "18-stage / 3-gate pipeline" | 18 stages, **4** gate-flagged stages (1, 2, 2b occlusion re-run, 3) — `GeneratorWindow.cs:548` counts dynamically | Transcript code filtering on the gate flag sees four |
+| "reuse `GeneratorWindow.CreateNewMap` / the seed-retry loop / `BuildReport`" | All three are **private instance members tangled with window state** (`MaxAutoSeeds` is a private const) | Campaign Builder reimplements a ~20-line retry around public `RunAll` and lifts the ~14-line transcript formatter |
+| "invoke the existing `IconRenderer`" | Whole-roster batch baker, **no per-definition entry point** | Small refactor: a public `RenderOneDefinition` entry, or just trigger the full rebake |
+| Binder runs "after `ConfigureRun` has run" at scene `Start` | **`ConfigureRun` only runs from the title-screen difficulty tap** | The campaign flow must call it itself (§A.6) |
+| `CampaignManager.ApplyCarryInto` writes salvage/integrity | **`Salvage`/`Integrity` setters are private**; `AddSalvage` inflates `RunSalvageEarned` (score corruption), `DamageCore` fires defeat side-effects | New `GameManager.ConfigureCampaignRun` API (§A.6) |
+| Stars exist ("via existing `SaveData.ComputeScore`") | `ComputeScore` exists, but **stars are display-only, computed privately in `ResultScreen.Show`, never persisted** | Extract a shared scorer; campaign star persistence is new (§A.7) |
+| "Interstitials use the existing overlay canvas" | **Every canvas is scene-local** — nothing survives between scenes | Briefings render inside the *next* scene, pre-start (§A.5) |
+| "reuse per-level wave tables, swap enemy definitions" (E-Q4) | The emitted `LevelDefinition` is a **shallow clone — all levels share the ten shipped `WaveDefinition` assets** | Swapping a def would mutate every level incl. the shipped map. Deep-clone per stage (§A.3) |
+| "ties into roadmap R33" | R33 is **runtime endless-wave extension**, not editor-time table generation | Roster-driven waves are unticketed new work (§C) |
+| "backup turret builders" generalize to the forge's tower path | **Fiction — no script builds a tower chassis from vendor art**; chassis are human-authored | The forge's tower path is new ground, scoped accordingly (§B) |
+| 10 generated scenes ship as the campaign | **`.gitignore` ignores `Scenes/Generated/` AND `Data/Levels/Generated/`** — a fresh clone has neither the scenes nor their LevelDefinitions | Campaign output moves to a versioned folder (§A.3, decision D1) |
+| "a tiny Boot scene" would be introduced | `Boot.unity` **already exists**, disabled in Build Settings; `PauseScreen.titleSceneName` is an existing (unset) hook for a menu scene | Reuse, don't introduce |
+| `Difficulty` in `CampaignStage` | Two enums exist: the live `Corehold.Core.Difficulty` and an **unused decoy `Corehold.Data.Difficulty`** | Campaign types must qualify `Corehold.Core.Difficulty` explicitly |
+| `GameState.Briefing` available for interstitials | **Dead state — nothing ever sets it** | Either claim it for campaign briefings or ignore it; don't rely on it occurring |
+| `LevelDefinition.startingSalvage` seeds the economy | **Never read at runtime** — `GameManager` uses its own serialized `startingSalvage` | Carry writes go through the new API, not the definition |
 
-### Two facts that shape the whole design
-
-1. **Each level is a single, self-contained scene.** A generated scene already
-   contains its own Title overlay, HUD, `GameManager`, and a `WaveManager`
-   pre-wired to a `LevelDefinition`. Today "Main Menu" and "Retry" both just
-   reload the current scene (`GameFlow.RestartCurrentLevel`) — **there is no
-   cross-level flow**. A campaign is therefore *a scene-transition + persistent
-   progression layer* over scenes the generator already knows how to make.
-
-2. **Character creation is already a repeatable pattern.** Every enemy builder
-   does the same thing: *instantiate + unpack vendor prefab → add the runtime
-   component stack → resolve bones/muzzles by name → set serialized fields →
-   `SaveAsPrefabAsset` → create/link the definition SO*. The Character Generator
-   is the generalization of that pattern into one data-driven tool.
+Also surfaced by the audit, unrelated to this plan but urgent:
+**the Colossus data is cross-wired** — `Enemy_Colossus_A.asset` carries id
+`colossus_b` and points at `Colossus_B.prefab`; `Enemy_Colossus_B.asset` carries
+id `colossus_c`; `BuildColossusEnemy`'s hardcoded definition GUID resolves to
+nothing; `BuildColossusEnemy` and `SetupColossus` both write `Colossus.prefab`
+(which no longer exists — prefabs are `Colossus_A/B/C`). Fix the def/prefab/id
+triplets and retire the stale builders before the forge work starts.
 
 ---
 
-# Part A — Level Sequencer / Campaign Manager
+# Part A — Campaign Manager (Level Sequencer)
 
-## A.1 Goal
+## A.1 Goal (unchanged from v1)
 
-Generate and drive a **whole game**: Welcome Screen → 10 generated Levels (played
-in sequence, with progression carried between them) → Closing/Victory Screen —
-while **reusing the Level Generator unchanged** for the 10 maps.
+Welcome → N generated levels in sequence with progression carried between them →
+Closing screen, reusing the generation pipeline unchanged for the maps.
 
-## A.2 New data asset: `CampaignDefinition` (ScriptableObject)
+## A.2 Data: authoring/runtime split (replaces v1's single SO)
 
-**File:** `Scripts/Data/CampaignDefinition.cs`
+v1 put one runtime `CampaignDefinition` behind everything. That drags the entire
+authoring graph — blueprints (theme/prop/rules pools), recipes, vendor prefabs —
+into the WebGL build, duplicating what the scenes already bake, and undoing the
+project's texture-memory work. Split it:
+
+**`CampaignAuthoring` (editor-only asset, lives under `Assets/Editor/` or an
+`Editor/` folder next to the builder):** what the designer edits.
+Master `seed`, `campaignId`, `displayName`, stage list where each Level stage
+holds a `LevelBlueprint` reference, the *accepted* seed (source of truth after
+generation — see A.3), difficulty bias, title/briefing text, and editor-side
+`SceneAsset` niceties. Plus `ProgressionRules` (v1's struct, kept — see A.6 for
+the v-phasing) and, later, the roster (`CharacterRecipe[]`, Part C).
+
+**`CampaignManifest` (runtime SO, `Scripts/Data/CampaignManifest.cs`):**
+emitted by the Campaign Builder, and the ONLY campaign asset runtime code ever
+references. Per stage: `StageKind`, title, briefing, `scenePath`, resolved seed,
+display name. Plus `campaignId` and the resolved `ProgressionRules`. No
+blueprints, no SceneAssets, no recipes, no `#if UNITY_EDITOR` fields (v1's
+conditional-field struct changes serialized layout between editor and player —
+the codebase has no precedent for it, and doesn't need one).
+
+Stages are **classes, not structs** (v1's struct array + "store results back
+into the stage" is a copy-modify-writeback lost-edit generator).
+
+## A.3 Editor tool: `CampaignBuilderWindow`
+
+`Tools → COREHOLD → Campaign → Campaign Builder`. Orchestrates, owns no
+generation logic. Responsibilities, corrected from v1:
+
+1. **Author** — create/edit a `CampaignAuthoring`; add stages; assign blueprints.
+   The "Auto-vary" idea survives, but *not* by calling `GeneratorWindow.CreateNewMap`
+   (private) — the builder gets its own small per-topology stage seeding, and
+   **integrates the R31 contact sheet**: for any stage, render the 9-seed
+   contact sheet for its blueprint and let the designer *pick* the seed
+   visually instead of accepting the first gate-passer. (Merged from Track A —
+   a campaign whose maps were chosen, not merely admitted.)
+2. **Generate All Levels** — per Level stage:
+   - work on a **temp clone of the blueprint** (`Instantiate`, never the
+     authored asset — v1's reuse of the window's retry loop mutates
+     `randomSeed` on the shared asset, so two campaigns using one blueprint
+     would fight over it);
+   - `clone.randomSeed = (int)GenerationPipeline.Fnv1a(campaign.seed, "level_" + index)`,
+     retry bounded like `MaxAutoSeeds` on failure;
+   - store the **final accepted seed in the stage** — that, not the master
+     seed alone, is the reproducibility contract (determinism also requires
+     freezing pool membership: adding an `EnvPack` to a pool re-shuffles every
+     seed's theme draw);
+   - `GenerationPipeline.RunAll(clone)` unchanged; keep the `List<StageRun>`
+     transcript per stage (lift `GeneratorWindow.BuildReport`'s ~14 lines into
+     a shared formatter);
+   - **relocate the outputs**: move the emitted scene + `LevelDefinition` from
+     the git-ignored `Scenes/Generated` / `Data/Levels/Generated` into the
+     campaign's versioned home `Assets/_COREHOLD/Scenes/Campaign/<id>/`
+     (+ `Data/Levels/Campaign/<id>/`), deleting any superseded stage output
+     first — regenerations must not accumulate stale scenes into the build
+     (see D1);
+   - **deep-clone the wave tables**: clone each `WaveDefinition` the stage's
+     `LevelDefinition` references into the stage folder and rewire `waves[]`
+     to the clones. Shipped `WaveDefinition` assets are treated as read-only
+     from this point on. This is what makes per-stage escalation and later
+     roster swaps *possible* without cross-level mutation.
+3. **Build menu scenes** — Welcome/Closing, reusing the existing
+   `BuildRealUI`-built title/settings stack (that groundwork exists — the
+   Welcome & Settings screen shipped; the campaign Welcome scene is that plus
+   campaign start/resume, not a from-scratch UI).
+4. **Register Campaign** — rewrite `EditorBuildSettings.scenes` wholesale:
+   Welcome at index 0 (explicit decision — today the first enabled scene is
+   `Game.unity`), levels in campaign order, Closing, then any explicitly-kept
+   singles (`Game.unity` stays for single-map play). The pipeline's own
+   registration is append-only and its prune pass only watches the
+   `Scenes/Generated` prefix, so the builder owns ordering and campaign-folder
+   hygiene itself, and re-running "Register Campaign" after any single-stage
+   regeneration restores order.
+
+## A.4 Runtime: `CampaignManager` + `CampaignLevelBinder`
+
+`CampaignManager` (`Scripts/Core/CampaignManager.cs`): the project's **first**
+`DontDestroyOnLoad` object — there is no existing pattern to copy, and every
+scene load produces fresh `GameManager`/`AudioDirector`/`WaveManager` instances,
+so the manager re-finds and re-subscribes per load (the binder does that work).
+API essentially as v1, with the carry corrections from A.6:
 
 ```csharp
-[CreateAssetMenu(menuName = "COREHOLD/Campaign Definition", fileName = "Campaign_")]
-public class CampaignDefinition : ScriptableObject
-{
-    public string campaignId;          // save-key namespace, e.g. "corehold.main"
-    public string displayName;         // "Refinery Front"
-    public int seed;                   // master seed → derives every per-level seed
+public static CampaignManager Instance;         // DDOL
+public CampaignManifest Active;                  // manifest, not authoring asset
+public int CurrentStageIndex;
+public CampaignRunState RunState;                // includes stage-ENTRY snapshot
+public Corehold.Core.Difficulty ChosenDifficulty; // picked once at Welcome
 
-    public CampaignStage[] stages;     // ordered game: welcome, 10 levels, closing
-    public ProgressionRules progression;
-}
-
-public enum StageKind { Welcome, Level, Interstitial, Closing }
-
-[System.Serializable]
-public struct CampaignStage
-{
-    public StageKind kind;
-    public string title;
-    [TextArea] public string briefing;
-
-    // Level stages only:
-    public LevelBlueprint blueprint;   // the recipe used to synthesize this map
-    public int levelSeedOffset;        // combined with campaign seed for determinism
-    public Difficulty difficultyBias;  // optional per-stage escalation
-
-    // Filled in by the Campaign Builder after generation:
-    public UnityEditor.SceneAsset generatedScene;   // wrapped in #if UNITY_EDITOR
-    public LevelDefinition generatedLevel;
-    public string generatedScenePath;                // runtime-usable (build-settings lookup)
-}
+public void StartCampaign(CampaignManifest m, Difficulty d);
+public void AdvanceToNextStage();                 // Victory → next Level/Closing
+public void RetryCurrentStage();                  // re-applies the ENTRY snapshot
+public void AbandonToWelcome();
 ```
 
-`ProgressionRules` (serializable struct) chooses the carry model between levels:
+All scene transitions go through **`GameFlow.LoadSceneClean(buildIndexOrPath)`**
+— extract the body of `RestartCurrentLevel` (clear `Enemy.Live`, reset
+`Time.timeScale`) so the teardown contract lives in exactly one place. A bare
+`SceneManager.LoadScene` (v1's `LoadStage`) leaks the 2× speed toggle, pause
+`timeScale = 0`, and stale static registries into the next scene.
+
+`CampaignLevelBinder`: **attached to the existing GameManager object** in the
+scene skeleton (`SceneSkeleton.EnsureSingletons` adds the component — the
+containers verify pass polices root *names* only, so this needs no
+`SceneContainers.Groups` change and the scene stays campaign-agnostic: the
+binder no-ops when `HasActiveCampaign` is false, so generated scenes still work
+standalone). Its real job is the flow takeover in A.6.
+
+## A.5 Welcome, Closing, interstitials
+
+- **Welcome** (`Scenes/Campaign/Campaign_Welcome.unity`): the existing
+  title/settings UI stack + campaign start. The difficulty tap here is the one
+  difficulty choice for the whole run *and* the WebGL audio-unlock gesture
+  (v1 got that right). Offers **Continue** when a persisted run blob exists
+  (A.7). `PauseScreen.titleSceneName` — the existing, currently-unset hook —
+  gets set to this scene in campaign builds, giving Abandon-from-pause a home.
+- **Closing** (`ClosingScreen.cs`, parallel to `ResultScreen`): totals, star
+  strip, best-campaign records, Play Again / Welcome.
+- **Interstitials**: there is no cross-scene canvas, so briefings show **inside
+  the next level's scene** before the run starts — folded into the same binder
+  hook that suppresses the title (it reuses that scene's canvas and `UITheme`).
+  v1's "overlay between scenes" is dropped as unimplementable.
+
+## A.6 The flow takeover (was v1's biggest blind spot)
+
+Generated scenes boot to `GameState.Title` and wait for the title-screen
+difficulty tap; that tap is also the only caller of `GameManager.ConfigureRun`
+**and** of `AudioDirector.StartMusic`. Without changes, every campaign level
+shows a full difficulty select (letting the player switch difficulty
+mid-campaign, wrecking economy multipliers and records) and an auto-advanced
+level would be silent. So — explicitly on the *modified* list now:
+
+- **`GameFlow.BeginCampaignRun(Difficulty d)`** (new public entry): suppresses
+  the TitleScreen overlay, runs the run-start sequence directly.
+- **`GameManager.ConfigureCampaignRun(Difficulty d, int salvage, int integrity)`**
+  (new, or an overload): seeds economy/integrity *directly*, raises
+  `OnSalvageChanged`/`OnIntegrityChanged`, does **not** touch
+  `RunSalvageEarned` (the `AddSalvage` backdoor corrupts the R4 record and
+  every score downstream) and does not route through `DamageCore` (defeat
+  side-effects). Called strictly *instead of* the title-tap `ConfigureRun`,
+  never before it.
+- The binder, in `Awake` (before `GameFlow.Start`'s one-frame delay resolves):
+  if a campaign is active → show briefing if any → `BeginCampaignRun(chosen)`
+  → `ConfigureCampaignRun(entry snapshot)` → `AudioDirector.StartMusic()`.
+- `ResultScreen` gains **Continue** on Victory when a campaign is active
+  (v1's design, kept) — and becomes genuinely campaign-aware: when
+  `HasActiveCampaign`, it **suppresses `MarkCleared` and `SubmitScore`**
+  (otherwise beating campaign level 1 unlocks difficulty tiers globally and
+  campaign per-level scores pollute the single-map best on the title screen).
+  Star/score computation moves to one shared static scorer used by both
+  `ResultScreen` and the campaign (today it's private display logic inside
+  `ResultScreen.Show` — two implementations would drift).
+
+**Carry semantics** (fixes v1's snapshot hole): at Victory the binder snapshots
+end-of-level `Salvage`/`Integrity` into `RunState` *before* advancing (the next
+scene load destroys the source). Each stage stores an immutable **entry
+snapshot**; Retry re-applies exactly that, so `integrityHealPerLevel` can't be
+farmed by deliberate retries. Campaign star basis is integrity relative to the
+*entry* snapshot (the absolute `StartingIntegrityFor` basis breaks under carry).
+
+**Phasing the economy carry (defuses the balance-model blocker):**
+- **v1 of the campaign ships `ResetPerLevel` + `baseSalvagePerLevel` only.**
+  Gate 3 solves each level against the model's `STARTING_SALVAGE = 300`; with
+  reset economy the gates certify the economy the player actually gets — no
+  model changes needed, the "every map still passes the gates" promise stays
+  true.
+- `CarryFull`/`CarryFraction` are **phase 2**, gated on extending
+  `balance_model.py` with `--starting-salvage` (threaded through
+  `BalanceModelRunner`) so the builder can solve each stage against its carry
+  envelope (verify worst-case floor AND best-case in-band) and re-verify
+  whenever `ProgressionRules` or a bias changes an already-generated stage.
+  The builder refuses "Generate All" when rules and model inputs disagree.
+
+## A.7 Persistence (WebGL-real)
+
+PlayerPrefs, additive keys — with two corrections:
+
+- **The run itself persists**, not just records: `CampaignRunState` (incl. the
+  entry snapshot) JSON-serialized to `corehold.campaign.<id>.run` at every
+  level boundary. A 10-level campaign on WebGL/mobile *will* meet a tab
+  refresh; a memory-only DDOL manager loses the run on the game's actual
+  platform. Welcome's Continue reads this; completion/abandon clears it.
+- **Per-level campaign records key by `campaignId` + stage index**
+  (`corehold.campaign.<id>.stage.<n>.stars` …), *not* by `LevelDefinition`
+  name — those names embed the seed (`Level_RockyDesert_s990168`), so every
+  regeneration would orphan all records. `LevelId`-keyed records remain for
+  single-map play only.
+- Campaign records: `.furthestStage`, `.bestScore`, `.bestTime`. Carried
+  salvage is scored **once** (closing total), not re-counted in every
+  per-level score.
+
+## A.8 File summary (Part A, corrected)
+
+**New:** `CampaignManifest.cs`, `CampaignManager.cs` (+`CampaignRunState`),
+`CampaignLevelBinder.cs`, `ClosingScreen.cs`, shared result scorer,
+`CampaignBuilderWindow.cs` + `CampaignAuthoring` (editor), Welcome/Closing scenes.
+
+**Modified (v1 claimed these untouched — they are not):**
+`GameFlow.cs` (+`BeginCampaignRun`, +`LoadSceneClean` extraction),
+`GameManager.cs` (+`ConfigureCampaignRun`), `ResultScreen.cs` (Continue +
+campaign-aware suppression + scorer extraction), `TitleScreen.cs` (suppression
+hook), `SaveData.cs` (+campaign keys), `SceneSkeleton.cs` (+binder component on
+the GameManager object — one line), `.gitignore`/folders (campaign output home).
+
+**Reused genuinely unchanged:** `GenerationPipeline` and everything below it,
+`LevelBlueprint`, `WaveManager`, `UITheme`, the balance model (until carry
+phase 2).
+
+---
+
+# Part B — Character Forge
+
+## B.1 Scope correction (the audit's biggest Part-B finding)
+
+v1 "generalizes the proven 6-step pattern" — but the pattern is verbatim in
+**one** script (`BuildColossusEnemy`); `CreateDroneEnemy` does half of it;
+`SetupColossus` (procedural, no vendor, no Animator, `ProceduralGait`) and
+`BuildColossusVariants` (`LoadPrefabContents` on existing project prefabs) are
+two more divergent variants; and **no tower-chassis builder exists at all**
+(chassis are human-authored; scripts only author definitions and wire stacks).
+So the forge is:
+
+- **Enemy path: a real generalization** of `BuildColossusEnemy`, v1-scoped to
+  *standard walkers and fliers* (Animator-based, vendor or project prefab).
+- **Tower path: new ground**, v1-scoped to **combat turrets only**. Support
+  towers have a different component stack (`CryoField`/`SalvageRig`/
+  `SupportAura`/`Floodlight` instead of `TurretAim`/`TowerWeapon`) — an
+  **archetype enum on the recipe maps to a required-component table**, and the
+  forge's gates validate archetype↔stat coherence. Support archetypes land
+  when a second data point exists to generalize from. `TowerHealth` is *not*
+  added by the forge — `Tower.Build` auto-adds it at runtime.
+
+## B.2 Recipe = template definition + assembly hints (replaces stat blocks)
+
+v1's `EnemyStatBlock`/`TowerStatBlock` "map 1:1 onto the definitions" — audited,
+they miss `stunResistance`, the six-field audio block, `animatorClipSpeedRef`,
+`targetAirOnly`, `pierce`, `minRange`, chain/splash, the four aura fields, and
+the whole `TowerWeaponMount[]` structure; and enemy return-fire stats live on
+the *prefab's* `EnemyWeapon`, not the definition, so a definition-shaped block
+has nowhere to put them. Parallel stat structs also mean every future
+definition field must be added in three places or forged units silently lose it.
+
+**Drop the stat blocks.** `CharacterRecipe` references a **template
+`EnemyDefinition`/`TowerDefinition` asset**; the forge clones the template and
+sets only identity + prefab + icon. Definitions stay the single stat schema
+forever. The recipe adds only what a definition can't hold:
 
 ```csharp
-[System.Serializable]
-public struct ProgressionRules
-{
-    public enum EconomyCarry { ResetPerLevel, CarryFull, CarryFraction }
-    public EconomyCarry economyCarry;
-    [Range(0f,1f)] public float salvageKeepFraction;  // for CarryFraction
-    public bool carryIntegrity;                        // keep core integrity between levels?
-    public int integrityHealPerLevel;                  // + integrity granted on level start
-    public int baseSalvagePerLevel;                    // floor granted regardless of carry
+public enum ForgeArchetype { Walker, Flier, CombatTurret /* v2: SupportTurret, … */ }
+
+public class CharacterRecipe : ScriptableObject   // EDITOR assembly — recipes
+{                                                  // reference vendor prefabs and
+    public ForgeArchetype archetype;               // must never ship
+    public GameObject sourcePrefab;                // developer-supplied
+    public string id, displayName;
+    public EnemyDefinition enemyTemplate;          // exactly one used, by archetype
+    public TowerDefinition towerTemplate;
+    public string[] muzzleMarkerNames;             // FindDeep hints (auto-detected)
+    public AnimationClip walkClip, dieClip;
+    public Material bodyMaterialOverride; public Color tint; public float scale;
+    public EnemyWeaponMountSpec[] returnFire;      // → prefab EnemyWeapon, not def
+    public string outputFolder;
 }
 ```
 
-**Why an asset, not code:** mirrors `LevelBlueprint`'s "single deterministic
-source" philosophy. A designer edits one asset; the same campaign seed reproduces
-the same 10 maps on every machine via `GenerationPipeline.Fnv1a`.
+The recipe class lives in the **editor assembly** (v1 put it in `Scripts/Data/`;
+a runtime recipe referencing vendor prefabs and clips is a build-content leak
+waiting for a reference).
 
-## A.3 New editor tool: `CampaignBuilderWindow`
+## B.3 `CharacterForge` (editor engine)
 
-**File:** `Editor/Coplay/Generation/CampaignBuilderWindow.cs`
-**Menu:** `Tools/COREHOLD/Campaign/Campaign Builder`
+As v1, with the audited corrections folded in:
 
-A sibling of `GeneratorWindow`. It owns **no** generation logic — it orchestrates
-existing pipelines, exactly as `GeneratorWindow` renders what the pipeline declares.
+- Lift `FindDeep` + the `BuildController` walk/die animator build out of
+  `BuildColossusEnemy` into shared utils; keep its proven **generated-muzzle
+  fallback** (real, confirmed) when no marker matches.
+- Gates, `Discard`-style: source present; archetype↔template coherent; ≥1
+  muzzle resolved for combat units; clips assigned (there is **no**
+  `search_animation_library` in this project — v1 cited CoPlay-side
+  infrastructure; the window offers manual assignment plus a scan of the source
+  prefab's own clips, patterned on `EnemyAnimSetup`'s clip tables). Fail loud,
+  emit nothing half-built.
+- **Vendor reality, stated plainly:** `SaveAsPrefabAsset` stores *GUID
+  references* to vendor meshes, it does not bake them. On a fresh clone those
+  GUIDs dangle and units spawn as invisible bodies with working components
+  (today's `Drone.prefab` carries 3 dangling vendor GUIDs, `Colossus_A` four —
+  and this same class of breakage is what just bit the icon baker). That is the
+  accepted single-dev tradeoff, but the forge *transcript* lists every
+  out-of-repo GUID the saved prefab depends on, so the exposure is visible per
+  unit instead of discovered later.
+- **Balance-model discipline (merged from Track B):** the model's enemy table
+  is hand-maintained by design, and Gate 3 never reads `WaveDefinition` assets
+  — it simulates the .py's own hardcoded roster (live drift already exists:
+  `Wave_10`'s boss is Colossus Vanguard 2400 HP while the model still simulates
+  2800). A forged enemy is therefore **invisible to the gates until its model
+  row exists**. The forge ends its transcript with the exact
+  `balance_model.py` `ENEMIES` row to paste, and warns that waves referencing
+  the unit before the row lands make the model either KeyError (id used in
+  WAVES) or silently mis-certify (id only in game assets). Pasting stays a
+  human act; the text is machine-written.
+- Icon: single-definition bake via the new `IconRenderer` entry point.
 
-Responsibilities:
+## B.4 What "Add to roster" actually is (descoped from the window)
 
-1. **Author the campaign** — pick/create a `CampaignDefinition`; add stages; assign
-   one `LevelBlueprint` per Level stage. Offer an **"Auto-vary" generator** that
-   populates 10 Level stages by cycling topology / theme / pace / difficulty for
-   variety (reuse `GeneratorWindow.CreateNewMap`'s per-topology authoring so each
-   blueprint opens in a generatable state).
-2. **"Generate All Levels"** — for each Level stage:
-   - `blueprint.randomSeed = (int)GenerationPipeline.Fnv1a(campaign.seed, "level_" + index)`
-   - call **`GenerationPipeline.RunAll(blueprint)` unchanged**
-   - reuse the existing "Generate until it passes" seed-retry loop so a stubborn
-     level auto-reseeds within its own seed family (bounded, like `MaxAutoSeeds`)
-   - on success, store `generatedScene` / `generatedScenePath` / `generatedLevel`
-     back into the stage
-   - accumulate a per-campaign transcript (reuse `StageRun` + `BuildReport`) so a
-     failed level is a paste-ready report
-3. **"Build Menu Scenes"** — generate/refresh the Welcome and Closing scenes (§A.5).
-4. **"Register Campaign"** — ensure Welcome, all 10 Levels, and Closing are in Build
-   Settings **in campaign order** (the pipeline already registers level scenes;
-   this inserts the two menu scenes and orders the whole list).
-
-Result: a one-button "generate the whole game" where every map still flows through
-the audited 18-stage / 3-gate pipeline.
-
-## A.4 Runtime: `CampaignManager` (persistent singleton)
-
-**File:** `Scripts/Core/CampaignManager.cs`
-
-Because levels are separate scenes, campaign state must survive scene loads. This
-is the one genuinely new runtime piece.
-
-```csharp
-public class CampaignManager : MonoBehaviour
-{
-    public static CampaignManager Instance { get; private set; }  // DontDestroyOnLoad
-    public CampaignDefinition Active { get; private set; }
-    public int CurrentStageIndex { get; private set; }
-    public CampaignRunState RunState { get; private set; }
-
-    public void StartCampaign(CampaignDefinition c);   // resets RunState, loads first stage
-    public void AdvanceToNextStage();                  // called on level Victory
-    public void LoadStage(int index);                  // SceneManager.LoadScene by path/build index
-    public void ApplyCarryInto(GameManager gm);        // seed next level economy/integrity
-    public void RecordLevelResult(bool victory, int stars, int score);
-    public bool HasActiveCampaign => Active != null;
-}
-
-[System.Serializable]
-public class CampaignRunState
-{
-    public int carriedSalvage;
-    public int carriedIntegrity;
-    public int cumulativeScore;
-    public float elapsedSeconds;
-    public int[] starsPerLevel;
-}
-```
-
-- Created once (from the Welcome scene, or a tiny `Boot` scene) and marked
-  `DontDestroyOnLoad`.
-- The reference to the `CampaignDefinition` is resolved via `Resources` or a
-  serialized bootstrap component (a ScriptableObject cannot be dragged into a
-  scene that survives loads without one of these); simplest is a `Boot` scene /
-  Welcome scene that holds the reference and passes it into `StartCampaign`.
-
-### `CampaignLevelBinder` (small per-level component)
-
-**File:** `Scripts/Core/CampaignLevelBinder.cs`
-
-Bridges a generated level scene to the persistent manager. Added to level scenes
-by the pipeline's skeleton stage **or** discovered/attached at runtime.
-
-- On level `Start` (after `GameManager.ConfigureRun` has run), if a campaign is
-  active it calls `CampaignManager.Instance.ApplyCarryInto(GameManager.Instance)`
-  so carried salvage/integrity override the per-level defaults.
-- Subscribes to `GameManager.OnStateChanged`; on `Victory` computes stars/score
-  (via existing `SaveData.ComputeScore`) and calls `RecordLevelResult`, then lets
-  the UI's Continue button (see §A.6) drive `AdvanceToNextStage`.
-
-## A.5 Welcome & Closing screens
-
-Two lightweight **dedicated menu scenes** (not gameplay scenes):
-
-- **`Scenes/Campaign/Campaign_Welcome.unity`** — reuses the existing
-  `TitleScreen` / `UITheme` UI stack. Difficulty select + "Begin Campaign".
-  On click: `CampaignManager.StartCampaign(def)` → `LoadStage(firstLevel)`.
-  This is also the **audio gate** the codebase requires (the difficulty tap is
-  the user gesture that starts audio — see `TitleScreen`).
-- **`Scenes/Campaign/Campaign_Closing.unity`** — a new `ClosingScreen` component
-  (parallel to `ResultScreen`): total campaign score, per-level star strip, total
-  time, best-run persistence, "Play Again" / "Main Menu".
-
-`Interstitial` stages are optional briefing overlays shown by `CampaignManager`
-between levels using the existing overlay canvas — no new scene, just a toggle
-before `LoadStage`.
-
-**New file:** `Scripts/UI/ClosingScreen.cs`.
-
-## A.6 Cross-level flow (the sequencer) — the only changes to existing code
-
-- **`ResultScreen` (modified, additive):** add a **"Continue"** button. When
-  `CampaignManager.Instance?.HasActiveCampaign == true` and the state is Victory,
-  Continue calls `CampaignManager.AdvanceToNextStage()`. When no campaign is
-  active, `ResultScreen` behaves **exactly as today** (Retry / Main Menu). This
-  keeps single-map play fully backward compatible.
-- **On Defeat:** Retry reloads the current level (existing
-  `GameFlow.RestartCurrentLevel`); an "Abandon" action returns to the Welcome
-  scene when a campaign is active.
-- **Progression carry:** `CampaignManager.ApplyCarryInto` writes into the next
-  level's `GameManager` according to `ProgressionRules` (e.g. keep 50% unspent
-  salvage, +5 integrity between levels). Score accumulates via
-  `SaveData.ComputeScore` per level, summed in `CampaignRunState`.
-
-### Sequencer state machine (lives in `CampaignManager`)
-
-```
-Welcome ──Begin──▶ Level[0] ──Victory──▶ (Interstitial?) ──▶ Level[1] ─ … ─▶ Level[9] ──Victory──▶ Closing
-   ▲                   │Defeat                                                                        │
-   └──────Abandon──────┴──────────────────────── Retry (reload same level) ──────────────            │
-   ▲──────────────────────────────── Play Again ──────────────────────────────────────────────────┘
-```
-
-## A.7 Persistence
-
-Extend `SaveData` (PlayerPrefs only — consistent with GDD §2.5). Additive keys:
-
-- `corehold.campaign.<id>.furthestStage` — unlock gating / resume.
-- `corehold.campaign.<id>.bestScore`, `.bestTime` — campaign records for Welcome.
-- Per-level stars reuse the existing `SubmitRecordMax(map, difficulty, stat)`
-  store keyed by the emitted `LevelDefinition` name.
-
-## A.8 File summary (Part A)
-
-**New:**
-- `Scripts/Data/CampaignDefinition.cs` (+ `ProgressionRules`, `CampaignStage`)
-- `Scripts/Core/CampaignManager.cs` (+ `CampaignRunState`)
-- `Scripts/Core/CampaignLevelBinder.cs`
-- `Scripts/UI/ClosingScreen.cs`
-- `Editor/Coplay/Generation/CampaignBuilderWindow.cs`
-- Scenes: `Scenes/Campaign/Campaign_Welcome.unity`, `Campaign_Closing.unity`
-
-**Modified (additive / backward-compatible):**
-- `Scripts/UI/ResultScreen.cs` (+Continue button, campaign-aware)
-- `Scripts/Systems/SaveData.cs` (+campaign keys)
-
-**Reused unchanged:** the entire generation pipeline, `LevelBlueprint`,
-`GameManager`, `GameFlow`, `TitleScreen`, `UITheme`, Build Settings registration.
-
-**Risk:** low. The generator is untouched; the only new runtime concept is a
-`DontDestroyOnLoad` manager, which is standard.
+v1 scoped it as a button. Audited, a new *tower* in the build menu means:
+appending to `UITheme.turrets` (instantly affects every scene including the
+shipped map), the `BuildRealUI` order array, `HardpointCoverageGizmo.TurretKind`
++ `HardpointSelector` pad-class logic (C# enums, not data), and the model's
+`TOWERS` dict. A new enemy in waves means per-stage wave-table work (Part C).
+**The forge v1 produces prefab + definition + icon + transcript and stops.**
+Roster integration is its own step (Part D order), starting with the registry
+refactor that makes the UI side one-line: a single roster registry that
+`UITheme.turrets`, the build-menu order, and the carousel all read.
 
 ---
 
-# Part B — Character Generator (Enemies & Towers)
+# Part C — Roster → campaign waves (scoped honestly)
 
-## B.1 Goal
+v1 called this "wire rosters into campaign generation" with a low-risk fallback
+of swapping enemy defs inside existing tables. The audit killed the fallback
+(shared assets — §0) and the R33 alias (different feature). What this actually
+is: **a new emission capability** — generating per-stage `WaveDefinition`
+tables from a roster with escalation, certified by the model.
 
-Turn the bespoke-editor-script pattern (`CreateDroneEnemy`, `BuildColossusEnemy`,
-the backup turret builders) into **one data-driven generator**: the developer
-supplies a prefab (vendor model), fills a recipe, and gets a game-ready prefab +
-`EnemyDefinition` / `TowerDefinition` — no per-unit C#.
-
-## B.2 The pattern being generalized
-
-Every existing enemy builder performs the same steps (seen verbatim in
-`CreateDroneEnemy` / `BuildColossusEnemy`):
-
-1. Instantiate + **unpack** the vendor prefab (`PrefabUtility.UnpackPrefabInstance`).
-2. Add the runtime stack: `Enemy`, `EnemyMover`, `EnemyWeapon`,
-   `EnemyAnimatorBridge`, `BlobShadow`.
-3. Resolve bones/muzzles by name (`FindDeep("...Barrel_End")`, hand bones), mount
-   weapons.
-4. Retint materials / build a Walk + Die `AnimatorController`.
-5. Set serialized fields via `SerializedObject`.
-6. `SaveAsPrefabAsset` → create/link the definition SO.
-
-Towers follow the analogous shape: `basePrefab` chassis + weapon child meshes +
-3× `TowerTier` (range / damage / fireRate / projectile / muzzle), driven by
-`Tower`, `TowerTargeting`, `TowerWeapon`, `TurretAim`, `TowerHealth`.
-
-## B.3 New data asset: `CharacterRecipe` (ScriptableObject)
-
-**File:** `Scripts/Data/CharacterRecipe.cs`
-
-```csharp
-public enum CharacterKind { GroundEnemy, AirEnemy, Tower }
-
-[CreateAssetMenu(menuName = "COREHOLD/Character Recipe", fileName = "Recipe_")]
-public class CharacterRecipe : ScriptableObject
-{
-    public CharacterKind kind;
-    public GameObject sourcePrefab;      // ← THE DEVELOPER PROVIDES THIS
-
-    // Identity
-    public string id;
-    public string displayName;
-
-    // Rig / mounting hints (name-based, matching FindDeep today)
-    public string[] muzzleMarkerNames = { "Barrel_End", "Muzzle" };
-    public string[] handBoneNames;       // for hand-mounted weapons (bosses)
-    public GameObject weaponAttachment;  // optional gun mounted into hands/hardpoints
-
-    // Animation (enemies)
-    public AnimationClip walkClip;
-    public AnimationClip dieClip;
-
-    // Visuals
-    public Material bodyMaterialOverride;
-    public Color tint = Color.white;
-    public Color emissive = Color.black;
-    public float scale = 1f;
-
-    // Combat — exactly one block is used, by kind:
-    public EnemyStatBlock enemyStats;    // hp, armour, speed, bounty, leak, altitude, enrage, phase-change
-    public TowerStatBlock towerStats;    // damageType, canTargetAir, 3× TowerTier
-
-    // Output (defaulted per kind)
-    public string outputPrefabFolder;
-    public string outputDefinitionFolder;
-}
-```
-
-`EnemyStatBlock` / `TowerStatBlock` map 1:1 onto the existing `EnemyDefinition` /
-`TowerDefinition` fields — so the recipe is essentially "definition fields +
-assembly hints".
-
-## B.4 New engine: `CharacterForge` (editor, static)
-
-**File:** `Editor/Coplay/Generation/CharacterForge.cs`
-
-The single generalized builder. `CharacterForge.Build(recipe)` runs the steps
-proven in the existing builders, branching on `kind`:
-
-- **Common:** instantiate + unpack source prefab; apply scale/tint/material; add
-  `BlobShadow`; resolve muzzles via `muzzleMarkerNames` (lift the `FindDeep`
-  helper out of `BuildColossusEnemy` into a shared util).
-- **Enemy path:** add `Enemy` / `EnemyMover` / `EnemyWeapon` /
-  `EnemyAnimatorBridge`; build a Walk + Die `AnimatorController` (share the exact
-  `BuildController` code from `BuildColossusEnemy`); set `isAir` +
-  `flightAltitude` for `AirEnemy`; write all `SerializedObject` fields from
-  `enemyStats`; `SaveAsPrefabAsset`; create/link `EnemyDefinition`.
-- **Tower path:** add `Tower` / `TowerTargeting` / `TowerWeapon` / `TurretAim` /
-  `TowerHealth`; mount weapon child meshes; write 3× `TowerTier` from
-  `towerStats`; `SaveAsPrefabAsset`; create/link `TowerDefinition`.
-- **Validation gates** (mirroring the generation pipeline's *emit-nothing-on-failure*):
-  source prefab present? at least one muzzle resolved for combat units? walk/die
-  clips assigned or auto-found? Fail loud with an actionable message and emit
-  nothing half-built (delete any created assets, like `GenerationPipeline.Discard`).
-- **Icon (optional):** invoke the existing `IconRenderer` so the definition's
-  `icon` is populated (definitions note "Null until Ticket 33 generates it").
-
-## B.5 New editor tool: `CharacterForgeWindow`
-
-**File:** `Editor/Coplay/Generation/CharacterForgeWindow.cs`
-**Menu:** `Tools/COREHOLD/Characters/Character Forge`
-
-Workflow:
-
-1. Drag a **vendor prefab** into "Source".
-2. Pick kind (Ground / Air / Tower). Only fields relevant to that kind show (like
-   `GeneratorWindow` hides parity-only fields).
-3. **Auto-detect** muzzle markers / hand bones from the prefab hierarchy and list
-   them, so the developer confirms rather than types names blind.
-4. Optional: pick walk/die clips, or "Find animations" via the existing
-   `search_animation_library` flow for humanoid rigs.
-5. Fill stats (pre-seeded with sensible per-kind defaults — e.g. the Drone's
-   60 HP / speed 8 for a light air unit).
-6. **"Forge"** → runs `CharacterForge.Build`, shows a transcript, pings the new
-   prefab + definition.
-7. **"Add to roster"** → optionally append the new `EnemyDefinition` to a
-   `WaveDefinition` group, or the `TowerDefinition` to the build-menu list.
-
-## B.6 Why a recipe SO instead of per-unit scripts
-
-- **Reproducible & inspectable:** a recipe asset can be diffed, re-run, and
-  versioned — the current builders bury GUIDs and magic numbers in C#.
-- **Feeds the campaign:** a `CampaignDefinition` can reference recipes so
-  "generate the whole game" can also populate rosters (10 levels of escalating
-  enemy sets) without hand-authoring each unit.
-- **Same discipline as the level generator:** validation gates,
-  emit-nothing-on-failure, a paste-ready transcript — the level pipeline's proven
-  ergonomics applied to characters.
-
-## B.7 File summary (Part B)
-
-**New:**
-- `Scripts/Data/CharacterRecipe.cs` (+ `EnemyStatBlock`, `TowerStatBlock`)
-- `Editor/Coplay/Generation/CharacterForge.cs`
-- `Editor/Coplay/Generation/CharacterForgeWindow.cs`
-
-**Reused:** `EnemyDefinition` / `TowerDefinition`, the full runtime component
-stack (`Enemy`/`EnemyMover`/`EnemyWeapon`/`EnemyAnimatorBridge`/`Tower`/`TowerTargeting`/…),
-`IconRenderer`, and the assembly steps already written in
-`CreateDroneEnemy` / `BuildColossusEnemy`.
-
-**Risk:** low–medium. The main variability is rig/bone naming across vendor packs
-— mitigated by auto-detection + confirmation in the window, and by falling back to
-a generated muzzle marker (as `BuildColossusEnemy` already does when `Barrel_End`
-is missing).
+Prerequisites, in order: per-stage deep-cloned tables (A.3 — done by then),
+forged units with model rows (B.3), then a wave-synthesis pass that composes
+groups from the roster against the model (shares R33's budget machinery;
+ticketed separately). Until then, campaign stages ship the deep-cloned shipped
+tables — already per-stage-editable by hand, already gate-certified.
 
 ---
 
-# Part C — How the two features connect
+# Part D — Build order (rebalanced)
 
-`CampaignDefinition` can hold a **roster** (`CharacterRecipe[]` for enemies and
-towers). "Generate the whole game" then becomes:
+v1 ordered B first ("de-risks content"). Backwards: the forge is a refactor of
+a proven pattern; **Part A holds every unvalidated design decision** (flow
+takeover, carry API, scoring semantics — the audit's blockers). Burn the
+unknowns first, with the walking-skeleton discipline the generator itself used:
 
-1. `CharacterForge` builds every unit from developer-supplied prefabs → definitions.
-2. `CampaignBuilderWindow` generates 10 levels via `GenerationPipeline.RunAll`
-   (varying topology / theme / pace / difficulty for variety), wiring the roster's
-   enemies into escalating wave tables.
-3. Welcome + Closing scenes are built, and everything is registered in Build
-   Settings in campaign order.
-4. At runtime, `CampaignManager` sequences Welcome → 10 Levels → Closing, carrying
-   progression per `ProgressionRules`.
-
-**Result:** one master seed + a handful of prefabs → a complete, reproducible
-10-level game, with every map still passing the existing 3 generation gates and
-every character built by the same audited forge.
-
----
-
-# Part D — Suggested build order
-
-1. **B first** (`CharacterForge` + `CharacterRecipe`) — refactor the existing
-   builders into the generalized engine; immediately useful and de-risks content.
-2. **A core** (`CampaignManager` + `CampaignDefinition` + `ResultScreen`
-   "Continue") — the runtime sequencer over existing generated scenes.
-3. **A tooling** (`CampaignBuilderWindow` + Welcome/Closing scenes) — the
-   one-button "generate the whole game".
-4. **C** — wire rosters into campaign generation.
+1. **A0 — Campaign walking skeleton.** Two existing generated scenes, reset
+   economy: `BeginCampaignRun` + `ConfigureCampaignRun` + `LoadSceneClean` +
+   binder + Continue + stub Welcome → prove Welcome → L1 → L2 → Closing
+   end-to-end. Every blocker dies here or reshapes the design cheaply.
+2. **A1 — Campaign Builder.** Authoring asset + manifest emission + Generate
+   All (temp-clone blueprints, accepted seeds, versioned output folder,
+   wave-table deep-clone) + contact-sheet seed picking + Register Campaign +
+   run-blob persistence + real Welcome/Closing.
+3. **B0 — Roster registry refactor** (the one-line-add precondition).
+4. **B1 — Character Forge**: enemy path (walkers/fliers), then combat turrets;
+   model-row transcripts; Colossus builder cleanup + def re-wiring fix.
+5. **A2 — Carry phase 2**: `--starting-salvage` in the model, carry-envelope
+   solving, `CarryFraction`/`CarryFull`, per-stage re-verify.
+6. **C — Roster-driven wave synthesis** (own ticket, model-coupled).
 
 ---
 
-# Part E — Open questions / decisions to confirm
+# Part E — Decisions
 
-1. **Campaign difficulty model** — one difficulty chosen at Welcome for the whole
-   run, or per-stage escalation via `CampaignStage.difficultyBias`? (Plan supports
-   both; default is Welcome-chosen with optional bias.)
-2. **Failure semantics** — does a Defeat end the campaign (roguelike), allow
-   unlimited Retry (current single-map behaviour), or a limited-lives model?
-   (Plan defaults to unlimited Retry + Abandon, matching today's behaviour.)
-3. **Boot scene vs Welcome scene** — whether to introduce a tiny `Boot` scene that
-   owns the `CampaignManager` and the `CampaignDefinition` reference, or fold that
-   into the Welcome scene. (Plan defaults to folding into Welcome for fewer scenes.)
-4. **Roster wiring depth** — should campaign generation regenerate wave tables from
-   the roster (larger, ties into roadmap R33), or reuse the existing per-level wave
-   tables and only swap enemy definitions? (Plan defaults to the latter as the
-   lower-risk first cut.)
+Resolved by this v2 (previously open):
+- **E-Q1 difficulty** → chosen once at Welcome, whole run; `difficultyBias`
+  stays authorable but phase-2 (it shifts model inputs like carry does).
+- **E-Q2 defeat** → unlimited Retry from the stage entry snapshot + Abandon;
+  matches today's behavior, no farming exploit.
+- **E-Q3 boot** → fold into Welcome; claim the existing disabled `Boot.unity`
+  slot only if a loader scene proves necessary.
+- **E-Q4 wave tables** → deep-clone per stage now; roster synthesis later
+  (Part C). The v1 fallback is rejected as cross-level mutation.
+
+Still genuinely open (owner: you):
+- **D1 — Ship model for campaign scenes.** This plan's default: campaign output
+  is **committed** under `Scenes/Campaign/<id>/` (campaign scenes are shipped
+  content, like `Game.unity`; `Scenes/Generated` stays git-ignored scratch).
+  Alternative: keep everything ignored and make "Generate All" a mandatory
+  deterministic pre-build step. Committed is recommended — it matches the
+  editor-only-generator doctrine and survives a fresh clone without tooling.
+- **D2 — Campaign length/shape of the first shipped campaign** (how many
+  levels, which topologies/themes) — an authoring decision for the Campaign
+  Builder session, informed by contact sheets.
