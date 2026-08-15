@@ -77,7 +77,7 @@ public static class BalanceModelRunner
     ///
     /// So: scale the shipped 14 by how much more path this map has, and clamp to
     /// what physically fits. A map with the shipped route length reproduces 14
-    /// exactly, which keeps the parity path honest. The cap feeds the balance
+    /// exactly, which keeps the model's inputs honest. The cap feeds the balance
     /// model, so tightening it re-solves hpGrowthPerWave against the pressure the
     /// player will actually face rather than against a wall that cannot happen.
     /// </summary>
@@ -101,7 +101,7 @@ public static class BalanceModelRunner
     /// <summary>
     /// Run the model against the scene's generated geometry. Pass
     /// <paramref name="solveGrowth"/> to bisect hpGrowthPerWave (generated
-    /// maps); otherwise <paramref name="hpGrowth"/> is verified as-is (parity —
+    /// maps); otherwise <paramref name="hpGrowth"/> is verified as-is (a fixed-rules run —
     /// solving would un-parity the shipped rules). Returns null with an
     /// actionable <paramref name="error"/> on any failure.
     /// </summary>

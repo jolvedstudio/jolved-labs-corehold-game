@@ -90,20 +90,21 @@ public class GeneratorWindow : EditorWindow
             EditorGUILayout.HelpBox(
                 "A LevelBlueprint drives everything: seed, field, routes, pads, theme pool. " +
                 "Create one per map you want to generate.", MessageType.Info);
-            if (GUILayout.Button("Create the shipped-map blueprint (parity target)"))
+            if (GUILayout.Button("Create a starter blueprint (shipped-map values)"))
             {
-                GenerateLevel.CreateShippedBlueprint();
+                GenerateLevel.CreateStarterBlueprint();
                 _blueprint = GenerateLevel.ResolveBlueprintQuiet();
             }
             return;
         }
 
-        DrawModeSwitch();
+        EditorGUILayout.Space(2f);
+        EditorGUILayout.LabelField(
+            "Synthesis — routes, hardpoints and dressing come from the seed. Reseed freely; " +
+            "a refused seed costs nothing.",
+            EditorStyles.wordWrappedMiniLabel);
 
-        // Seed edits go through Undo so a designer can back out of them. On a
-        // parity blueprint the seed changes nothing, so the field is disabled
-        // rather than left inviting a change that does nothing.
-        using (new EditorGUI.DisabledScope(_blueprint.parityLayout))
+        // Seed edits go through Undo so a designer can back out of them.
         {
             EditorGUI.BeginChangeCheck();
             int seed = EditorGUILayout.IntField(
@@ -124,45 +125,6 @@ public class GeneratorWindow : EditorWindow
                 _ran = false;                                // stale results would mislead
             }
         }
-    }
-
-    /// <summary>
-    /// THE mode switch: rebuild the shipped map, or synthesize a new one.
-    ///
-    /// It lives here rather than only on the asset because it is the single
-    /// most consequential choice in the tool — it decides whether the seed and
-    /// half the blueprint's fields mean anything — and "untick a bool in the
-    /// Inspector" is not a discoverable way to express that.
-    /// </summary>
-    private void DrawModeSwitch()
-    {
-        EditorGUILayout.Space(2f);
-        int current = _blueprint.parityLayout ? 0 : 1;
-        int picked = GUILayout.Toolbar(current, new[]
-        {
-            new GUIContent("Rebuild shipped map",
-                "Parity: reproduce Refinery Delta exactly. The seed varies nothing and the " +
-                "gates verify rather than shape. This is the regression test."),
-            new GUIContent("Generate new map",
-                "Synthesize routes, pads and dressing from the seed. This is what the " +
-                "generator is for."),
-        }, GUILayout.Height(24f));
-
-        if (picked != current)
-        {
-            Undo.RecordObject(_blueprint, "Change generation mode");
-            _blueprint.parityLayout = picked == 0;
-            EditorUtility.SetDirty(_blueprint);
-            _ran = false;                                    // the previous run described the other mode
-        }
-
-        EditorGUILayout.LabelField(
-            _blueprint.parityLayout
-                ? "Parity — the shipped layout, seed ignored. Use it to prove the pipeline still " +
-                  "reproduces the live map after a change."
-                : "Synthesis — routes, hardpoints and dressing come from the seed. Reseed freely; " +
-                  "a refused seed costs nothing.",
-            EditorStyles.wordWrappedMiniLabel);
         EditorGUILayout.Space(2f);
     }
 
@@ -181,9 +143,6 @@ public class GeneratorWindow : EditorWindow
         EditorGUILayout.Space(4f);
         EditorGUILayout.LabelField("Hardpoints", EditorStyles.boldLabel);
 
-        // Parity pads are the shipped set, so the mix is a fixed census there —
-        // editing it would only make gate 2 disagree with the map it rebuilt.
-        using (new EditorGUI.DisabledScope(_blueprint.parityLayout))
         {
             LevelBlueprint.PadClassMix mix = _blueprint.classMix;
 
@@ -224,10 +183,8 @@ public class GeneratorWindow : EditorWindow
         }
 
         EditorGUILayout.LabelField(
-            _blueprint.parityLayout
-                ? "Parity rebuilds the shipped 8 pads (3P/2S/2R/1O); the mix is the census the gate checks."
-                : "The mix is the pad count — there is no separate total to keep in sync. More pads only " +
-                  "generate if the geometry can host them; if it can't, gate 2 refuses and names the class.",
+            "The mix is the pad count — there is no separate total to keep in sync. More pads only " +
+            "generate if the geometry can host them; if it can't, gate 2 refuses and names the class.",
             EditorStyles.wordWrappedMiniLabel);
     }
 
@@ -286,11 +243,11 @@ public class GeneratorWindow : EditorWindow
     private static readonly float[] PaceMetres = { 120f, 154f, 185f };
 
     /// <summary>
-    /// Author a NEW map from four choices, instead of duplicating the parity
+    /// Author a NEW map from four choices, instead of duplicating the starter
     /// blueprint and editing it.
     ///
     /// Duplicating is how every hand-made blueprint so far has started, and it is
-    /// why they arrive broken: the parity asset carries the shipped Core at
+    /// why they arrive broken: the starter asset carries the shipped Core at
     /// (0.765, 0.413), which is correct for a corridor and wrong for anything that
     /// surrounds the Core. The designer then meets a refusal about approach rings
     /// for a field they never chose. Authoring per topology puts the Core where
@@ -336,7 +293,6 @@ public class GeneratorWindow : EditorWindow
         string path = AssetDatabase.GenerateUniqueAssetPath($"{dir}/Blueprint_{safe}.asset");
 
         var bp = ScriptableObject.CreateInstance<LevelBlueprint>();
-        bp.parityLayout = false;
         bp.topology = _newMapTopology;
         bp.routeLengthTarget = PaceMetres[_newMapPace];
         bp.foldWidth = 12f;
@@ -430,7 +386,7 @@ public class GeneratorWindow : EditorWindow
     private void DrawRunFixes()
     {
         HardpointSelector.Shortfall s = HardpointSelector.LastShortfall;
-        if (!s.valid || _blueprint == null || _blueprint.parityLayout)
+        if (!s.valid || _blueprint == null)
             return;
 
         var fixes = new List<GenerationAdvisor.Fix>();
@@ -576,7 +532,6 @@ public class GeneratorWindow : EditorWindow
         {
             int h = b.GetInstanceID();
             h = h * 31 + b.topology.GetHashCode();
-            h = h * 31 + b.parityLayout.GetHashCode();
             h = h * 31 + b.playfieldSize.GetHashCode();
             h = h * 31 + b.protectedNormalizedPos.GetHashCode();
             h = h * 31 + b.routeLengthTarget.GetHashCode();

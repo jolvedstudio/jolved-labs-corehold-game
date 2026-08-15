@@ -112,9 +112,6 @@ namespace Corehold.Data
         [Tooltip("Design-box size in metres (shipped map: 130 × 75). NOTE: this does NOT size the ground plane — the floor is fitted to the camera frustum after framing (R11/R26), because a design-box floor is wrong by a different amount on every map.")]
         public Vector2 playfieldSize = new Vector2(130f, 75f);
 
-        [Tooltip("Use the shipped Refinery Delta layout (routes, pads, dressing) instead of synthesizing from the seed — R26's parity/regression path, which must rebuild the live map exactly and therefore cannot vary by seed. Generated maps leave this OFF.")]
-        public bool parityLayout;
-
         [Header("Protected structure (the Core)")]
         [Tooltip("PROJECT PREFAB placed as the thing being defended — not a scene object. " +
                  "A ScriptableObject lives in the project, so Unity refuses to let it reference " +
@@ -163,7 +160,7 @@ namespace Corehold.Data
                  "Pincer/Siege/Encirclement spiral in on a centred Core from 2, 3 or 4 bearings. Each " +
                  "siege option is a combination measured to separate on a 130×75 field at 154 m — the " +
                  "sector count and arc are not separate knobs because most combinations of them cannot " +
-                 "generate. Parity is always Corridor.")]
+                 "generate.")]
         public ApproachTopology topology = ApproachTopology.Corridor;
 
         /// <summary>Whether this topology spirals in on a centred Core rather than folding past it.</summary>
@@ -215,7 +212,7 @@ namespace Corehold.Data
 
         [Tooltip("Hairpin pocket width in metres — a HARD synthesis constraint, not an aesthetic one. Below 7.5 m no pad clears the 3.75 m envelope from the pocket centre; above ~20 m the shortest-ranged turret (Arc Node, 10 m) cannot reach both legs; a Mortar pocket needs ≥12 m or both legs sit inside its 6 m dead zone. The shipped folds are 10 and 11 m, " +
                  "but the DEFAULT here is 12: the default class mix asks for an Overwatch pad, and 11 would " +
-                 "warn about it on every new blueprint. Parity authors 11 explicitly.")]
+                 "warn about it on every new blueprint. The shipped map used 11.")]
         [Range(7.5f, 20f)] public float foldWidth = 12f;
 
         // Entrance legs are no longer a field: SingleLane vs Corridor says it, and

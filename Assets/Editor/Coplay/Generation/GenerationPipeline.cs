@@ -15,10 +15,11 @@ using UnityEngine.SceneManagement;
 /// the P6 preamble's twelve-stage order, and it is LOAD-BEARING: floor after
 /// camera, coverage re-run after dressing, model solve after geometry is final.
 ///
-/// Layout comes from one seam (<see cref="LevelLayout"/>): the parity path
-/// returns the shipped map, R27's synthesizer returns a seeded one, and every
-/// stage after that seam treats the two identically — same gates, same
-/// grouping, same emission. Failure anywhere DISCARDS the run: no scene saved,
+/// Layout comes from one seam (<see cref="LevelLayout"/>): R27's synthesizer
+/// returns a seeded layout, and every stage after that seam works from it —
+/// gates, grouping, emission. (The R26 parity path, which used to return the
+/// shipped map through the same seam, retired when the generator became
+/// new-level-only.) Failure anywhere DISCARDS the run: no scene saved,
 /// created assets deleted (R29's "nothing emitted").
 /// </summary>
 public static class GenerationPipeline
@@ -365,10 +366,10 @@ public static class GenerationPipeline
     private static StageResult StProtected(Context ctx)
     {
         LevelBlueprint b = ctx.blueprint;
-        string synthReport = null;
-        ctx.layout = b.parityLayout
-            ? ShippedLayout.Get(b)
-            : RouteSynthesizer.Synthesize(b, out synthReport);
+        // New-level generation only: the parity rebuild retired with the
+        // hand-built map's role as design anchor (user decision) — every run
+        // synthesizes from the seed.
+        ctx.layout = RouteSynthesizer.Synthesize(b, out string synthReport);
 
         // A null layout is a blueprint problem, not a seed problem — the
         // synthesizer says which field/foldWidth/target constraint is violated.
@@ -377,10 +378,9 @@ public static class GenerationPipeline
         if (synthReport != null)
             Debug.Log("[R27] " + synthReport);
 
-        // The level container lives under _Level, named for the blueprint —
-        // "RefineryLevel" only for the parity map, which must mirror the scene.
+        // The level container lives under _Level, named for the blueprint.
         Transform levelRoot = SceneContainers.Ensure("_Level");
-        string containerName = b.parityLayout ? "RefineryLevel" : $"Level_{Sanitise(b.name)}";
+        string containerName = $"Level_{Sanitise(b.name)}";
         var container = new GameObject(containerName);
         container.transform.SetParent(levelRoot, false);
         ctx.levelContainer = container.transform;
@@ -449,24 +449,14 @@ public static class GenerationPipeline
 
     private static StageResult StGate1(Context ctx)
     {
-        // Parity geometry is measured as-is — adjusting it would un-parity the
-        // rebuild. Synthesized geometry gets the R29 loop: margin clamps only,
-        // logged, ≤3 passes, full re-check between passes.
-        string failure;
-        string summary;
-        if (ctx.blueprint.parityLayout)
-        {
-            failure = GenerationGates.CheckClearance(ctx.routes, ctx.blueprint, out summary);
-        }
-        else
-        {
-            failure = GenerationGates.AdjustAndRecheck(ctx.routes, ctx.blueprint,
-                                                       out summary, out List<string> adjustments);
-            if (adjustments.Count > 0)
-                Debug.Log("[R29] Gate 1 knot adjustments:\n  " + string.Join("\n  ", adjustments));
-            if (failure == null && adjustments.Count > 0)
-                summary += $"; {adjustments.Count} knot(s) margin-clamped (logged)";
-        }
+        // The R29 loop: margin clamps only, logged, ≤3 passes, full re-check
+        // between passes.
+        string failure = GenerationGates.AdjustAndRecheck(ctx.routes, ctx.blueprint,
+                                                          out string summary, out List<string> adjustments);
+        if (adjustments.Count > 0)
+            Debug.Log("[R29] Gate 1 knot adjustments:\n  " + string.Join("\n  ", adjustments));
+        if (failure == null && adjustments.Count > 0)
+            summary += $"; {adjustments.Count} knot(s) margin-clamped (logged)";
 
         if (failure != null)
             return StageResult.Fail(failure);
@@ -475,21 +465,15 @@ public static class GenerationPipeline
 
     private static StageResult StPads(Context ctx)
     {
-        RefineryDeltaBlockout.HP[] pads = ctx.layout.pads;
-        string how = "parity set";
-
+        // R28: clearance-filtered candidates, scored by the real validator,
+        // classified from measurement, picked deterministically.
+        RefineryDeltaBlockout.HP[] pads = HardpointSelector.Select(
+            ctx.blueprint, ctx.routes, ctx.layout.corePos, ctx.layout.sharedTail,
+            out string selReport);
         if (pads == null)
-        {
-            // R28: clearance-filtered candidates, scored by the real validator,
-            // classified from measurement, picked deterministically.
-            pads = HardpointSelector.Select(ctx.blueprint, ctx.routes,
-                                            ctx.layout.corePos, ctx.layout.sharedTail,
-                                            out string selReport);
-            if (pads == null)
-                return StageResult.Fail(selReport);
-            Debug.Log("[R28] Hardpoint selection:\n" + selReport);
-            how = "selected from measured coverage";
-        }
+            return StageResult.Fail(selReport);
+        Debug.Log("[R28] Hardpoint selection:\n" + selReport);
+        const string how = "selected from measured coverage";
 
         var log = new StringBuilder();
         // Pads are wired to the SAME route set the selector scored against —
@@ -676,21 +660,9 @@ public static class GenerationPipeline
 
     private static StageResult StDressing(Context ctx)
     {
-        // Far-band silhouettes (R11). Parity gets the shipped refinery horizon
-        // because that IS the shipped map; every other map gets its own theme's
-        // silhouettes, or a bare horizon if the theme has none.
-        if (ctx.blueprint.parityLayout)
-            GroundAndSkirt.BuildSilhouetteBand();
-        else
-            GroundAndSkirt.BuildSilhouetteBand(ctx.theme, ctx.blueprint.randomSeed);
-
-        if (ctx.blueprint.parityLayout)
-        {
-            // Parity dressing is the shipped set, placed by the same builders.
-            RefineryDeltaBlockout.BuildStructures(ctx.levelContainer);
-            RefineryDeltaBlockout.BuildWreckAndRadar(ctx.levelContainer);
-            return StageResult.Ok("silhouette band + shipped structures/narrative (parity set)");
-        }
+        // Far-band silhouettes (R11): each map gets its own theme's silhouettes,
+        // or a bare horizon if the theme has none.
+        GroundAndSkirt.BuildSilhouetteBand(ctx.theme, ctx.blueprint.randomSeed);
 
         if (ctx.theme == null)
             return StageResult.Skip("no theme drawn — undressed beyond the silhouette band");
@@ -781,9 +753,7 @@ public static class GenerationPipeline
         }
 
         if (occluders.Count == 0)
-            return StageResult.Ok(ctx.blueprint.parityLayout
-                ? "0 measured occluders (parity structures carry no PlacedProp markers — the validated shipped set)"
-                : "0 occluders placed — plain recount holds");
+            return StageResult.Ok("0 occluders placed — plain recount holds");
 
         return StageResult.Ok($"through {occluders.Count} occluder(s): every pad keeps its class and is " +
                               $"visible; {routeHiddenMetres:0.#} m of {routeTotal:0} m route hidden " +
@@ -860,23 +830,9 @@ public static class GenerationPipeline
         levelProp.objectReferenceValue = clone;
         so.ApplyModifiedPropertiesWithoutUndo();
 
-        // ---- the R30 model run: solve for generated maps, verify for parity --
+        // ---- the R30 model run: solve this map's growth and live cap ---------
         Vector3 airSpawn = ctx.layout.airSpawn;
         Vector3 coreXZ = ctx.coreTarget.position;
-
-        if (b.parityLayout)
-        {
-            // Parity keeps the shipped rules VERBATIM — solving would
-            // un-parity them. The model still runs, as a verification.
-            ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
-                solveGrowth: false, hpGrowth: clone.hpGrowthPerWave,
-                maxLive: clone.maxLiveEnemies, out string verifyError);
-            if (ctx.model == null)
-                return StageResult.Fail(verifyError);
-
-            return StageResult.Ok($"'{b.rulesTemplate.name}' cloned VERBATIM → {assetPath}; model verified " +
-                                  $"at growth {clone.hpGrowthPerWave:0.###} (gate 3 judges the margins)");
-        }
 
         int derivedMaxLive = BalanceModelRunner.DeriveMaxLive(ctx.routes, b.airCorridor);
         ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,

@@ -11,7 +11,7 @@ using UnityEngine.SceneManagement;
 /// a gate must judge the map the pipeline just built, not every object loaded in
 /// the editor.
 ///
-/// This bit for real. A parity rebuild placed 8 hardpoints and the coverage gate
+/// This bit for real. A generated map placed 8 hardpoints and the coverage gate
 /// counted 16 — the shipped map's own 8 pads, still loaded, were being censused
 /// as part of the generated map, and the class mix came out at exactly double
 /// (6/4/4/2 against a 3/2/2/1 blueprint). The map was correct; the question was

@@ -117,7 +117,7 @@ public static class GenerationGates
         // construction. Same principle, different exempt zone — and the zone has
         // to be named correctly, because exempting the wrong one either hides a
         // real overlap or fails a map for doing what it was asked to do.
-        bool siege = blueprint.IsSiege && !blueprint.parityLayout;
+        bool siege = blueprint.IsSiege;
         bool hasMerge = !siege && sampled.Count == 2;
         Vector3 mergePoint = hasMerge ? FindMergePoint(routes[0], routes[1]) : Vector3.zero;
         Vector3 corePoint = LevelLayout.FromNormalized(blueprint.protectedNormalizedPos,
@@ -236,7 +236,7 @@ public static class GenerationGates
 
     /// <summary>
     /// The R29 clearance-adjustment loop: when gate 1 fails on a SYNTHESIZED
-    /// route (parity geometry is never touched — it must mirror the shipped
+    /// route (historically parity geometry was exempt — it had to mirror the shipped
     /// map), knots breaching the field margin are clamped inside it, each move
     /// LOGGED, for at most three passes with a full re-check between passes.
     ///

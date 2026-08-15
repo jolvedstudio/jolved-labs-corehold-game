@@ -56,24 +56,6 @@ public static class GenerationAdvisor
         if (b == null)
             return fixes;
 
-        // Parity rebuilds a layout that is already known to work; the only thing
-        // that can be wrong is the blueprint claiming to be something else.
-        if (b.parityLayout)
-        {
-            if (b.topology != LevelBlueprint.ApproachTopology.Corridor)
-            {
-                diagnosis = "This blueprint rebuilds the shipped map, which is a Corridor.";
-                fixes.Add(new Fix
-                {
-                    label = "Set topology to Corridor",
-                    why = "Parity mode reproduces Refinery Delta exactly, and Refinery Delta is a corridor " +
-                          "map. Any other topology contradicts what parity means.",
-                    apply = bp => bp.topology = LevelBlueprint.ApproachTopology.Corridor,
-                });
-            }
-            return fixes;
-        }
-
         // ---- things that block before geometry is even attempted --------------
         if (b.classMix.premium < LevelBlueprint.PadClassMix.MinPremium)
         {

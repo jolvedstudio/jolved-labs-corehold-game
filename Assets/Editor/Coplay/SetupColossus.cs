@@ -40,11 +40,11 @@ public static class SetupColossus
     {
         var log = new StringBuilder();
 
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
-        if (prefab == null)
-            prefab = BuildPrefab(log);
-        else
-            log.AppendLine($"[ok] prefab already exists: {PrefabPath}");
+        // Always rebuild: the prefab is procedural, so the tool IS its source of
+        // truth — overwriting the same path keeps the GUID, so the definition's
+        // reference survives. (An early-return here once left users stuck on a
+        // gait-less first revision.)
+        GameObject prefab = BuildPrefab(log);
 
         WireDefinition(prefab, log);
 
@@ -65,33 +65,39 @@ public static class SetupColossus
         try
         {
             // --- Chassis: a four-legged siege walker, ~4.6 m tall. ---
+            // The upper works live in a "Body" group so the gait can heave and
+            // sway them as one mass while the legs stay planted on their hips.
+            var body = new GameObject("Body");
+            body.transform.SetParent(root.transform, false);
+
             // Torso, leaning forward like something that pushes through fire.
-            Part(root, PrimitiveType.Cube, "Torso", new Vector3(0f, 2.9f, 0f),
+            Part(body, PrimitiveType.Cube, "Torso", new Vector3(0f, 2.9f, 0f),
                 new Vector3(2.3f, 1.5f, 2.0f), Quaternion.Euler(6f, 0f, 0f), hull);
-            Part(root, PrimitiveType.Cube, "Carapace", new Vector3(0f, 3.7f, -0.2f),
+            Part(body, PrimitiveType.Cube, "Carapace", new Vector3(0f, 3.7f, -0.2f),
                 new Vector3(2.6f, 0.45f, 2.3f), Quaternion.Euler(4f, 0f, 0f), hull);
 
             // Head block with an emissive visor strip (enrage glow part).
-            Part(root, PrimitiveType.Cube, "Head", new Vector3(0f, 3.55f, 1.15f),
+            Part(body, PrimitiveType.Cube, "Head", new Vector3(0f, 3.55f, 1.15f),
                 new Vector3(1.0f, 0.62f, 0.8f), Quaternion.identity, hull);
-            Part(root, PrimitiveType.Cube, "Visor", new Vector3(0f, 3.55f, 1.57f),
+            Part(body, PrimitiveType.Cube, "Visor", new Vector3(0f, 3.55f, 1.57f),
                 new Vector3(0.84f, 0.18f, 0.06f), Quaternion.identity, glow);
 
             // Shoulder pylons + emissive core vents flanking the torso.
-            Part(root, PrimitiveType.Cube, "Pylon_L", new Vector3(-1.35f, 3.45f, -0.1f),
+            Part(body, PrimitiveType.Cube, "Pylon_L", new Vector3(-1.35f, 3.45f, -0.1f),
                 new Vector3(0.55f, 0.9f, 1.1f), Quaternion.Euler(0f, 0f, 8f), hull);
-            Part(root, PrimitiveType.Cube, "Pylon_R", new Vector3(1.35f, 3.45f, -0.1f),
+            Part(body, PrimitiveType.Cube, "Pylon_R", new Vector3(1.35f, 3.45f, -0.1f),
                 new Vector3(0.55f, 0.9f, 1.1f), Quaternion.Euler(0f, 0f, -8f), hull);
-            Part(root, PrimitiveType.Cube, "Vent_L", new Vector3(-1.18f, 2.75f, -0.55f),
+            Part(body, PrimitiveType.Cube, "Vent_L", new Vector3(-1.18f, 2.75f, -0.55f),
                 new Vector3(0.12f, 0.8f, 0.9f), Quaternion.identity, glow);
-            Part(root, PrimitiveType.Cube, "Vent_R", new Vector3(1.18f, 2.75f, -0.55f),
+            Part(body, PrimitiveType.Cube, "Vent_R", new Vector3(1.18f, 2.75f, -0.55f),
                 new Vector3(0.12f, 0.8f, 0.9f), Quaternion.identity, glow);
 
-            // Four splayed legs (upper + shin each), spider-walker stance.
-            Leg(root, hull, "FL", new Vector3(-0.95f, 0f, 0.75f), -28f, 14f);
-            Leg(root, hull, "FR", new Vector3(0.95f, 0f, 0.75f), 28f, 14f);
-            Leg(root, hull, "BL", new Vector3(-0.95f, 0f, -0.75f), -28f, -14f);
-            Leg(root, hull, "BR", new Vector3(0.95f, 0f, -0.75f), 28f, -14f);
+            // Four splayed legs, each hinged on a pivot at its hip so the gait
+            // can swing the whole limb. Diagonal pairs share a phase (a trot).
+            Transform legFL = Leg(root, hull, "FL", new Vector3(-0.95f, 0f, 0.75f), -28f, 14f);
+            Transform legFR = Leg(root, hull, "FR", new Vector3(0.95f, 0f, 0.75f), 28f, 14f);
+            Transform legBL = Leg(root, hull, "BL", new Vector3(-0.95f, 0f, -0.75f), -28f, -14f);
+            Transform legBR = Leg(root, hull, "BR", new Vector3(0.95f, 0f, -0.75f), 28f, -14f);
 
             // --- Blob shadow, the shared enemy convention. ---
             var blob = GameObject.CreatePrimitive(PrimitiveType.Quad);
@@ -124,10 +130,36 @@ public static class SetupColossus
 
             var moverSo = new SerializedObject(mover);
             moverSo.FindProperty("bodyRadius").floatValue = BodyRadius;
+            // A 4.6 m walker SLEWS, it does not snap: the default 360°/s made the
+            // slow giant ratchet onto each baked-tangent step ("stuttery" turns).
+            // 90°/s turns each step into a continuous swing and still clears the
+            // tightest hairpin with the enrage boost on.
+            moverSo.FindProperty("turnRate").floatValue = 90f;
             moverSo.ApplyModifiedPropertiesWithoutUndo();
 
+            // Distance-synced procedural gait (no Animator, no assets): heave and
+            // sway on the Body group, diagonal leg pairs trotting. The 6 m stride
+            // matches the footfall camera shake, so the thud lands on the dip.
+            var gait = root.AddComponent<ProceduralGait>();
+            var gaitSo = new SerializedObject(gait);
+            gaitSo.FindProperty("body").objectReferenceValue = body.transform;
+            var legsProp = gaitSo.FindProperty("legs");
+            legsProp.arraySize = 4;
+            legsProp.GetArrayElementAtIndex(0).objectReferenceValue = legFL;
+            legsProp.GetArrayElementAtIndex(1).objectReferenceValue = legFR;
+            legsProp.GetArrayElementAtIndex(2).objectReferenceValue = legBL;
+            legsProp.GetArrayElementAtIndex(3).objectReferenceValue = legBR;
+            var phasesProp = gaitSo.FindProperty("legPhases");
+            phasesProp.arraySize = 4;
+            phasesProp.GetArrayElementAtIndex(0).floatValue = 0f;
+            phasesProp.GetArrayElementAtIndex(1).floatValue = Mathf.PI;
+            phasesProp.GetArrayElementAtIndex(2).floatValue = Mathf.PI;
+            phasesProp.GetArrayElementAtIndex(3).floatValue = 0f;
+            gaitSo.ApplyModifiedPropertiesWithoutUndo();
+
             var saved = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
-            log.AppendLine($"[ok] built prefab: {PrefabPath} (bodyRadius {BodyRadius}, no Animator by design)");
+            log.AppendLine($"[ok] built prefab: {PrefabPath} (bodyRadius {BodyRadius}, " +
+                           "turnRate 90, procedural gait wired, no Animator by design)");
             return saved;
         }
         finally
@@ -136,16 +168,25 @@ public static class SetupColossus
         }
     }
 
-    private static void Leg(GameObject root, Material hull, string tag, Vector3 hip,
+    private static Transform Leg(GameObject root, Material hull, string tag, Vector3 hip,
         float splayZ, float splayX)
     {
-        // Upper leg angles out from the hip; shin drops to the ground.
-        Part(root, PrimitiveType.Cube, $"Leg_{tag}_Upper",
-            hip + new Vector3(splayZ > 0 ? 0.55f : -0.55f, 2.1f, splayX > 0 ? 0.25f : -0.25f),
+        // Hinge pivot at the hip: the gait swings this root around X and the
+        // whole limb follows. The original splayed stance is preserved as the
+        // children's LOCAL offsets below the pivot.
+        var pivot = new GameObject($"Leg_{tag}");
+        pivot.transform.SetParent(root.transform, false);
+        pivot.transform.localPosition = new Vector3(hip.x, 2.95f, hip.z);
+
+        float sx = splayZ > 0 ? 1f : -1f;
+        float sz = splayX > 0 ? 1f : -1f;
+        Part(pivot, PrimitiveType.Cube, $"Leg_{tag}_Upper",
+            new Vector3(sx * 0.55f, -0.85f, sz * 0.25f),
             new Vector3(0.42f, 1.7f, 0.42f), Quaternion.Euler(splayX, 0f, splayZ), hull);
-        Part(root, PrimitiveType.Cube, $"Leg_{tag}_Shin",
-            hip + new Vector3(splayZ > 0 ? 1.05f : -1.05f, 0.75f, splayX > 0 ? 0.5f : -0.5f),
+        Part(pivot, PrimitiveType.Cube, $"Leg_{tag}_Shin",
+            new Vector3(sx * 1.05f, -2.2f, sz * 0.5f),
             new Vector3(0.34f, 1.5f, 0.34f), Quaternion.Euler(-splayX * 0.4f, 0f, -splayZ * 0.35f), hull);
+        return pivot.transform;
     }
 
     private static GameObject Part(GameObject root, PrimitiveType type, string name,

@@ -70,23 +70,36 @@ public static class ContactSheet
             return;
         }
 
+        // Capture the blueprint's DATA before anything runs. Each pipeline pass
+        // tears down scenes and churns the asset database, and the ORIGINAL
+        // object's managed wrapper was observed destroyed after the first pass —
+        // Instantiate(blueprint) on iteration 2 threw MissingReferenceException.
+        // Iterations therefore never touch the original again: every seed gets a
+        // fresh clone rebuilt from this JSON snapshot (EditorJsonUtility keeps
+        // asset references like rulesTemplate intact across the round-trip).
+        string bpName = blueprint.name;
+        string bpJson = EditorJsonUtility.ToJson(blueprint);
+        int startSeed = blueprint.randomSeed;
+        blueprint = null;   // deliberate: nothing below may depend on it living
+
         if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
             return;
         string returnScene = SceneManager.GetActiveScene().path;
 
         var records = new List<SeedRecord>();
         int passes = 0;
-        int startSeed = blueprint.randomSeed;
 
         for (int attempt = 0; attempt < MaxAttempts && passes < GridCols * GridRows; attempt++)
         {
             int seed = startSeed + attempt;
 
-            // Throwaway copy (the GenerationAdvisor pattern) so the authored
-            // blueprint asset is never touched. Name copied so emitted asset
-            // names keep their proper "<blueprint>" identity, not "(Clone)".
-            var bp = Object.Instantiate(blueprint);
-            bp.name = blueprint.name;
+            // Fresh, teardown-proof clone per seed (DontSave: scene loads must
+            // not reap it mid-run). Name kept so emitted asset names carry the
+            // blueprint's identity, not "(Clone)".
+            var bp = ScriptableObject.CreateInstance<LevelBlueprint>();
+            EditorJsonUtility.FromJsonOverwrite(bpJson, bp);
+            bp.name = bpName;
+            bp.hideFlags = HideFlags.DontSave;
             bp.randomSeed = seed;
 
             List<GenerationPipeline.StageRun> results;
@@ -96,7 +109,8 @@ public static class ContactSheet
             }
             finally
             {
-                Object.DestroyImmediate(bp);
+                if (bp != null)
+                    Object.DestroyImmediate(bp);
             }
 
             var failed = results.FirstOrDefault(r => !r.result.ok);
@@ -128,7 +142,7 @@ public static class ContactSheet
         else
             EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
-        WriteOutputs(blueprint, startSeed, records, passes);
+        WriteOutputs(bpName, startSeed, records, passes);
     }
 
     // ------------------------------------------------------------ capture
@@ -249,13 +263,13 @@ public static class ContactSheet
 
     // ------------------------------------------------------------ outputs
 
-    private static void WriteOutputs(LevelBlueprint blueprint, int startSeed,
+    private static void WriteOutputs(string blueprintName, int startSeed,
         List<SeedRecord> records, int passes)
     {
         if (!AssetDatabase.IsValidFolder(OutDir))
             AssetDatabase.CreateFolder("Assets/_COREHOLD/Docs", "ContactSheets");
 
-        string baseName = $"ContactSheet_{GenerationPipeline.Sanitise(blueprint.name)}_from{startSeed}";
+        string baseName = $"ContactSheet_{GenerationPipeline.Sanitise(blueprintName)}_from{startSeed}";
         string pngPath = $"{OutDir}/{baseName}.png";
         string mdPath = $"{OutDir}/{baseName}.md";
 
@@ -280,7 +294,7 @@ public static class ContactSheet
 
         // The per-seed table — passes first (grid order), then the failures.
         var md = new StringBuilder();
-        md.AppendLine($"# Contact sheet — {blueprint.name}, seeds from {startSeed}");
+        md.AppendLine($"# Contact sheet — {blueprintName}, seeds from {startSeed}");
         md.AppendLine();
         md.AppendLine($"{passes}/{GridCols * GridRows} passing seeds in " +
                       $"{records.Count} attempt(s). Grid reads row-major from the top-left.");

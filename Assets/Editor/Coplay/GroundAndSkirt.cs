@@ -226,7 +226,7 @@ public static class GroundAndSkirt
         (new[] { CreepyRoot + "Props/Machine/P_Pumping_Station_01.prefab" },          0.60f, 0.94f, 1.2f),
     };
 
-    /// <summary>Hand tool / parity path: the shipped refinery band.</summary>
+    /// <summary>Hand tool (shipped-scene menu rebuilds): the shipped refinery band.</summary>
     [MenuItem("Tools/COREHOLD/Look/Build Silhouette Band (R11)", false, 63)]
     public static void BuildSilhouetteBand() => Build(null, 0, true);
 

@@ -72,12 +72,14 @@ public static class GenerateLevel
     internal static LevelBlueprint ResolveBlueprintQuiet() => ResolveBlueprint(out _);
 
     /// <summary>
-    /// Author a blueprint describing the SHIPPED map, which is what R26's parity
-    /// rebuild is measured against ("a blueprint configured to the shipped values
-    /// rebuilds a scene with the full live root set").
+    /// Author a STARTER blueprint with the values measured off the live map —
+    /// a known-good Corridor configuration to begin new-level generation from.
+    /// (This tool used to author the R26 parity target; parity retired when the
+    /// generator became new-level-only, but its numbers remain the best-tested
+    /// starting point in the project.)
     /// </summary>
-    [MenuItem("Tools/COREHOLD/Level/Create Refinery Delta Blueprint", false, 2)]
-    public static void CreateShippedBlueprint()
+    [MenuItem("Tools/COREHOLD/Level/Create Starter Blueprint", false, 2)]
+    public static void CreateStarterBlueprint()
     {
         const string dir = "Assets/_COREHOLD/Data/Blueprints";
         const string path = dir + "/Blueprint_RefineryDelta.asset";
@@ -93,7 +95,6 @@ public static class GenerateLevel
         }
 
         // Values measured off the live map earlier in this project, not guessed.
-        bp.parityLayout = true;   // this blueprint IS the parity target — no seed variation
         bp.randomSeed = 1;
         bp.playfieldSize = new Vector2(130f, 75f);
         bp.protectedNormalizedPos = new Vector2(0.765f, 0.413f);  // Core at (34.5, -6.5)
@@ -112,8 +113,8 @@ public static class GenerateLevel
         AssetDatabase.SaveAssets();
         Selection.activeObject = bp;
 
-        Debug.Log($"[R25] {path} authored to the shipped map's values — this is R26's parity target. " +
-                  "envPackPool and weatherPool are left empty; Create Refinery Env Pack pins the parity " +
+        Debug.Log($"[R25] {path} authored to the shipped map's values — a known-good starter. " +
+                  "envPackPool and weatherPool are left empty; Create Refinery Env Pack pins the refinery " +
                   "theme into envPackPool once the pack exists.");
     }
 
@@ -170,11 +171,7 @@ public static class GenerateLevel
                          "(measured: above ~14 m many seeds refuse at the 154 m target). 12 is the sweet spot.");
 
         // ---- approach topology (R40) ----------------------------------------
-        if (b.parityLayout && b.topology != LevelBlueprint.ApproachTopology.Corridor)
-            errors.Add($"parityLayout rebuilds the shipped map, which is a Corridor — topology is " +
-                       $"{b.topology}. Set it back to Corridor, or turn parity off.");
-
-        if (b.IsSiege && !b.parityLayout)
+        if (b.IsSiege)
         {
             // The ring is bounded by the NEAREST field edge, so an off-centre Core
             // is the difference between a map that generates and one that cannot —
@@ -296,13 +293,13 @@ public static class GenerateLevel
 
     private static void AppendPlan(LevelBlueprint b, StringBuilder log)
     {
-        string routeDesc = b.IsSiege && !b.parityLayout
+        string routeDesc = b.IsSiege
             ? $"{b.topology} — {b.SiegeSectors} approaches over {b.SiegeArcDegrees:0}°"
             : $"{b.topology} — {b.GroundLegs} ground leg(s)";
         log.AppendLine($"seed {b.randomSeed} · field {b.playfieldSize.x:0}×{b.playfieldSize.y:0} m · " +
                        $"routes {routeDesc} + {(b.airCorridor ? "air" : "no air")} · " +
                        $"target {b.routeLengthTarget:0.#} m · " +
-                       (b.IsSiege && !b.parityLayout ? "" : $"folds {b.foldWidth:0.#} m · ") +
+                       (b.IsSiege ? "" : $"folds {b.foldWidth:0.#} m · ") +
                        $"{b.HardpointCount} pads ({b.classMix.premium}P/{b.classMix.standard}S/" +
                        $"{b.classMix.rear}R/{b.classMix.overwatch}O)");
         log.AppendLine();
