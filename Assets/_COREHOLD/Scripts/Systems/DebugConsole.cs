@@ -26,6 +26,7 @@ namespace Corehold.Systems
     ///   T      cycle forced wave mutators for waves started AFTER the press
     ///          (R20 test: None → Storm → Convoy → Overcharge → Blackout → All)
     ///   N      toggle the night lighting variant (R23; needs the scaffold in-scene)
+    ///   W      re-apply the active weather preset (pick up live [TUNE] edits)
     ///   1/2/3  set difficulty (Normal / Veteran / Nightmare)
     ///   F1     toggle the OnGUI overlay
     /// </summary>
@@ -64,6 +65,8 @@ namespace Corehold.Systems
                 CycleForcedMutators();
             if (kb.nKey.wasPressedThisFrame)
                 ToggleNight();
+            if (kb.wKey.wasPressedThisFrame)
+                ReapplyWeather();
             if (kb.digit1Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Normal);
             if (kb.digit2Key.wasPressedThisFrame)
@@ -203,6 +206,19 @@ namespace Corehold.Systems
             wm.DebugForceMutators = cycle[(at + 1) % cycle.Length];
             Debug.Log($"[DebugConsole] Forced wave mutators: {wm.DebugForceMutators} " +
                       "(applies to waves started from now; T again to cycle).");
+        }
+
+        /// <summary>Re-apply the active weather preset so live [TUNE] edits show now.</summary>
+        private void ReapplyWeather()
+        {
+            var weather = FindFirstObjectByType<WeatherApplier>();
+            if (weather == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WeatherApplier in the scene.");
+                return;
+            }
+            weather.Reapply();
+            Debug.Log("[DebugConsole] Weather re-applied (live preset values picked up).");
         }
 
         /// <summary>R23: flip the night lighting variant, if the scene carries one.</summary>

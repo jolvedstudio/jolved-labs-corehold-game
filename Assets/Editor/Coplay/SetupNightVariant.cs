@@ -8,11 +8,17 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Scaffolds the night lighting variant of the shipped layout (R23, [MANUAL]):
-/// creates a "NightVariant" root carrying the <see cref="NightVariant"/> toggle
-/// component and a "NightLights" child with up to TEN non-shadowing point lamps
-/// auto-placed for readability — one over the Core, one at each route mouth,
-/// the rest spread along the routes. The container starts DISABLED (day).
+/// Scaffolds the night lighting variant for THE ACTIVE SCENE (R23, extended to
+/// every map on request): creates a "NightVariant" root carrying the
+/// <see cref="NightVariant"/> toggle component and a "NightLights" child with up
+/// to TEN non-shadowing point lamps auto-placed for readability — one over the
+/// Core, one at each route mouth, the rest spread along the routes. The
+/// container starts DISABLED (day).
+///
+/// Works on whichever scene is open — shipped or generated — and the generation
+/// pipeline calls it for every emitted map, so new maps ship night-capable.
+/// Routes are resolved with <see cref="SceneQuery.InActiveScene{T}"/> so a
+/// second loaded scene can never leak lamps into this one.
 ///
 /// This is the CoPlay-assists half of the ticket. The human half: enter play,
 /// press N (DebugConsole) to flip to night, then nudge/recolour the lamps until
@@ -23,25 +29,22 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public static class SetupNightVariant
 {
-    private const string ScenePath = "Assets/_COREHOLD/Scenes/Game.unity";
     private const string RootName = "NightVariant";
     private const int MaxLamps = 10;
 
     [MenuItem("Tools/COREHOLD/Scene Setup/Night Variant", false, 49)]
     public static void Setup()
     {
-        // Menu use: hop to the shipped scene if the human is elsewhere.
-        // Pipeline use: NEVER — same guard as every scene-setup tool.
         Scene scene = SceneManager.GetActiveScene();
-        if (!GenerationDriven.Active && scene.path != ScenePath)
-            scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
 
         var log = new StringBuilder();
 
-        // Rebuild from scratch for idempotence.
-        var stale = GameObject.Find(RootName);
-        if (stale != null)
-            Object.DestroyImmediate(stale);
+        // Rebuild from scratch for idempotence. Scoped to the active scene — a
+        // GameObject.Find here could reach into another loaded scene and delete
+        // ITS night rig (the historic all-scenes tool hazard).
+        foreach (var existing in SceneQuery.InActiveScene<Corehold.Systems.NightVariant>())
+            if (existing != null)
+                Object.DestroyImmediate(existing.gameObject);
 
         var root = new GameObject(RootName);
         root.AddComponent<NightVariant>();
@@ -66,7 +69,7 @@ public static class SetupNightVariant
     private static int PlaceLamps(Transform parent, StringBuilder log)
     {
         var routes = new List<PathRoute>();
-        foreach (var r in Object.FindObjectsByType<PathRoute>(FindObjectsSortMode.None))
+        foreach (var r in SceneQuery.InActiveScene<PathRoute>())
             if (r != null && r.PointCount >= 2 && r.Length > 1f)
                 routes.Add(r);
 
