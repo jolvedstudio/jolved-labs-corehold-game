@@ -299,6 +299,12 @@ ACTIVE = {
     "hp_growth": HP_GROWTH_PER_WAVE,
     "max_live": MAX_LIVE_ENEMIES,
     "build_priority": None,   # None -> BUILD_PRIORITY (the shipped names)
+    # A2 campaign carry: an ABSOLUTE entry bank. None -> the tunable default
+    # (STARTING_SALVAGE x difficulty economy). When set, the value is used
+    # as-is: it represents what a campaign run actually walks in with, and the
+    # caller (Campaign Builder) has already settled any difficulty economics —
+    # re-applying the multiplier here would double-count it.
+    "starting_salvage": None,
 }
 
 
@@ -881,7 +887,10 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
             geom.apply_measured_lengths(lengths)
 
     built: dict = {}
-    salvage = round(STARTING_SALVAGE * DIFFICULTY_ECO_MULT[difficulty])
+    if ACTIVE.get("starting_salvage") is not None:
+        salvage = int(ACTIVE["starting_salvage"])
+    else:
+        salvage = round(STARTING_SALVAGE * DIFFICULTY_ECO_MULT[difficulty])
     rows = []
     build_log = []
     for i, wave in enumerate(WAVES):
@@ -1106,12 +1115,19 @@ def main(argv=None) -> int:
     ap.add_argument("--mutate", action="append", default=[], metavar="W:FLAGS",
                     help="force mutator flags onto wave W for a tuning run, e.g. "
                          "--mutate 8:overcharge --mutate 5:storm,convoy (repeatable)")
+    ap.add_argument("--starting-salvage", type=int, metavar="N",
+                    help="campaign entry bank (A2): ABSOLUTE starting salvage, used as-is "
+                         "(no difficulty economy multiplier — the caller already settled it); "
+                         "omit for the tunable default")
     args = ap.parse_args(argv)
 
     if args.hp_growth is not None:
         ACTIVE["hp_growth"] = args.hp_growth
     if args.max_live is not None:
         ACTIVE["max_live"] = args.max_live
+
+    if args.starting_salvage is not None:
+        ACTIVE["starting_salvage"] = args.starting_salvage
 
     R22["on"] = not args.r22_off
     R22["strike_uses"] = args.strike_uses

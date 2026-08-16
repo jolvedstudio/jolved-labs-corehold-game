@@ -56,6 +56,8 @@ namespace Corehold.Core
             public int difficulty;
             public int stageIndex;
             public float elapsedSeconds;
+            public int entrySalvage = -1;
+            public int entryIntegrity = -1;
             public List<LevelResult> results = new List<LevelResult>();
         }
 
@@ -67,6 +69,20 @@ namespace Corehold.Core
         /// <summary>Set at campaign completion, for the Closing screen's badges.</summary>
         public bool CompletedNewBestScore { get; private set; }
         public bool CompletedNewBestTime { get; private set; }
+
+        /// <summary>
+        /// The current stage's ENTRY snapshot (plan v2 §A.6) — what the player
+        /// walks in with. -1 = the difficulty's own defaults (reset economy).
+        /// Computed ONCE when the stage is entered from a Victory (heal and
+        /// carry applied there), then immutable: Retry re-applies exactly this,
+        /// so integrity heal cannot be farmed by deliberate retries.
+        /// </summary>
+        public int CurrentEntrySalvage { get; private set; } = -1;
+        public int CurrentEntryIntegrity { get; private set; } = -1;
+
+        // End-of-level state captured at Victory, before the scene dies.
+        private int _endSalvage = -1;
+        private int _endIntegrity = -1;
 
         public int CumulativeScore
         {
@@ -128,16 +144,20 @@ namespace Corehold.Core
                 return;
             }
 
-            if (manifest.progression.economyCarry != ProgressionRules.EconomyCarry.ResetPerLevel)
-                Debug.LogWarning("[Campaign] Carry modes are not implemented yet (they need the balance model's " +
-                                 "--starting-salvage extension); falling back to ResetPerLevel.");
-
             Active = manifest;
             ChosenDifficulty = difficulty;
             Results.Clear();
             ElapsedSeconds = 0f;
             CompletedNewBestScore = false;
             CompletedNewBestTime = false;
+            _endSalvage = _endIntegrity = -1;
+
+            // First level: nothing to carry yet. The base floor still applies
+            // (a campaign that grants 400/level grants it on level 1 too).
+            var rules = manifest.progression;
+            CurrentEntrySalvage = rules.baseSalvagePerLevel > 0 ? rules.baseSalvagePerLevel : -1;
+            CurrentEntryIntegrity = -1;
+
             SaveData.ClearCampaignRun(manifest.campaignId); // a fresh run replaces any saved one
             LoadStage(first);
         }
@@ -179,6 +199,8 @@ namespace Corehold.Core
             Results.Clear();
             if (run.results != null) Results.AddRange(run.results);
             ElapsedSeconds = run.elapsedSeconds;
+            CurrentEntrySalvage = run.entrySalvage;
+            CurrentEntryIntegrity = run.entryIntegrity;
             CompletedNewBestScore = false;
             CompletedNewBestTime = false;
             LoadStage(run.stageIndex);
@@ -202,6 +224,7 @@ namespace Corehold.Core
             int next = Active.NextLevelIndex(CurrentStageIndex);
             if (next >= 0)
             {
+                ComputeNextEntry();
                 LoadStage(next);
                 return;
             }
@@ -274,7 +297,17 @@ namespace Corehold.Core
             // star record persists on wins (keyed by level NUMBER — definition
             // names embed seeds and would orphan records on regeneration).
             if (GameManager.Instance != null)
+            {
                 ElapsedSeconds += GameManager.Instance.RunSeconds;
+
+                // Capture the end state NOW — the scene (and its GameManager)
+                // dies on advance, and the carry rules need these (§A.6).
+                if (victory)
+                {
+                    _endSalvage = GameManager.Instance.Salvage;
+                    _endIntegrity = GameManager.Instance.Integrity;
+                }
+            }
             if (victory && stars > 0)
                 SaveData.SubmitCampaignStageStars(Active.campaignId, levelNumber, stars);
 
@@ -290,6 +323,59 @@ namespace Corehold.Core
             HasActiveCampaign && CurrentStageIndex >= 0 ? Active.stages[CurrentStageIndex].briefing : null;
 
         // ------------------------------------------------------------ internal
+
+        /// <summary>
+        /// The carry rules (plan v2 §A.6), applied once per Victory→next-level
+        /// transition to produce the next stage's immutable entry snapshot:
+        ///
+        ///   • ResetPerLevel — entry is the difficulty's own defaults (plus the
+        ///     base floor when one is set): what the generation gates certified.
+        ///   • CarryFraction/CarryFull — carried = keep × end-of-level salvage;
+        ///     entry = max(base floor, carried). The floor is a GUARANTEE, not a
+        ///     bonus — spending everything before the win cannot brick the next
+        ///     level, and banking a fortune is capped only by play.
+        ///   • carryIntegrity — entry integrity = min(tier max, end + heal),
+        ///     heal applied HERE (once), never on Retry.
+        /// </summary>
+        private void ComputeNextEntry()
+        {
+            var rules = Active.progression;
+
+            switch (rules.economyCarry)
+            {
+                case ProgressionRules.EconomyCarry.CarryFull:
+                case ProgressionRules.EconomyCarry.CarryFraction:
+                    float keep = rules.economyCarry == ProgressionRules.EconomyCarry.CarryFull
+                        ? 1f
+                        : Mathf.Clamp01(rules.salvageKeepFraction);
+                    int carried = _endSalvage > 0 ? Mathf.RoundToInt(_endSalvage * keep) : 0;
+                    int floor = rules.baseSalvagePerLevel;
+                    CurrentEntrySalvage = Mathf.Max(floor, carried);
+                    if (CurrentEntrySalvage <= 0)
+                    {
+                        // Nothing carried and no floor authored: falling back to
+                        // the tier default beats loading an unplayable level.
+                        Debug.LogWarning("[Campaign] Carry produced 0 entry salvage and no base floor is set — " +
+                                         "using the difficulty default. Author baseSalvagePerLevel on the campaign.");
+                        CurrentEntrySalvage = -1;
+                    }
+                    break;
+
+                default: // ResetPerLevel
+                    CurrentEntrySalvage = rules.baseSalvagePerLevel > 0 ? rules.baseSalvagePerLevel : -1;
+                    break;
+            }
+
+            if (rules.carryIntegrity && _endIntegrity > 0)
+            {
+                int cap = GameManager.StartingIntegrityFor(ChosenDifficulty);
+                CurrentEntryIntegrity = Mathf.Min(cap, _endIntegrity + Mathf.Max(0, rules.integrityHealPerLevel));
+            }
+            else
+            {
+                CurrentEntryIntegrity = -1;
+            }
+        }
 
         private void LoadStage(int index)
         {
@@ -310,6 +396,8 @@ namespace Corehold.Core
                 difficulty = (int)ChosenDifficulty,
                 stageIndex = CurrentStageIndex,
                 elapsedSeconds = ElapsedSeconds,
+                entrySalvage = CurrentEntrySalvage,
+                entryIntegrity = CurrentEntryIntegrity,
             };
             run.results.AddRange(Results);
             SaveData.SaveCampaignRun(Active.campaignId, JsonUtility.ToJson(run));
@@ -335,9 +423,11 @@ namespace Corehold.Core
                 return;
             }
 
-            // Reset economy: -1 sentinels mean "the difficulty's own defaults",
-            // which is exactly what the generation gates certified for this map.
-            flow.BeginCampaignRun(ChosenDifficulty, -1, -1);
+            // The stage's entry snapshot: -1 sentinels mean "the difficulty's
+            // own defaults" (reset economy — what the gates certified); carry
+            // modes put real values here via ComputeNextEntry, and Retry sees
+            // the same snapshot because nothing recomputes it on reload.
+            flow.BeginCampaignRun(ChosenDifficulty, CurrentEntrySalvage, CurrentEntryIntegrity);
         }
 
         private static bool SameScene(Scene scene, string manifestPath)
