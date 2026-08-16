@@ -106,7 +106,8 @@ public static class BalanceModelRunner
     /// actionable <paramref name="error"/> on any failure.
     /// </summary>
     public static Result Run(List<PathRoute> routes, Vector3 airSpawn, Vector3 coreTarget,
-                             bool solveGrowth, float hpGrowth, int maxLive, out string error)
+                             bool solveGrowth, float hpGrowth, int maxLive, out string error,
+                             int startingSalvage = -1)
     {
         error = null;
 
@@ -121,6 +122,10 @@ public static class BalanceModelRunner
         var args = new StringBuilder();
         args.Append($"docs/balance_model.py --geometry \"{geometryPath}\" --json \"{outPath}\" ");
         args.Append($"--max-live {maxLive} ");
+        // A2 campaign carry: an ABSOLUTE entry bank (the model skips its own
+        // difficulty economy multiplier for it). -1 = the model's default.
+        if (startingSalvage >= 0)
+            args.Append($"--starting-salvage {startingSalvage} ");
         args.Append(solveGrowth
             ? "--solve-hp-growth"
             : $"--hp-growth {hpGrowth.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)}");

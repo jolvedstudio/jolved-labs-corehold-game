@@ -236,5 +236,25 @@ namespace Corehold.Systems
             PlayerPrefs.SetInt($"{CampaignPrefix}{campaignId}.stage.{levelNumber}.stars", stars);
             PlayerPrefs.Save();
         }
+
+        /// <summary>
+        /// Erase everything stored for one campaign — run blob, bests, per-stage
+        /// stars — so the Welcome screen reads as a first-time player's. Used by
+        /// the debug console; PlayerPrefs cannot enumerate keys, so stage stars
+        /// are cleared over a generous fixed range rather than discovered.
+        /// </summary>
+        public static void ClearCampaignData(string campaignId)
+        {
+            PlayerPrefs.DeleteKey($"{CampaignPrefix}{campaignId}.run");
+            PlayerPrefs.DeleteKey($"{CampaignPrefix}{campaignId}.bestScore");
+            PlayerPrefs.DeleteKey($"{CampaignPrefix}{campaignId}.bestTime");
+            for (int level = 1; level <= MaxClearableStages; level++)
+                PlayerPrefs.DeleteKey($"{CampaignPrefix}{campaignId}.stage.{level}.stars");
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>Upper bound for the star-key wipe above — far past any authored
+        /// campaign length, so a longer campaign than expected still clears fully.</summary>
+        private const int MaxClearableStages = 100;
     }
 }

@@ -204,10 +204,34 @@ namespace CoreholdEditor.Campaign
                     BuildCampaignScenes.BuildBoth();
 
                 GUI.enabled = _authoring.stages.Any(s => !string.IsNullOrEmpty(s.scenePath));
+                if (GUILayout.Button("Verify carry economy"))
+                {
+                    var vlog = new StringBuilder();
+                    VerifyCarryEconomy(vlog);
+                    _report = vlog.ToString();
+                }
                 if (GUILayout.Button("Emit manifest + wire Welcome"))
                     EmitManifest();
                 if (GUILayout.Button("Register Campaign (Build Settings)"))
                     RegisterCampaign();
+                GUI.enabled = true;
+            }
+
+            // ---- shipping (CampaignShipTool) ----
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUI.enabled = _authoring.stages.Any(s => !string.IsNullOrEmpty(s.scenePath));
+                if (GUILayout.Button("Preflight (shippable?)"))
+                    _report = CampaignShipTool.PreflightReport(_authoring, out _);
+                if (GUILayout.Button("BUILD shippable game (WebGL)", GUILayout.Height(24)))
+                {
+                    // Preflight runs inside and aborts on errors; the report
+                    // lands in the console either way.
+                    string built = CampaignShipTool.BuildCampaign(_authoring, null);
+                    _report = built != null
+                        ? $"Build succeeded → {built}\nServe it (python3 -m http.server) — WebGL does not run from file://."
+                        : "Build did not run or failed — the console has the preflight/build report.";
+                }
                 GUI.enabled = true;
             }
         }
@@ -239,11 +263,93 @@ namespace CoreholdEditor.Campaign
             log.AppendLine($"\n{passed}/{_authoring.stages.Count} levels generated.");
             if (passed == _authoring.stages.Count)
             {
-                EmitManifest();
-                RegisterCampaign();
-                log.AppendLine("Manifest emitted and Build Settings registered — open the Welcome scene and press Play.");
+                // Carry economics change what the gates certified (A2): every
+                // generated stage must also hold at the campaign's entry floor,
+                // or the manifest is withheld until the rules and maps agree.
+                if (!VerifyCarryEconomy(log))
+                {
+                    log.AppendLine("\nMANIFEST WITHHELD — the carry rules and the generated maps disagree (rows " +
+                                   "above). Raise baseSalvagePerLevel, soften the rules, or regenerate; " +
+                                   "'Emit manifest' remains available as a manual override.");
+                }
+                else
+                {
+                    EmitManifest();
+                    RegisterCampaign();
+                    log.AppendLine("Manifest emitted and Build Settings registered — open the Welcome scene and press Play.");
+                }
             }
             _report = log.ToString();
+        }
+
+        /// <summary>
+        /// A2 economy verify: re-run the model per stage at the campaign's
+        /// WORST-CASE entry bank — the base floor, what a player who arrives
+        /// broke actually gets. The generation gates certified the difficulty
+        /// default; a floor below it can make a certified map unwinnable, and a
+        /// floor above it trivializes it — both are findings. Reset campaigns
+        /// with no floor have nothing to verify (entry == what gates ran).
+        /// </summary>
+        private bool VerifyCarryEconomy(StringBuilder log)
+        {
+            var rules = _authoring.progression;
+            int worstEntry = rules.baseSalvagePerLevel;
+            bool carryMode = rules.economyCarry != ProgressionRules.EconomyCarry.ResetPerLevel;
+
+            if (worstEntry <= 0)
+            {
+                if (carryMode)
+                    log.AppendLine("\nCarry verify: no baseSalvagePerLevel floor is authored — a broke arrival " +
+                                   "falls back to the difficulty default, which the gates already certified. " +
+                                   "Consider authoring an explicit floor so the worst case is a design choice.");
+                return true;
+            }
+
+            log.AppendLine($"\nCarry verify — worst-case entry {worstEntry} salvage per stage:");
+            bool allOk = true;
+            foreach (var stage in _authoring.stages)
+            {
+                if (string.IsNullOrEmpty(stage.scenePath)) continue;
+
+                var scene = EditorSceneManager.OpenScene(stage.scenePath, UnityEditor.SceneManagement.OpenSceneMode.Single);
+                var routes = new List<Corehold.Core.PathRoute>(
+                    Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None));
+                var spawners = Object.FindObjectsByType<Spawner>(FindObjectsSortMode.None);
+                var air = spawners.FirstOrDefault(s => s.name.Contains("Air"));
+                var anySpawner = spawners.FirstOrDefault(s => s.CoreTarget != null);
+                var def = AssetDatabase.LoadAssetAtPath<LevelDefinition>(stage.levelDefPath);
+
+                if (routes.Count == 0 || anySpawner == null || def == null)
+                {
+                    log.AppendLine($"  {scene.name}: verify SKIPPED — scene wiring incomplete " +
+                                   $"(routes {routes.Count}, core {(anySpawner != null ? "ok" : "missing")}, " +
+                                   $"definition {(def != null ? "ok" : "missing")}).");
+                    allOk = false;
+                    continue;
+                }
+
+                Vector3 airSpawn = air != null ? air.transform.position : anySpawner.transform.position;
+                var result = BalanceModelRunner.Run(routes, airSpawn, anySpawner.CoreTarget.position,
+                                                    solveGrowth: false, hpGrowth: def.hpGrowthPerWave,
+                                                    maxLive: def.maxLiveEnemies, out string err,
+                                                    startingSalvage: worstEntry);
+                if (result == null)
+                {
+                    log.AppendLine($"  {scene.name}: verify FAILED to run — {err}");
+                    allOk = false;
+                }
+                else if (!result.in_band)
+                {
+                    log.AppendLine($"  {scene.name}: OUT OF BAND at entry {worstEntry} " +
+                                   $"(growth {def.hpGrowthPerWave:0.###}) — the floor cannot hold this map.");
+                    allOk = false;
+                }
+                else
+                {
+                    log.AppendLine($"  {scene.name}: in band at entry {worstEntry}.");
+                }
+            }
+            return allOk;
         }
 
         private void GenerateStage(int index)

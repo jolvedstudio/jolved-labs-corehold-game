@@ -99,6 +99,11 @@ namespace Corehold.UI
             int integrity = _gm != null ? _gm.Integrity : 0;
             Difficulty diff = _gm != null ? _gm.Difficulty : Difficulty.Normal;
             int maxIntegrity = GameManager.StartingIntegrityFor(diff);
+            // Carried integrity (A2): star fractions measure against what the
+            // player ENTERED with, not the tier maximum — entering at 12/20
+            // must still be able to earn 3 stars by protecting all 12.
+            if (_inCampaign && campaign.CurrentEntryIntegrity > 0)
+                maxIntegrity = campaign.CurrentEntryIntegrity;
             int waveCount = waveManager != null ? waveManager.WaveCount : 10;
 
             int wavesSurvived = victory
