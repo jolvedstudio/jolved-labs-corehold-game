@@ -32,6 +32,15 @@ namespace Corehold.Core
         [Tooltip("Layer name used for hardpoint tap raycasts.")]
         [SerializeField] private string hardpointLayerName = "Hardpoint";
 
+        // Campaign start handed over by CampaignManager before Start's one-frame
+        // delay resolves (sceneLoaded fires between Awake and Start). Consumed
+        // exactly once; without it the flow runs the title path as always.
+        private bool _campaignPending;
+        private Difficulty _campaignDifficulty;
+        private int _campaignSalvage = -1;
+        private int _campaignIntegrity = -1;
+        private bool _startRan;
+
         private void Awake()
         {
             // Create the InputRouter as early as possible so UI components (e.g.
@@ -53,6 +62,19 @@ namespace Corehold.Core
             PrepareHardpoints();
             EnsureInputRouter();
 
+            _startRan = true;
+
+            if (_campaignPending)
+            {
+                // Campaign takeover (plan v2 §A.6): the difficulty was chosen once
+                // at the Welcome screen — that tap was also the WebGL audio-unlock
+                // gesture — so this scene's title screen must not run. Skipping it
+                // also skips the title tap's side effects, so replicate them here.
+                _campaignPending = false;
+                ExecuteCampaignStart();
+                yield break;
+            }
+
             if (GameManager.Instance != null)
                 GameManager.Instance.SetState(GameState.Title);
 
@@ -66,6 +88,53 @@ namespace Corehold.Core
                 // No title in the scene — start straight into Build (editor testing).
                 HandlePlay(GameManager.Instance != null ? GameManager.Instance.Difficulty : Difficulty.Normal);
             }
+        }
+
+        /// <summary>
+        /// Start this level as part of a campaign, with the difficulty chosen at
+        /// the Welcome screen — no title overlay, no per-level difficulty pick.
+        /// Salvage/integrity overrides pass through to
+        /// <see cref="GameManager.ConfigureCampaignRun"/> (-1 = the difficulty's
+        /// own defaults — the reset-economy mode the generation gates certify).
+        /// Safe to call from a sceneLoaded callback: before Start has run it is
+        /// deferred and consumed there; after, it executes immediately.
+        /// </summary>
+        public void BeginCampaignRun(Difficulty difficulty, int salvageOverride = -1, int integrityOverride = -1)
+        {
+            _campaignDifficulty = difficulty;
+            _campaignSalvage = salvageOverride;
+            _campaignIntegrity = integrityOverride;
+
+            if (!_startRan)
+            {
+                _campaignPending = true;
+                return;
+            }
+            ExecuteCampaignStart();
+        }
+
+        private void ExecuteCampaignStart()
+        {
+            if (titleScreen != null)
+                titleScreen.Hide();
+
+            // The title tap normally does this (TitleScreen.Play). The unlock
+            // gesture already happened on the Welcome screen, so starting music
+            // here is legal for Web Audio.
+            if (AudioDirector.Instance != null)
+            {
+                AudioDirector.Instance.Muted = SaveData.Muted;
+                AudioDirector.Instance.StartMusic();
+            }
+
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.ConfigureCampaignRun(_campaignDifficulty, _campaignSalvage, _campaignIntegrity);
+                GameManager.Instance.SetState(GameState.Build);
+            }
+
+            if (waveManager != null)
+                waveManager.ResetSequence();
         }
 
         private void OnDestroy()
@@ -139,20 +208,48 @@ namespace Corehold.Core
         /// </summary>
         public static void RestartCurrentLevel()
         {
-            Enemies.Enemy.Live.Clear();
-            Time.timeScale = 1f;
-
             Scene active = SceneManager.GetActiveScene();
             if (active.buildIndex >= 0)
             {
-                SceneManager.LoadScene(active.buildIndex, LoadSceneMode.Single);
+                LoadSceneClean(active.buildIndex);
                 return;
             }
 
             Debug.LogError($"[GameFlow] Retry cannot reload '{active.name}' — it is not in Build Settings. " +
-                           "Add it via File → Build Profiles (the Level Generator does this for scenes it " +
+                           "Add it via File → Build Profiles (the Level Generator registers what it " +
                            "saves; a scene added by hand needs it too).");
+            ClearCrossSceneState();
             SceneManager.LoadScene(active.name, LoadSceneMode.Single);
+        }
+
+        /// <summary>
+        /// The one sanctioned way to change scenes (plan v2 §A.4). The 2× speed
+        /// toggle, pause (timeScale 0) and the static live-enemy registry all
+        /// survive a bare LoadScene — a campaign advancing from the pause overlay
+        /// would load a frozen scene. Every transition funnels through here so the
+        /// teardown contract lives in exactly one place.
+        /// </summary>
+        public static void LoadSceneClean(int buildIndex)
+        {
+            ClearCrossSceneState();
+            SceneManager.LoadScene(buildIndex, LoadSceneMode.Single);
+        }
+
+        /// <summary>Path/name variant for campaign stages. The scene must be in
+        /// Build Settings (the generator registers what it saves).</summary>
+        public static void LoadSceneClean(string scenePath)
+        {
+            ClearCrossSceneState();
+            if (SceneUtility.GetBuildIndexByScenePath(scenePath) < 0)
+                Debug.LogError($"[GameFlow] '{scenePath}' is not in Build Settings — the load will fail. " +
+                               "Run the campaign scene registration (or add it via File → Build Profiles).");
+            SceneManager.LoadScene(scenePath, LoadSceneMode.Single);
+        }
+
+        private static void ClearCrossSceneState()
+        {
+            Enemies.Enemy.Live.Clear();
+            Time.timeScale = 1f;
         }
     }
 }
