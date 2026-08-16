@@ -27,6 +27,10 @@ namespace Corehold.UI
         [Header("Campaign")]
         [SerializeField] private CampaignManifest manifest;
 
+        /// <summary>The campaign this screen starts. Read-only outside the
+        /// inspector; the debug console uses it to name the save keys to wipe.</summary>
+        public CampaignManifest Manifest => manifest;
+
         [Header("Layout")]
         [SerializeField] private TMP_Text titleLabel;
         [SerializeField] private TMP_Text subtitleLabel;

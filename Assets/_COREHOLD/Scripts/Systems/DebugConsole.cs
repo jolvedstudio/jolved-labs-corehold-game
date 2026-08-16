@@ -1,6 +1,9 @@
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+using System.IO;
 using Corehold.Core;
 using Corehold.Enemies;
+using Corehold.Towers;
+using Corehold.UI;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -14,27 +17,35 @@ namespace Corehold.Systems
     /// under the Input System package. Reads <see cref="Keyboard.current"/> each
     /// frame.
     ///
-    /// Key bindings:
-    ///   ]      skip to / start next wave
-    ///   [      previous wave (index only)
-    ///   0      jump straight to wave 9 (Ticket 29 draw-call check)
-    ///   M      grant 1000 salvage
-    ///   I      toggle core invulnerability
-    ///   K      kill all live enemies
-    ///   S      stun all live enemies 3 s (R18 test — Colossus resists 25%)
-    ///   L      slow all live enemies 50% for 3 s (R18 test)
-    ///   T      cycle forced wave mutators for waves started AFTER the press
-    ///          (R20 test: None → Storm → Convoy → Overcharge → Blackout → All)
-    ///   N      toggle the night lighting variant (R23; needs the scaffold in-scene)
-    ///   W      re-apply the active weather preset (pick up live [TUNE] edits)
-    ///   1/2/3  set difficulty (Normal / Veteran / Nightmare)
-    ///   F1     toggle the OnGUI overlay
+    /// Key bindings — <b>F2 prints this same list in-game</b>, which is the copy
+    /// that stays true when someone adds a key and forgets this comment:
+    ///
+    ///   WAVES      ]  next wave      [  previous wave (index only)   0  jump to wave 9
+    ///   ECONOMY    M  +1000 salvage  B  build on every free pad      U  upgrade all turrets
+    ///   CORE       I  invulnerable   J  damage core by 1
+    ///   ENEMIES    K  kill all       S  stun all 3 s                 L  slow all 50%/3 s
+    ///   RUN        V  force VICTORY  X  force DEFEAT                 1/2/3 difficulty
+    ///   CAMPAIGN   C  status dump    ⇧C wipe this campaign's saves
+    ///   TIME       P  pause/resume   ,  slower                       .  faster
+    ///   LOOK       T  cycle mutators N  night toggle                 W  re-apply weather
+    ///   OUTPUT     F1 stats overlay  F2 key map                      F3 screenshot
+    ///
+    /// The campaign keys are the reason this file grew: without V, walking to
+    /// campaign level 8 means winning seven levels by hand, and the carry maths
+    /// that A2 introduced only shows itself at a level boundary.
     /// </summary>
     [DisallowMultipleComponent]
     public class DebugConsole : MonoBehaviour
     {
-        private bool _showOverlay;
+        private enum Overlay { Off, Stats, Keys }
+
+        private Overlay _overlay = Overlay.Off;
         private float _frameMs;
+
+        /// <summary>Debug speed ladder. Pause is separate (P) so speed survives it.</summary>
+        private static readonly float[] SpeedLadder = { 0.25f, 0.5f, 1f, 2f, 4f };
+        private int _speedIndex = 2;
+        private bool _paused;
 
         private void Update()
         {
@@ -45,6 +56,8 @@ namespace Corehold.Systems
             if (kb == null)
                 return;
 
+            bool shift = kb.shiftKey.isPressed;
+
             if (kb.rightBracketKey.wasPressedThisFrame)
                 NextWave();
             if (kb.leftBracketKey.wasPressedThisFrame)
@@ -53,14 +66,35 @@ namespace Corehold.Systems
                 JumpToWave(9);
             if (kb.mKey.wasPressedThisFrame)
                 GrantSalvage(1000);
+            if (kb.bKey.wasPressedThisFrame)
+                BuildOnEveryPad();
+            if (kb.uKey.wasPressedThisFrame)
+                UpgradeAllTurrets();
             if (kb.iKey.wasPressedThisFrame)
                 ToggleCoreInvulnerability();
+            if (kb.jKey.wasPressedThisFrame)
+                DamageCore();
             if (kb.kKey.wasPressedThisFrame)
                 KillAllEnemies();
             if (kb.sKey.wasPressedThisFrame)
                 StunAllEnemies();
             if (kb.lKey.wasPressedThisFrame)
                 SlowAllEnemies();
+            if (kb.vKey.wasPressedThisFrame)
+                ForceVictory();
+            if (kb.xKey.wasPressedThisFrame)
+                ForceDefeat();
+            if (kb.cKey.wasPressedThisFrame)
+            {
+                if (shift) WipeCampaignSaves();
+                else DumpCampaignStatus();
+            }
+            if (kb.pKey.wasPressedThisFrame)
+                TogglePause();
+            if (kb.commaKey.wasPressedThisFrame)
+                StepSpeed(-1);
+            if (kb.periodKey.wasPressedThisFrame)
+                StepSpeed(+1);
             if (kb.tKey.wasPressedThisFrame)
                 CycleForcedMutators();
             if (kb.nKey.wasPressedThisFrame)
@@ -74,10 +108,14 @@ namespace Corehold.Systems
             if (kb.digit3Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Nightmare);
             if (kb.f1Key.wasPressedThisFrame)
-                _showOverlay = !_showOverlay;
+                _overlay = _overlay == Overlay.Stats ? Overlay.Off : Overlay.Stats;
+            if (kb.f2Key.wasPressedThisFrame)
+                _overlay = _overlay == Overlay.Keys ? Overlay.Off : Overlay.Keys;
+            if (kb.f3Key.wasPressedThisFrame)
+                Screenshot();
         }
 
-        // ----- Commands -----
+        // ----- Waves -----
 
         private void NextWave()
         {
@@ -123,6 +161,8 @@ namespace Corehold.Systems
             Debug.Log($"[DebugConsole] Jumped to wave {target} and started it.");
         }
 
+        // ----- Economy & building -----
+
         private void GrantSalvage(int amount)
         {
             var gm = GameManager.Instance;
@@ -130,6 +170,61 @@ namespace Corehold.Systems
                 gm.AddSalvage(amount);
             Debug.Log($"[DebugConsole] Granted {amount} salvage.");
         }
+
+        /// <summary>
+        /// Fill every free pad with the first buildable turret, funding itself as
+        /// it goes. Wave pressure is the thing worth testing; clicking twelve pads
+        /// to reach it is not. Note this inflates RunSalvageEarned (it grants), so
+        /// scores from a filled run are not comparable.
+        /// </summary>
+        private void BuildOnEveryPad()
+        {
+            var theme = UITheme.Instance;
+            if (theme == null || theme.turrets == null || theme.turrets.Length == 0)
+            {
+                Debug.LogWarning("[DebugConsole] No UITheme turret catalogue in this scene.");
+                return;
+            }
+
+            Corehold.Data.TowerDefinition pick = null;
+            foreach (var t in theme.turrets)
+                if (t != null && t.basePrefab != null && t.tiers != null && t.tiers.Length > 0) { pick = t; break; }
+
+            if (pick == null)
+            {
+                Debug.LogWarning("[DebugConsole] No buildable turret definition (all missing basePrefab).");
+                return;
+            }
+
+            var gm = GameManager.Instance;
+            int built = 0;
+            foreach (var pad in FindObjectsByType<TowerHardpoint>(FindObjectsSortMode.None))
+            {
+                if (pad == null || pad.IsOccupied) continue;
+                if (gm != null && gm.Salvage < pick.tiers[0].cost)
+                    gm.AddSalvage(pick.tiers[0].cost);       // fund exactly this build
+                if (pad.TryBuild(pick)) built++;
+            }
+            Debug.Log($"[DebugConsole] Built {pick.displayName} on {built} free pad(s) (salvage granted as needed).");
+        }
+
+        /// <summary>Upgrade every built turret one tier, funding each step.</summary>
+        private void UpgradeAllTurrets()
+        {
+            var gm = GameManager.Instance;
+            int upgraded = 0, maxed = 0;
+            foreach (var pad in FindObjectsByType<TowerHardpoint>(FindObjectsSortMode.None))
+            {
+                if (pad == null || !pad.IsOccupied) continue;
+                if (!pad.CanUpgrade) { maxed++; continue; }
+                if (gm != null && gm.Salvage < pad.NextUpgradeCost)
+                    gm.AddSalvage(pad.NextUpgradeCost);
+                if (pad.TryUpgrade()) upgraded++;
+            }
+            Debug.Log($"[DebugConsole] Upgraded {upgraded} turret(s); {maxed} already at max tier.");
+        }
+
+        // ----- Core & enemies -----
 
         private void ToggleCoreInvulnerability()
         {
@@ -139,6 +234,16 @@ namespace Corehold.Systems
                 gm.CoreInvulnerable = !gm.CoreInvulnerable;
                 Debug.Log($"[DebugConsole] Core invulnerable: {gm.CoreInvulnerable}.");
             }
+        }
+
+        /// <summary>One point of core damage — the close-call feedback, the damage
+        /// state material and (at zero) the real Defeat path, without a leak.</summary>
+        private void DamageCore()
+        {
+            var gm = GameManager.Instance;
+            if (gm == null) return;
+            gm.DamageCore(1);
+            Debug.Log($"[DebugConsole] Core damaged by 1 (integrity now {gm.Integrity}).");
         }
 
         private void KillAllEnemies()
@@ -177,6 +282,124 @@ namespace Corehold.Systems
             }
             Debug.Log($"[DebugConsole] Slowed {hit} live enemies 50% for 3 s (R18).");
         }
+
+        // ----- Run outcome -----
+
+        /// <summary>
+        /// End this level as a WIN now. The campaign accelerator: reaching stage 8
+        /// otherwise means winning seven levels by hand, and A2's carry maths only
+        /// shows itself at a level boundary.
+        ///
+        /// Live enemies are killed normally first (bounty IS paid, as with K), so
+        /// the salvage that carries forward includes those payouts — set the bank
+        /// deliberately with M if the carry number is what you are testing.
+        /// </summary>
+        private void ForceVictory()
+        {
+            KillAllEnemies();
+            var gm = GameManager.Instance;
+            if (gm == null) return;
+            gm.SetState(GameState.Victory);
+            Debug.Log("[DebugConsole] Forced VICTORY. In a campaign the result screen's second button " +
+                      "is CONTINUE — it advances the stage and applies the carry rules.");
+        }
+
+        /// <summary>End this level as a LOSS now — straight to the state, so it works
+        /// with an invulnerable core and without waiting for a leak.</summary>
+        private void ForceDefeat()
+        {
+            var gm = GameManager.Instance;
+            if (gm == null) return;
+            gm.SetState(GameState.Defeat);
+            Debug.Log("[DebugConsole] Forced DEFEAT (state set directly; integrity untouched).");
+        }
+
+        // ----- Campaign -----
+
+        private void DumpCampaignStatus()
+        {
+            var c = CampaignManager.Instance;
+            if (c == null || !c.HasActiveCampaign)
+            {
+                Debug.Log("[DebugConsole] No campaign active (single-map play). Start one from the " +
+                          "Welcome scene; the manager is created there.");
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[DebugConsole] CAMPAIGN '{c.Active.displayName}' (id {c.Active.campaignId})");
+            sb.AppendLine($"  stage       : index {c.CurrentStageIndex} — level {c.CurrentLevelNumber}/{c.LevelCount}");
+            sb.AppendLine($"  difficulty  : {c.ChosenDifficulty} (chosen once at Welcome)");
+            sb.AppendLine($"  carry rules : {c.Active.progression.economyCarry}" +
+                          $", keep {c.Active.progression.salvageKeepFraction:0.##}" +
+                          $", floor {c.Active.progression.baseSalvagePerLevel}" +
+                          $", integrity {(c.Active.progression.carryIntegrity ? "carried" : "reset")}" +
+                          $" +{c.Active.progression.integrityHealPerLevel}/level");
+            sb.AppendLine($"  entry snap  : salvage {Sentinel(c.CurrentEntrySalvage)}, integrity {Sentinel(c.CurrentEntryIntegrity)}" +
+                          "   (-1 = difficulty default; Retry re-applies exactly this)");
+            sb.AppendLine($"  elapsed     : {c.ElapsedSeconds:0.0} s over {c.Results.Count} recorded level(s)");
+            for (int i = 0; i < c.Results.Count; i++)
+            {
+                var r = c.Results[i];
+                sb.AppendLine(r == null
+                    ? $"    L{i + 1}: (no result)"
+                    : $"    L{i + 1}: {(r.victory ? "WON " : "LOST")} {r.stars}★ score {r.score}  {r.title}");
+            }
+            sb.AppendLine($"  total score : {c.CumulativeScore}");
+            Debug.Log(sb.ToString());
+        }
+
+        private static string Sentinel(int v) => v < 0 ? "-1" : v.ToString();
+
+        /// <summary>
+        /// Wipe this campaign's PlayerPrefs (run blob, bests, per-stage stars) so
+        /// the Welcome screen goes back to a virgin state — the only way to retest
+        /// CONTINUE, first-run copy and record badges without editing prefs by hand.
+        /// </summary>
+        private void WipeCampaignSaves()
+        {
+            string id = null;
+            var c = CampaignManager.Instance;
+            if (c != null && c.HasActiveCampaign)
+                id = c.Active.campaignId;
+            else
+            {
+                var welcome = FindFirstObjectByType<CampaignWelcome>();
+                if (welcome != null && welcome.Manifest != null)
+                    id = welcome.Manifest.campaignId;
+            }
+
+            if (string.IsNullOrEmpty(id))
+            {
+                Debug.LogWarning("[DebugConsole] No campaign id in reach — run this in a campaign level or " +
+                                 "on the Welcome scene (whose manifest names the campaign).");
+                return;
+            }
+
+            SaveData.ClearCampaignData(id);
+            Debug.Log($"[DebugConsole] Wiped saves for campaign '{id}' (run, bests, stage stars). " +
+                      "Re-enter the Welcome scene to see it as a first-time player.");
+        }
+
+        // ----- Time -----
+
+        private void TogglePause()
+        {
+            _paused = !_paused;
+            Time.timeScale = _paused ? 0f : SpeedLadder[_speedIndex];
+            Debug.Log($"[DebugConsole] {(_paused ? "PAUSED" : $"Resumed at ×{SpeedLadder[_speedIndex]}")}. " +
+                      "(The pause overlay owns timeScale too — if they disagree, this key wins last.)");
+        }
+
+        private void StepSpeed(int delta)
+        {
+            _speedIndex = Mathf.Clamp(_speedIndex + delta, 0, SpeedLadder.Length - 1);
+            _paused = false;
+            Time.timeScale = SpeedLadder[_speedIndex];
+            Debug.Log($"[DebugConsole] Time ×{SpeedLadder[_speedIndex]}.");
+        }
+
+        // ----- Look -----
 
         /// <summary>
         /// R20 test: cycle a forced mutator set, OR-ed into every wave started
@@ -244,6 +467,26 @@ namespace Corehold.Systems
             Debug.Log($"[DebugConsole] Difficulty set to {d}.");
         }
 
+        // ----- Output -----
+
+        /// <summary>
+        /// Full-resolution screenshot to &lt;project&gt;/Screenshots (editor) or the
+        /// persistent data path (build). A bug report with a picture is worth ten
+        /// without one, and the alternative is alt-tabbing out mid-wave.
+        /// </summary>
+        private void Screenshot()
+        {
+            string dir = Application.isEditor
+                ? Path.Combine(Application.dataPath, "../Screenshots")
+                : Path.Combine(Application.persistentDataPath, "Screenshots");
+            Directory.CreateDirectory(dir);
+
+            string stamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string path = Path.Combine(dir, $"corehold_{stamp}.png");
+            ScreenCapture.CaptureScreenshot(path);
+            Debug.Log($"[DebugConsole] Screenshot → {path} (written at end of frame).");
+        }
+
         private int LiveEnemyCount()
         {
             var enemies = FindObjectsByType<Enemy>(FindObjectsSortMode.None);
@@ -260,14 +503,29 @@ namespace Corehold.Systems
 
         private void OnGUI()
         {
-            if (!_showOverlay)
+            if (_overlay == Overlay.Off)
                 return;
+
+            var style = new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize = 13,
+                padding = new RectOffset(10, 10, 10, 10)
+            };
+            style.normal.textColor = Color.white;
+
+            if (_overlay == Overlay.Keys)
+            {
+                GUI.Box(new Rect(10, 10, 430, 250), KeyMapText(), style);
+                return;
+            }
 
             var gm = GameManager.Instance;
             var wm = FindFirstObjectByType<WaveManager>();
 
             int liveEnemies = LiveEnemyCount();
             int wave = wm != null ? wm.NextWaveIndex : (gm != null ? gm.WaveIndex : 0);
+            int waveCount = wm != null ? wm.WaveCount : 0;
             int salvage = gm != null ? gm.Salvage : 0;
             int integrity = gm != null ? gm.Integrity : 0;
 
@@ -277,24 +535,56 @@ namespace Corehold.Systems
             drawCalls = UnityEditor.UnityStats.drawCalls;
 #endif
 
-            var style = new GUIStyle(GUI.skin.box)
-            {
-                alignment = TextAnchor.UpperLeft,
-                fontSize = 14,
-                padding = new RectOffset(10, 10, 10, 10)
-            };
-            style.normal.textColor = Color.white;
+            string speed = _paused ? "PAUSED" : $"×{SpeedLadder[_speedIndex]}";
+            string mutators = wm != null && wm.DebugForceMutators != Corehold.Data.WaveMutator.None
+                ? $"   forced: {wm.DebugForceMutators}" : "";
+            var night = NightVariant.Instance;
 
             string text =
-                "COREHOLD DEBUG\n" +
+                "COREHOLD DEBUG                    F2 keys\n" +
                 $"Live enemies : {liveEnemies}\n" +
-                $"Wave         : {wave}\n" +
+                $"Wave         : {wave}/{waveCount}{mutators}\n" +
                 $"Salvage      : {salvage}\n" +
-                $"Integrity    : {integrity}\n" +
+                $"Integrity    : {integrity}{(gm != null && gm.CoreInvulnerable ? "  (INVULNERABLE)" : "")}\n" +
+                $"Difficulty   : {(gm != null ? gm.Difficulty.ToString() : "—")}" +
+                $"{(night != null && night.IsNight ? "   night" : "")}\n" +
+                $"Time         : {speed}\n" +
                 $"Frame time   : {_frameMs:0.0} ms ({(_frameMs > 0f ? (1000f / _frameMs) : 0f):0} fps)\n" +
-                $"Draw calls   : {(drawCalls >= 0 ? drawCalls.ToString() : "n/a")}";
+                $"Draw calls   : {(drawCalls >= 0 ? drawCalls.ToString() : "n/a")}" +
+                CampaignOverlayLines();
 
-            GUI.Box(new Rect(10, 10, 260, 160), text, style);
+            GUI.Box(new Rect(10, 10, 300, 215), text, style);
+        }
+
+        /// <summary>Campaign block — only when one is running, so single-map play
+        /// keeps the compact overlay it always had.</summary>
+        private string CampaignOverlayLines()
+        {
+            var c = CampaignManager.Instance;
+            if (c == null || !c.HasActiveCampaign)
+                return "";
+
+            return $"\n— campaign {c.Active.campaignId} —\n" +
+                   $"Level        : {c.CurrentLevelNumber}/{c.LevelCount}\n" +
+                   $"Entry        : salv {Sentinel(c.CurrentEntrySalvage)}  integ {Sentinel(c.CurrentEntryIntegrity)}\n" +
+                   $"Run score    : {c.CumulativeScore}   (C dumps detail)";
+        }
+
+        private static string KeyMapText()
+        {
+            return
+                "COREHOLD DEBUG — KEYS                       F2 to close\n\n" +
+                "WAVES     ]  next wave     [  prev index    0  jump to w9\n" +
+                "ECONOMY   M  +1000 salv    B  build all pads U  upgrade all\n" +
+                "CORE      I  invuln        J  damage core 1\n" +
+                "ENEMIES   K  kill all      S  stun all       L  slow all\n" +
+                "RUN       V  force WIN     X  force LOSS     1/2/3 difficulty\n" +
+                "CAMPAIGN  C  status dump   shift+C  wipe this campaign's saves\n" +
+                "TIME      P  pause         ,  slower         .  faster\n" +
+                "LOOK      T  mutators      N  night          W  reapply weather\n" +
+                "OUTPUT    F1 stats         F2 this list      F3 screenshot\n\n" +
+                "V is the campaign accelerator: force a win, press CONTINUE,\n" +
+                "and the next stage loads with the carry rules applied.";
         }
     }
 }

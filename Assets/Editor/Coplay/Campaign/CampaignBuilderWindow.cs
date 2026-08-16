@@ -216,6 +216,24 @@ namespace CoreholdEditor.Campaign
                     RegisterCampaign();
                 GUI.enabled = true;
             }
+
+            // ---- shipping (CampaignShipTool) ----
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUI.enabled = _authoring.stages.Any(s => !string.IsNullOrEmpty(s.scenePath));
+                if (GUILayout.Button("Preflight (shippable?)"))
+                    _report = CampaignShipTool.PreflightReport(_authoring, out _);
+                if (GUILayout.Button("BUILD shippable game (WebGL)", GUILayout.Height(24)))
+                {
+                    // Preflight runs inside and aborts on errors; the report
+                    // lands in the console either way.
+                    string built = CampaignShipTool.BuildCampaign(_authoring, null);
+                    _report = built != null
+                        ? $"Build succeeded → {built}\nServe it (python3 -m http.server) — WebGL does not run from file://."
+                        : "Build did not run or failed — the console has the preflight/build report.";
+                }
+                GUI.enabled = true;
+            }
         }
 
         private void DrawReport()
