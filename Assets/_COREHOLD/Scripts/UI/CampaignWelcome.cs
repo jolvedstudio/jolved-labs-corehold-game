@@ -36,11 +36,15 @@ namespace Corehold.UI
         [SerializeField] private Button veteranButton;
         [SerializeField] private Button nightmareButton;
 
+        [Header("Resume")]
+        [SerializeField] private Button continueButton;
+
         private void OnEnable()
         {
             if (normalButton != null) normalButton.onClick.AddListener(() => Begin(Difficulty.Normal));
             if (veteranButton != null) veteranButton.onClick.AddListener(() => Begin(Difficulty.Veteran));
             if (nightmareButton != null) nightmareButton.onClick.AddListener(() => Begin(Difficulty.Nightmare));
+            if (continueButton != null) continueButton.onClick.AddListener(Resume);
             Refresh();
         }
 
@@ -49,6 +53,7 @@ namespace Corehold.UI
             if (normalButton != null) normalButton.onClick.RemoveAllListeners();
             if (veteranButton != null) veteranButton.onClick.RemoveAllListeners();
             if (nightmareButton != null) nightmareButton.onClick.RemoveAllListeners();
+            if (continueButton != null) continueButton.onClick.RemoveListener(Resume);
         }
 
         private void Refresh()
@@ -57,13 +62,43 @@ namespace Corehold.UI
                 titleLabel.text = manifest.displayName;
 
             if (subtitleLabel != null)
-                subtitleLabel.text = manifest != null
-                    ? $"CAMPAIGN — {manifest.LevelCount} LEVELS"
-                    : "NO CAMPAIGN MANIFEST ASSIGNED";
+            {
+                if (manifest == null)
+                {
+                    subtitleLabel.text = "NO CAMPAIGN MANIFEST ASSIGNED";
+                }
+                else
+                {
+                    int best = SaveData.GetCampaignBestScore(manifest.campaignId);
+                    subtitleLabel.text = best > 0
+                        ? $"CAMPAIGN — {manifest.LevelCount} LEVELS   BEST {best}"
+                        : $"CAMPAIGN — {manifest.LevelCount} LEVELS";
+                }
+            }
 
             // Same unlock gating as the single-map title screen.
             if (veteranButton != null) veteranButton.interactable = SaveData.IsUnlocked(Difficulty.Veteran);
             if (nightmareButton != null) nightmareButton.interactable = SaveData.IsUnlocked(Difficulty.Nightmare);
+
+            // Resume appears only while a persisted, still-valid run exists.
+            if (continueButton != null)
+                continueButton.gameObject.SetActive(CampaignManager.HasSavedRun(manifest));
+        }
+
+        private void Resume()
+        {
+            if (manifest == null) return;
+
+            // Same audio-gate gesture as Begin — a resumed campaign still needs
+            // the browser unlock from THIS page session.
+            if (AudioDirector.Instance != null)
+            {
+                AudioDirector.Instance.Muted = SaveData.Muted;
+                AudioDirector.Instance.PlayUIClick();
+            }
+
+            if (!CampaignManager.EnsureExists().TryResumeCampaign(manifest))
+                Refresh(); // blob was stale and got discarded — hide the button
         }
 
         private void Begin(Difficulty difficulty)

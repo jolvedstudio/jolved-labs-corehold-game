@@ -169,5 +169,72 @@ namespace Corehold.Systems
             PlayerPrefs.Save();
             return true;
         }
+
+        // ----- Campaign persistence (plan v2 §A.7) -----
+        //
+        // Keys: corehold.campaign.<id>.* — the id comes from the manifest, and
+        // per-stage records key by LEVEL NUMBER, not the LevelDefinition name:
+        // definition names embed the generation seed, so regenerating a stage
+        // would orphan every record keyed by them.
+
+        private const string CampaignPrefix = "corehold.campaign.";
+
+        /// <summary>The in-flight run blob (JSON), written at level boundaries so
+        /// a WebGL tab refresh cannot destroy a campaign. Empty = no saved run.</summary>
+        public static string GetCampaignRun(string campaignId)
+            => PlayerPrefs.GetString($"{CampaignPrefix}{campaignId}.run", "");
+
+        public static void SaveCampaignRun(string campaignId, string json)
+        {
+            PlayerPrefs.SetString($"{CampaignPrefix}{campaignId}.run", json ?? "");
+            PlayerPrefs.Save();
+        }
+
+        public static void ClearCampaignRun(string campaignId)
+        {
+            PlayerPrefs.DeleteKey($"{CampaignPrefix}{campaignId}.run");
+            PlayerPrefs.Save();
+        }
+
+        public static int GetCampaignBestScore(string campaignId)
+            => PlayerPrefs.GetInt($"{CampaignPrefix}{campaignId}.bestScore", 0);
+
+        /// <summary>Returns true only when the score strictly beats the stored best.</summary>
+        public static bool SubmitCampaignBestScore(string campaignId, int score)
+        {
+            if (score <= GetCampaignBestScore(campaignId))
+                return false;
+            PlayerPrefs.SetInt($"{CampaignPrefix}{campaignId}.bestScore", score);
+            PlayerPrefs.Save();
+            return true;
+        }
+
+        /// <summary>Best full-campaign time in seconds (0 = none yet).</summary>
+        public static int GetCampaignBestTime(string campaignId)
+            => PlayerPrefs.GetInt($"{CampaignPrefix}{campaignId}.bestTime", 0);
+
+        public static bool SubmitCampaignBestTime(string campaignId, int seconds)
+        {
+            if (seconds <= 0)
+                return false;
+            int current = GetCampaignBestTime(campaignId);
+            if (current > 0 && seconds >= current)
+                return false;
+            PlayerPrefs.SetInt($"{CampaignPrefix}{campaignId}.bestTime", seconds);
+            PlayerPrefs.Save();
+            return true;
+        }
+
+        /// <summary>Best stars for a campaign level, keyed by 1-based level number.</summary>
+        public static int GetCampaignStageStars(string campaignId, int levelNumber)
+            => PlayerPrefs.GetInt($"{CampaignPrefix}{campaignId}.stage.{levelNumber}.stars", 0);
+
+        public static void SubmitCampaignStageStars(string campaignId, int levelNumber, int stars)
+        {
+            if (stars <= GetCampaignStageStars(campaignId, levelNumber))
+                return;
+            PlayerPrefs.SetInt($"{CampaignPrefix}{campaignId}.stage.{levelNumber}.stars", stars);
+            PlayerPrefs.Save();
+        }
     }
 }

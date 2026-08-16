@@ -24,11 +24,11 @@ namespace CoreholdEditor.Campaign
     /// </summary>
     public static class BuildCampaignScenes
     {
-        private const string SceneDir = "Assets/_COREHOLD/Scenes/Campaign";
-        private const string WelcomePath = SceneDir + "/Campaign_Welcome.unity";
-        private const string ClosingPath = SceneDir + "/Campaign_Closing.unity";
-        private const string ManifestDir = "Assets/_COREHOLD/Data/Campaign";
-        private const string ManifestPath = ManifestDir + "/Manifest_Test.asset";
+        internal const string SceneDir = "Assets/_COREHOLD/Scenes/Campaign";
+        internal const string WelcomePath = SceneDir + "/Campaign_Welcome.unity";
+        internal const string ClosingPath = SceneDir + "/Campaign_Closing.unity";
+        internal const string ManifestDir = "Assets/_COREHOLD/Data/Campaign";
+        internal const string ManifestPath = ManifestDir + "/Manifest_Test.asset";
 
         // The game's palette, hardcoded: UITheme lives in gameplay scenes and
         // menu scenes must not depend on one existing.
@@ -123,9 +123,12 @@ namespace CoreholdEditor.Campaign
             title.fontStyle = FontStyles.Bold;
             var subtitle = MakeText(canvas.transform, "Subtitle", "CAMPAIGN", 30, TextDim, new Vector2(0.5f, 0.60f));
 
-            var normal = MakeButton(canvas.transform, "Btn_Normal", "NORMAL", new Vector2(0.5f, 0.44f));
-            var veteran = MakeButton(canvas.transform, "Btn_Veteran", "VETERAN", new Vector2(0.5f, 0.34f));
-            var nightmare = MakeButton(canvas.transform, "Btn_Nightmare", "NIGHTMARE", new Vector2(0.5f, 0.24f));
+            var normal = MakeButton(canvas.transform, "Btn_Normal", "NORMAL", new Vector2(0.5f, 0.46f));
+            var veteran = MakeButton(canvas.transform, "Btn_Veteran", "VETERAN", new Vector2(0.5f, 0.36f));
+            var nightmare = MakeButton(canvas.transform, "Btn_Nightmare", "NIGHTMARE", new Vector2(0.5f, 0.26f));
+            var cont = MakeButton(canvas.transform, "Btn_Continue", "CONTINUE RUN", new Vector2(0.5f, 0.14f));
+            var contLabel = cont.GetComponentInChildren<TMP_Text>();
+            if (contLabel != null) contLabel.color = new Color(1f, 0.72f, 0.25f); // amber — it resumes, not restarts
 
             var welcome = canvas.gameObject.AddComponent<CampaignWelcome>();
             var so = new SerializedObject(welcome);
@@ -134,6 +137,7 @@ namespace CoreholdEditor.Campaign
             so.FindProperty("normalButton").objectReferenceValue = normal;
             so.FindProperty("veteranButton").objectReferenceValue = veteran;
             so.FindProperty("nightmareButton").objectReferenceValue = nightmare;
+            so.FindProperty("continueButton").objectReferenceValue = cont;
             var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(ManifestPath);
             if (manifest != null)
                 so.FindProperty("manifest").objectReferenceValue = manifest;
@@ -247,7 +251,7 @@ namespace CoreholdEditor.Campaign
             return btn;
         }
 
-        private static void WireManifestIntoWelcome(CampaignManifest manifest)
+        internal static void WireManifestIntoWelcome(CampaignManifest manifest)
         {
             if (!System.IO.File.Exists(WelcomePath))
             {

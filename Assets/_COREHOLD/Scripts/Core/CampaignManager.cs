@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using Corehold.Data;
+using Corehold.Systems;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -35,6 +37,7 @@ namespace Corehold.Core
         public bool HasActiveCampaign => Active != null;
 
         /// <summary>Per-level results of the current run, for the Closing screen.</summary>
+        [Serializable]
         public class LevelResult
         {
             public string title;
@@ -43,7 +46,27 @@ namespace Corehold.Core
             public bool victory;
         }
 
+        /// <summary>The run blob persisted to PlayerPrefs at level boundaries
+        /// (plan v2 §A.7) — on WebGL a tab refresh destroys this manager, and a
+        /// 10-level campaign WILL meet one. JSON via JsonUtility.</summary>
+        [Serializable]
+        private class SavedRun
+        {
+            public string campaignId;
+            public int difficulty;
+            public int stageIndex;
+            public float elapsedSeconds;
+            public List<LevelResult> results = new List<LevelResult>();
+        }
+
         public List<LevelResult> Results { get; } = new List<LevelResult>();
+
+        /// <summary>Gameplay seconds across the run's completed levels.</summary>
+        public float ElapsedSeconds { get; private set; }
+
+        /// <summary>Set at campaign completion, for the Closing screen's badges.</summary>
+        public bool CompletedNewBestScore { get; private set; }
+        public bool CompletedNewBestTime { get; private set; }
 
         public int CumulativeScore
         {
@@ -112,7 +135,63 @@ namespace Corehold.Core
             Active = manifest;
             ChosenDifficulty = difficulty;
             Results.Clear();
+            ElapsedSeconds = 0f;
+            CompletedNewBestScore = false;
+            CompletedNewBestTime = false;
+            SaveData.ClearCampaignRun(manifest.campaignId); // a fresh run replaces any saved one
             LoadStage(first);
+        }
+
+        /// <summary>Is there a persisted, still-valid run to resume for this manifest?</summary>
+        public static bool HasSavedRun(CampaignManifest manifest)
+        {
+            if (manifest == null) return false;
+            string json = SaveData.GetCampaignRun(manifest.campaignId);
+            if (string.IsNullOrEmpty(json)) return false;
+            var run = JsonUtility.FromJson<SavedRun>(json);
+            return RunIsValidFor(run, manifest);
+        }
+
+        /// <summary>
+        /// Resume the persisted run: same difficulty, same stage, past results
+        /// restored. With reset economy the stage re-entry state IS the entry
+        /// state, so resuming and retrying are the same load.
+        /// </summary>
+        public bool TryResumeCampaign(CampaignManifest manifest)
+        {
+            if (manifest == null) return false;
+            string json = SaveData.GetCampaignRun(manifest.campaignId);
+            if (string.IsNullOrEmpty(json)) return false;
+
+            var run = JsonUtility.FromJson<SavedRun>(json);
+            if (!RunIsValidFor(run, manifest))
+            {
+                // The campaign changed shape since the run was saved (stages
+                // regenerated/reordered) — a stale resume would load the wrong
+                // level. Discard rather than guess.
+                Debug.LogWarning("[Campaign] Saved run no longer matches the manifest — discarding it.");
+                SaveData.ClearCampaignRun(manifest.campaignId);
+                return false;
+            }
+
+            Active = manifest;
+            ChosenDifficulty = (Difficulty)run.difficulty;
+            Results.Clear();
+            if (run.results != null) Results.AddRange(run.results);
+            ElapsedSeconds = run.elapsedSeconds;
+            CompletedNewBestScore = false;
+            CompletedNewBestTime = false;
+            LoadStage(run.stageIndex);
+            return true;
+        }
+
+        private static bool RunIsValidFor(SavedRun run, CampaignManifest manifest)
+        {
+            return run != null
+                && run.campaignId == manifest.campaignId
+                && run.stageIndex >= 0
+                && run.stageIndex < manifest.stages.Count
+                && manifest.stages[run.stageIndex].kind == CampaignStageKind.Level;
         }
 
         /// <summary>Victory → next level, or Closing after the last one.</summary>
@@ -126,6 +205,14 @@ namespace Corehold.Core
                 LoadStage(next);
                 return;
             }
+
+            // No next level: the campaign is COMPLETE. Submit the campaign
+            // records, clear the run blob (it is no longer resumable), and keep
+            // the in-memory results for the Closing screen to display.
+            CompletedNewBestScore = SaveData.SubmitCampaignBestScore(Active.campaignId, CumulativeScore);
+            CompletedNewBestTime = SaveData.SubmitCampaignBestTime(
+                Active.campaignId, Mathf.Max(1, Mathf.RoundToInt(ElapsedSeconds)));
+            SaveData.ClearCampaignRun(Active.campaignId);
 
             var closing = Active.StageOfKind(CampaignStageKind.Closing);
             if (closing != null)
@@ -149,9 +236,13 @@ namespace Corehold.Core
             GameFlow.LoadSceneClean(Active.stages[CurrentStageIndex].scenePath);
         }
 
-        /// <summary>Leave the campaign and return to the Welcome scene.</summary>
+        /// <summary>Leave the campaign and return to the Welcome scene. Abandoning
+        /// forfeits the run — the saved blob goes with it (plan v2 §A.7).</summary>
         public void AbandonToWelcome()
         {
+            if (HasActiveCampaign)
+                SaveData.ClearCampaignRun(Active.campaignId);
+
             var welcome = HasActiveCampaign ? Active.StageOfKind(CampaignStageKind.Welcome) : null;
             Active = null;
             CurrentStageIndex = -1;
@@ -178,6 +269,16 @@ namespace Corehold.Core
                 score = score,
                 victory = victory,
             };
+
+            // The level's gameplay time joins the campaign clock; the per-stage
+            // star record persists on wins (keyed by level NUMBER — definition
+            // names embed seeds and would orphan records on regeneration).
+            if (GameManager.Instance != null)
+                ElapsedSeconds += GameManager.Instance.RunSeconds;
+            if (victory && stars > 0)
+                SaveData.SubmitCampaignStageStars(Active.campaignId, levelNumber, stars);
+
+            SaveRun();
         }
 
         // ------------------------------------------------------- level display
@@ -193,7 +294,25 @@ namespace Corehold.Core
         private void LoadStage(int index)
         {
             CurrentStageIndex = index;
+            SaveRun();
             GameFlow.LoadSceneClean(Active.stages[index].scenePath);
+        }
+
+        /// <summary>Persist the run at a level boundary (plan v2 §A.7).</summary>
+        private void SaveRun()
+        {
+            if (!HasActiveCampaign || CurrentStageIndex < 0) return;
+            if (Active.stages[CurrentStageIndex].kind != CampaignStageKind.Level) return;
+
+            var run = new SavedRun
+            {
+                campaignId = Active.campaignId,
+                difficulty = (int)ChosenDifficulty,
+                stageIndex = CurrentStageIndex,
+                elapsedSeconds = ElapsedSeconds,
+            };
+            run.results.AddRange(Results);
+            SaveData.SaveCampaignRun(Active.campaignId, JsonUtility.ToJson(run));
         }
 
         /// <summary>

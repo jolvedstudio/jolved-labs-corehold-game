@@ -66,7 +66,20 @@ namespace Corehold.UI
             }
 
             if (scoreLabel != null)
-                scoreLabel.text = hasRun ? $"TOTAL SCORE {campaign.CumulativeScore}" : "";
+            {
+                if (hasRun)
+                {
+                    string badge = campaign.CompletedNewBestScore ? "  (NEW BEST)" : "";
+                    int mins = Mathf.RoundToInt(campaign.ElapsedSeconds) / 60;
+                    int secs = Mathf.RoundToInt(campaign.ElapsedSeconds) % 60;
+                    string time = $"   TIME {mins}:{secs:00}" + (campaign.CompletedNewBestTime ? " (NEW BEST)" : "");
+                    scoreLabel.text = $"TOTAL SCORE {campaign.CumulativeScore}{badge}{time}";
+                }
+                else
+                {
+                    scoreLabel.text = "";
+                }
+            }
         }
 
         private void PlayAgain()
