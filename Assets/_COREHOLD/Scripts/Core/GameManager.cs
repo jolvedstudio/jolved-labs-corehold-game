@@ -191,12 +191,26 @@ namespace Corehold.Core
         /// </summary>
         public void ConfigureRun(Difficulty tier)
         {
+            ConfigureCampaignRun(tier, -1, -1);
+        }
+
+        /// <summary>
+        /// Campaign-aware run initialisation (plan v2 §A.6). Identical to
+        /// <see cref="ConfigureRun"/> except the starting economy/integrity can be
+        /// seeded explicitly (-1 = the tier's own defaults). This is the ONLY legal
+        /// write path for carried values: <see cref="AddSalvage"/> would inflate
+        /// <see cref="RunSalvageEarned"/> (corrupting the R4 record and the score),
+        /// and <see cref="DamageCore"/> fires defeat side-effects — neither is an
+        /// initialiser.
+        /// </summary>
+        public void ConfigureCampaignRun(Difficulty tier, int salvageOverride, int integrityOverride)
+        {
             difficulty = tier;
 
             // Economy multiplier applies to starting salvage (GDD §8.2).
             float ecoMul = WaveManager.DifficultyEconomyMultiplier(tier);
-            Salvage = Mathf.RoundToInt(startingSalvage * ecoMul);
-            Integrity = StartingIntegrityFor(tier);
+            Salvage = salvageOverride >= 0 ? salvageOverride : Mathf.RoundToInt(startingSalvage * ecoMul);
+            Integrity = integrityOverride >= 0 ? integrityOverride : StartingIntegrityFor(tier);
 
             // Fresh run — clear the kill streak (R2) and the run stats (R4).
             CurrentStreak = 0;
