@@ -16,6 +16,11 @@ namespace Corehold.Data
         [Tooltip("Player-facing name shown in the build menu.")]
         public string displayName;
 
+        [Tooltip("Build-menu position — lower comes first (B0 roster registry). Definitions sort by " +
+                 "(menuOrder, name), so adding a turret to the game is: create the definition, set " +
+                 "menuOrder, re-run Build Real UI. Leave gaps (10, 20, 30…) so inserts need no renumbering.")]
+        public int menuOrder;
+
         [Tooltip("Icon rendered from the prefab (GDD §9.5). Null until Ticket 33 generates it.")]
         public Sprite icon;
 

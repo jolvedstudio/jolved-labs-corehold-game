@@ -110,17 +110,12 @@ namespace CoreholdEditor
             theme.starEmpty = Load(StarEmpty);
             theme.cyan = Cyan; theme.amber = Amber; theme.danger = Danger;
 
-            // Catalogues, in menu order (10-slot roster; the build menu is a
-            // carousel showing six at a time).
-            string[] order = { "Autocannon", "MissileBattery", "ArcNode", "SiegeMortar", "ScanRelay",
-                               "Floodlight", "Railgun", "CryoNode", "FlakArray", "SalvageRig" };
-            var defs = AssetDatabase.FindAssets("t:TowerDefinition", new[] { "Assets/_COREHOLD/Data/Towers" })
-                .Select(AssetDatabase.GUIDToAssetPath)
-                .Select(AssetDatabase.LoadAssetAtPath<TowerDefinition>)
-                .Where(d => d != null).ToList();
-            theme.turrets = order.Select(n => defs.FirstOrDefault(d => d.name.Contains(n)))
-                                 .Where(d => d != null).ToArray();
-            if (theme.turrets.Length == 0) theme.turrets = defs.ToArray();
+            // Catalogue, in menu order. The roster registry replaced the old
+            // hardcoded name array (B0): definitions carry menuOrder, discovery
+            // sorts by it, and adding a turret needs no edit here — run
+            // Tools/COREHOLD/Scene Setup/Assign Tower Menu Order once to seed
+            // orders on pre-registry definitions.
+            theme.turrets = RosterRegistry.AllTowersOrdered();
 
             theme.damageTable = AssetDatabase.LoadAssetAtPath<DamageTable>("Assets/_COREHOLD/Data/DamageTable.asset");
 
