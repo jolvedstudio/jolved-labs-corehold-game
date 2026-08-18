@@ -38,10 +38,15 @@ namespace CoreholdEditor
         const string StarEmpty      = Base + "Options/Icon_VictoryStar_gray.png";
         const string FontPath       = "Assets/Vendor/SCI-FI UI Pack Pro/Common/Fonts/Aldrich-Regular SDF.asset";
 
-        // Cached theme colours.
-        static readonly Color Cyan = new Color(0.20f, 0.85f, 1f, 1f);
-        static readonly Color Amber = new Color(1f, 0.6f, 0.1f, 1f);
-        static readonly Color Danger = new Color(1f, 0.3f, 0.3f, 1f);
+        // Theme colours — read through the campaign UI skin when one is active
+        // (Campaign Builder sets UISkin.Active around generation), else the
+        // historical defaults, so unskinned output stays byte-identical.
+        static readonly Color DefaultCyan = new Color(0.20f, 0.85f, 1f, 1f);
+        static readonly Color DefaultAmber = new Color(1f, 0.6f, 0.1f, 1f);
+        static readonly Color DefaultDanger = new Color(1f, 0.3f, 0.3f, 1f);
+        static Color Cyan => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.accent : DefaultCyan;
+        static Color Amber => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.warm : DefaultAmber;
+        static Color Danger => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.danger : DefaultDanger;
         static readonly Color PanelTint = new Color(1f, 1f, 1f, 1f);
 
         static TMP_FontAsset _font;
@@ -53,6 +58,8 @@ namespace CoreholdEditor
             var sb = new StringBuilder();
             _font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontPath);
             if (_font == null) _font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset");
+            if (Campaign.UISkin.Active != null && Campaign.UISkin.Active.font != null)
+                _font = Campaign.UISkin.Active.font; // campaign skin outranks both fallbacks
 
             // 1. Theme + catalogues.
             var theme = BuildTheme(sb);

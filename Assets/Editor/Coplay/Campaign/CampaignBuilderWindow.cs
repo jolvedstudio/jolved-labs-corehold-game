@@ -130,10 +130,31 @@ namespace CoreholdEditor.Campaign
 
                     s.blueprint = (LevelBlueprint)EditorGUILayout.ObjectField(
                         "Blueprint", s.blueprint, typeof(LevelBlueprint), false);
+
+                    // No blueprint → the stage can instead USE an existing scene
+                    // (a Clone Level fork or any hand-authored level) as-is.
+                    if (s.blueprint == null)
+                    {
+                        var current = string.IsNullOrEmpty(s.scenePath)
+                            ? null
+                            : AssetDatabase.LoadAssetAtPath<SceneAsset>(s.scenePath);
+                        var picked = (SceneAsset)EditorGUILayout.ObjectField(
+                            new GUIContent("…or existing scene", "Manual stage: a forked or hand-authored level, used as-is."),
+                            current, typeof(SceneAsset), false);
+                        if (picked != current)
+                        {
+                            s.scenePath = picked != null ? AssetDatabase.GetAssetPath(picked) : null;
+                            s.levelDefPath = null;  // the builder does not track a manual stage's rules
+                            s.wavesFolder = null;
+                            s.acceptedSeed = 0;
+                        }
+                    }
+
                     s.briefing = EditorGUILayout.TextField("Briefing", s.briefing);
-                    s.seedOverride = EditorGUILayout.IntField(
-                        new GUIContent("Seed override", "0 = derive from master seed. Use a contact-sheet pick to choose by eye."),
-                        s.seedOverride);
+                    if (s.blueprint != null)
+                        s.seedOverride = EditorGUILayout.IntField(
+                            new GUIContent("Seed override", "0 = derive from master seed. Use a contact-sheet pick to choose by eye."),
+                            s.seedOverride);
 
                     if (EditorGUI.EndChangeCheck())
                         EditorUtility.SetDirty(_authoring);
@@ -148,8 +169,12 @@ namespace CoreholdEditor.Campaign
 
                     using (new EditorGUILayout.HorizontalScope())
                     {
+                        bool manual = s.blueprint == null && !string.IsNullOrEmpty(s.scenePath);
+                        if (manual)
+                            EditorGUILayout.LabelField("manual stage — used as-is, nothing to generate",
+                                                       EditorStyles.miniLabel);
                         GUI.enabled = s.blueprint != null;
-                        if (GUILayout.Button("Contact sheet (pick a seed by eye)"))
+                        if (!manual && GUILayout.Button("Contact sheet (pick a seed by eye)"))
                         {
                             // ContactSheet works on the selected blueprint; the
                             // PNG it writes shows 9 passing seeds to choose from.
@@ -192,7 +217,8 @@ namespace CoreholdEditor.Campaign
             EditorGUILayout.Space(10);
             using (new EditorGUILayout.HorizontalScope())
             {
-                GUI.enabled = _authoring.stages.Count > 0 && _authoring.stages.All(s => s.blueprint != null);
+                GUI.enabled = _authoring.stages.Count > 0 &&
+                              _authoring.stages.All(s => s.blueprint != null || !string.IsNullOrEmpty(s.scenePath));
                 if (GUILayout.Button("Generate ALL levels", GUILayout.Height(28)))
                     GenerateAll();
                 GUI.enabled = true;
@@ -201,7 +227,11 @@ namespace CoreholdEditor.Campaign
             using (new EditorGUILayout.HorizontalScope())
             {
                 if (GUILayout.Button("Build menu scenes (stub)"))
-                    BuildCampaignScenes.BuildBoth();
+                {
+                    UISkin.Active = _authoring.uiSkin;
+                    try { BuildCampaignScenes.BuildBoth(); }
+                    finally { UISkin.Active = null; }
+                }
 
                 GUI.enabled = _authoring.stages.Any(s => !string.IsNullOrEmpty(s.scenePath));
                 if (GUILayout.Button("Verify carry economy"))
@@ -265,10 +295,18 @@ namespace CoreholdEditor.Campaign
         {
             var log = new StringBuilder();
             int passed = 0;
-            for (int i = 0; i < _authoring.stages.Count; i++)
+            UISkin.Active = _authoring.uiSkin; // the skin bakes in at build time (BuildRealUI reads it)
+            try
             {
-                if (GenerateStageInternal(i, log)) passed++;
-                else break; // a failed stage stops the batch — read the transcript, fix, resume
+                for (int i = 0; i < _authoring.stages.Count; i++)
+                {
+                    if (GenerateStageInternal(i, log)) passed++;
+                    else break; // a failed stage stops the batch — read the transcript, fix, resume
+                }
+            }
+            finally
+            {
+                UISkin.Active = null;
             }
             log.AppendLine($"\n{passed}/{_authoring.stages.Count} levels generated.");
             if (passed == _authoring.stages.Count)
@@ -328,6 +366,15 @@ namespace CoreholdEditor.Campaign
                 var air = spawners.FirstOrDefault(s => s.name.Contains("Air"));
                 var anySpawner = spawners.FirstOrDefault(s => s.CoreTarget != null);
                 var def = AssetDatabase.LoadAssetAtPath<LevelDefinition>(stage.levelDefPath);
+                if (def == null)
+                {
+                    // Manual/forked stages carry no tracked def path — read the
+                    // rules straight off the opened scene's WaveManager instead.
+                    var sceneWm = Object.FindFirstObjectByType<WaveManager>();
+                    if (sceneWm != null)
+                        def = new SerializedObject(sceneWm).FindProperty("level")
+                                  .objectReferenceValue as LevelDefinition;
+                }
 
                 if (routes.Count == 0 || anySpawner == null || def == null)
                 {
@@ -365,7 +412,11 @@ namespace CoreholdEditor.Campaign
         private void GenerateStage(int index)
         {
             var log = new StringBuilder();
-            if (GenerateStageInternal(index, log))
+            bool ok;
+            UISkin.Active = _authoring.uiSkin;
+            try { ok = GenerateStageInternal(index, log); }
+            finally { UISkin.Active = null; }
+            if (ok)
             {
                 EmitManifest();
                 RegisterCampaign();
@@ -377,9 +428,25 @@ namespace CoreholdEditor.Campaign
         private bool GenerateStageInternal(int index, StringBuilder log)
         {
             var stage = _authoring.stages[index];
+
+            // Manual stage: a hand-authored or forked scene (Clone Level) used
+            // as-is — no blueprint, nothing to generate, nothing to relocate.
+            // Linear incremental campaigns are built from exactly these.
+            if (stage.blueprint == null && !string.IsNullOrEmpty(stage.scenePath))
+            {
+                if (!System.IO.File.Exists(stage.scenePath))
+                {
+                    log.AppendLine($"Level {index + 1} '{stage.title}': manual scene missing on disk — {stage.scenePath}");
+                    return false;
+                }
+                log.AppendLine($"— Level {index + 1} '{stage.title}' — manual scene, kept as-is: {stage.scenePath}");
+                return true;
+            }
+
             if (stage.blueprint == null)
             {
-                log.AppendLine($"Level {index + 1}: no blueprint assigned.");
+                log.AppendLine($"Level {index + 1}: no blueprint assigned (assign one, or pick an existing scene " +
+                               "to use the stage as a manual/forked level).");
                 return false;
             }
 

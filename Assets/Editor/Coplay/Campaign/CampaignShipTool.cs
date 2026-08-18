@@ -282,6 +282,17 @@ namespace CoreholdEditor.Campaign
             {
                 if (string.IsNullOrEmpty(stage.scenePath)) continue;
 
+                // Manual stages (forks, hand-authored scenes) carry no tracked
+                // rules path — Clone Level gives a fork its OWN definition and
+                // wave clones, so this is informational, not a defect.
+                if (string.IsNullOrEmpty(stage.levelDefPath))
+                {
+                    Warn($"stage '{stage.title}' is a manual scene — its rules identity is not tracked by " +
+                         "the builder. If it came from Clone Level its definition/waves are its own; a raw " +
+                         "scene copy shares them with its source.");
+                    continue;
+                }
+
                 var def = AssetDatabase.LoadAssetAtPath<LevelDefinition>(stage.levelDefPath);
                 if (def == null)
                 {
