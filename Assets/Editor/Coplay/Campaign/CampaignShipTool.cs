@@ -43,47 +43,114 @@ namespace CoreholdEditor.Campaign
         [MenuItem("Tools/COREHOLD/Campaign/Preflight (is this campaign shippable?)", false, 20)]
         public static void PreflightMenu()
         {
-            var authoring = Selection.activeObject as CampaignAuthoring ?? FindOnlyAuthoring();
-            if (authoring == null)
+            if (!ResolveTarget(out var manifest, out var authoring, out string why))
             {
-                Debug.LogError("[Ship] Select a CampaignAuthoring asset (or have exactly one in the project).");
+                EditorUtility.DisplayDialog("Campaign Preflight", why, "OK");
                 return;
             }
-            Debug.Log(PreflightReport(authoring, out _));
+
+            string report = PreflightReport(manifest, authoring, out bool ok, out int errors);
+            Debug.Log(report);
+            EditorUtility.DisplayDialog("Campaign Preflight",
+                (ok ? "READY — no blocking errors."
+                    : $"NOT SHIPPABLE — {errors} blocking error(s).") +
+                "\n\nThe full line-by-line report is in the Console.", "OK");
         }
 
         [MenuItem("Tools/COREHOLD/Campaign/Build Shippable Game (WebGL)", false, 21)]
         public static void BuildMenu()
         {
-            var authoring = Selection.activeObject as CampaignAuthoring ?? FindOnlyAuthoring();
-            if (authoring == null)
+            if (!ResolveTarget(out var manifest, out var authoring, out string why))
             {
-                Debug.LogError("[Ship] Select a CampaignAuthoring asset (or have exactly one in the project).");
+                EditorUtility.DisplayDialog("Campaign Build", why, "OK");
                 return;
             }
-            BuildCampaign(authoring, null);
+            BuildCampaign(manifest, authoring, null);
         }
 
-        private static CampaignAuthoring FindOnlyAuthoring()
+        /// <summary>
+        /// What are we preflighting? Priority: a selected CampaignAuthoring; a
+        /// selected CampaignManifest (authoring matched by its emitted path when
+        /// one exists); otherwise the project's only authoring, else its only
+        /// manifest. A campaign does not NEED an authoring asset to be checked —
+        /// the A0 test-manifest flow makes manifest-only campaigns, and refusing
+        /// those silently is how this tool "did nothing".
+        /// </summary>
+        private static bool ResolveTarget(out CampaignManifest manifest, out CampaignAuthoring authoring, out string why)
         {
-            var all = AssetDatabase.FindAssets("t:CampaignAuthoring")
+            manifest = null;
+            why = null;
+
+            authoring = Selection.activeObject as CampaignAuthoring;
+            if (authoring == null && Selection.activeObject is CampaignManifest selected)
+            {
+                manifest = selected;
+                authoring = FindAll<CampaignAuthoring>()
+                    .FirstOrDefault(a => a.ManifestAssetPath == AssetDatabase.GetAssetPath(selected));
+                return true;
+            }
+
+            if (authoring == null)
+            {
+                var all = FindAll<CampaignAuthoring>();
+                if (all.Count == 1) authoring = all[0];
+                else if (all.Count > 1)
+                {
+                    why = "Several CampaignAuthoring assets exist — select the one to check in the Project view, then re-run.";
+                    return false;
+                }
+            }
+
+            if (authoring != null)
+            {
+                manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(authoring.ManifestAssetPath);
+                return true; // a missing manifest is a preflight FINDING, not a refusal
+            }
+
+            var manifests = FindAll<CampaignManifest>();
+            if (manifests.Count == 1) { manifest = manifests[0]; return true; }
+
+            why = manifests.Count == 0
+                ? "No campaign found: no CampaignAuthoring and no CampaignManifest in the project.\n\n" +
+                  "Make one with the Campaign Builder (Tools → COREHOLD → Campaign), or the test flow's " +
+                  "'Create Test Manifest'."
+                : "Several CampaignManifest assets and no CampaignAuthoring — select the manifest to check " +
+                  "in the Project view, then re-run.";
+            return false;
+        }
+
+        private static List<T> FindAll<T>() where T : Object
+        {
+            return AssetDatabase.FindAssets($"t:{typeof(T).Name}")
                 .Select(AssetDatabase.GUIDToAssetPath)
-                .Select(AssetDatabase.LoadAssetAtPath<CampaignAuthoring>)
+                .Select(AssetDatabase.LoadAssetAtPath<T>)
                 .Where(a => a != null).ToList();
-            return all.Count == 1 ? all[0] : null;
         }
 
         // ----------------------------------------------------------- preflight
 
-        /// <summary>Human-readable preflight; <paramref name="ok"/> is false when
-        /// any ERROR-level check failed.</summary>
+        /// <summary>Convenience overload for the Campaign Builder window.</summary>
         public static string PreflightReport(CampaignAuthoring authoring, out bool ok)
         {
-            var checks = Preflight(authoring);
-            ok = !checks.Any(c => c.error);
+            var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(authoring.ManifestAssetPath);
+            return PreflightReport(manifest, authoring, out ok, out _);
+        }
 
+        /// <summary>Human-readable preflight; <paramref name="ok"/> is false when
+        /// any ERROR-level check failed. <paramref name="authoring"/> may be null
+        /// (manifest-only campaign) — authoring-dependent checks degrade to warnings.</summary>
+        public static string PreflightReport(CampaignManifest manifest, CampaignAuthoring authoring,
+                                             out bool ok, out int errors)
+        {
+            var checks = Preflight(manifest, authoring);
+            errors = checks.Count(c => c.error);
+            ok = errors == 0;
+
+            string id = manifest != null ? manifest.campaignId
+                      : authoring != null ? authoring.campaignId : "?";
             var sb = new StringBuilder();
-            sb.AppendLine($"[Ship] PREFLIGHT — campaign '{authoring.campaignId}'");
+            sb.AppendLine($"[Ship] PREFLIGHT — campaign '{id}'" +
+                          (authoring == null ? "  (manifest-only — no authoring asset)" : ""));
             if (checks.Count == 0)
                 sb.AppendLine("  (no findings)");
             foreach (var c in checks)
@@ -94,17 +161,18 @@ namespace CoreholdEditor.Campaign
             return sb.ToString();
         }
 
-        public static List<Check> Preflight(CampaignAuthoring authoring)
+        public static List<Check> Preflight(CampaignManifest manifest, CampaignAuthoring authoring)
         {
             var checks = new List<Check>();
             void Error(string m) => checks.Add(new Check { error = true, message = m });
             void Warn(string m) => checks.Add(new Check { error = false, message = m });
 
             // ---- manifest ----
-            var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(authoring.ManifestAssetPath);
             if (manifest == null)
             {
-                Error($"no manifest at {authoring.ManifestAssetPath} — press 'Emit manifest' in the Campaign Builder.");
+                Error(authoring != null
+                    ? $"no manifest at {authoring.ManifestAssetPath} — press 'Emit manifest' in the Campaign Builder."
+                    : "no CampaignManifest — press 'Emit manifest' in the Campaign Builder (or 'Create Test Manifest').");
                 return checks; // everything else reads the manifest
             }
             if (manifest.LevelCount == 0)
@@ -137,8 +205,9 @@ namespace CoreholdEditor.Campaign
                 // fresh clone, because that folder is git-ignored.
                 if (stage.scenePath.Contains("/Scenes/Generated/"))
                     Error($"stage '{stage.title}' still lives in the git-ignored Scenes/Generated — " +
-                          "regenerate it through the Campaign Builder, which relocates output to " +
-                          $"{authoring.SceneFolder}.");
+                          "generate the stage through the Campaign Builder, which relocates output to " +
+                          (authoring != null ? authoring.SceneFolder : "the committed Scenes/Campaign/<id>/ folder") +
+                          ". (A test-manifest campaign always trips this: it exists to prove the FLOW, not to ship.)");
             }
 
             var welcome = manifest.StageOfKind(CampaignStageKind.Welcome);
@@ -147,7 +216,13 @@ namespace CoreholdEditor.Campaign
                       "boot into the wrong scene. Press 'Register Campaign'.");
 
             // ---- per-stage data: definition wired, wave tables stage-LOCAL ----
-            foreach (var stage in authoring.stages)
+            if (authoring == null)
+            {
+                Warn("wave-table locality not checked — no CampaignAuthoring records where each stage's " +
+                     "clones live. Manifest-only campaigns (the test flow) share the shipped wave tables " +
+                     "by construction; build the real campaign through the Campaign Builder.");
+            }
+            else foreach (var stage in authoring.stages)
             {
                 if (string.IsNullOrEmpty(stage.scenePath)) continue;
 
@@ -218,14 +293,21 @@ namespace CoreholdEditor.Campaign
 
         // --------------------------------------------------------------- build
 
+        /// <summary>Convenience overload for the Campaign Builder window.</summary>
+        public static string BuildCampaign(CampaignAuthoring authoring, string outputDir)
+        {
+            var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(authoring.ManifestAssetPath);
+            return BuildCampaign(manifest, authoring, outputDir);
+        }
+
         /// <summary>
         /// Build exactly this campaign. <paramref name="outputDir"/> null → the
         /// default Builds/WebGL/&lt;id&gt; under the project. Returns the output
         /// path, or null when preflight blocked or the build failed.
         /// </summary>
-        public static string BuildCampaign(CampaignAuthoring authoring, string outputDir)
+        public static string BuildCampaign(CampaignManifest manifest, CampaignAuthoring authoring, string outputDir)
         {
-            string report = PreflightReport(authoring, out bool ok);
+            string report = PreflightReport(manifest, authoring, out bool ok, out _);
             if (!ok)
             {
                 Debug.LogError(report + "\n[Ship] Build ABORTED — preflight has errors.");
@@ -233,7 +315,6 @@ namespace CoreholdEditor.Campaign
             }
             Debug.Log(report);
 
-            var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(authoring.ManifestAssetPath);
             var scenes = manifest.stages
                 .Select(s => s.scenePath)
                 .Where(p => !string.IsNullOrEmpty(p) && System.IO.File.Exists(p))
@@ -254,7 +335,7 @@ namespace CoreholdEditor.Campaign
             }
 
             string dir = string.IsNullOrEmpty(outputDir)
-                ? System.IO.Path.Combine(DefaultBuildRoot, authoring.campaignId)
+                ? System.IO.Path.Combine(DefaultBuildRoot, manifest.campaignId)
                 : outputDir;
             System.IO.Directory.CreateDirectory(dir);
 
