@@ -43,80 +43,136 @@ namespace CoreholdEditor.Campaign
         [MenuItem("Tools/COREHOLD/Campaign/Preflight (is this campaign shippable?)", false, 20)]
         public static void PreflightMenu()
         {
-            if (!ResolveTarget(out var manifest, out var authoring, out string why))
+            CampaignPicker.Open("Preflight", c =>
             {
-                EditorUtility.DisplayDialog("Campaign Preflight", why, "OK");
-                return;
-            }
-
-            string report = PreflightReport(manifest, authoring, out bool ok, out int errors);
-            Debug.Log(report);
-            EditorUtility.DisplayDialog("Campaign Preflight",
-                (ok ? "READY — no blocking errors."
-                    : $"NOT SHIPPABLE — {errors} blocking error(s).") +
-                "\n\nThe full line-by-line report is in the Console.", "OK");
+                string report = PreflightReport(c.manifest, c.authoring, out bool ok, out int errors);
+                Debug.Log(report);
+                EditorUtility.DisplayDialog("Campaign Preflight",
+                    $"Campaign '{c.Id}':\n\n" +
+                    (ok ? "READY — no blocking errors."
+                        : $"NOT SHIPPABLE — {errors} blocking error(s).") +
+                    "\n\nThe full line-by-line report is in the Console.", "OK");
+            });
         }
 
         [MenuItem("Tools/COREHOLD/Campaign/Build Shippable Game (WebGL)", false, 21)]
         public static void BuildMenu()
         {
-            if (!ResolveTarget(out var manifest, out var authoring, out string why))
+            CampaignPicker.Open("Build", c => BuildCampaign(c.manifest, c.authoring, null));
+        }
+
+        // ------------------------------------------------------------- picker
+
+        /// <summary>One checkable campaign: an authoring asset (manifest may not
+        /// be emitted yet — that is a preflight finding) or a bare manifest.</summary>
+        public struct Candidate
+        {
+            public CampaignManifest manifest;
+            public CampaignAuthoring authoring;
+
+            public string Id => authoring != null ? authoring.campaignId
+                              : manifest != null ? manifest.campaignId : "?";
+
+            public string Label
             {
-                EditorUtility.DisplayDialog("Campaign Build", why, "OK");
-                return;
+                get
+                {
+                    if (authoring != null)
+                        return $"{Id}  —  authoring '{authoring.name}'" +
+                               (manifest != null ? "" : "   (manifest not emitted yet)");
+                    return $"{Id}  —  manifest-only '{manifest.name}'   (test flow)";
+                }
             }
-            BuildCampaign(manifest, authoring, null);
+        }
+
+        /// <summary>Every campaign in the project, authoring-backed first. An
+        /// authoring's own emitted manifest is folded into its row, not listed twice.</summary>
+        public static List<Candidate> AllCandidates()
+        {
+            var list = new List<Candidate>();
+            var authorings = FindAll<CampaignAuthoring>();
+            var claimedManifestPaths = new HashSet<string>();
+
+            foreach (var a in authorings)
+            {
+                var m = AssetDatabase.LoadAssetAtPath<CampaignManifest>(a.ManifestAssetPath);
+                if (m != null) claimedManifestPaths.Add(a.ManifestAssetPath);
+                list.Add(new Candidate { authoring = a, manifest = m });
+            }
+
+            foreach (var m in FindAll<CampaignManifest>())
+                if (!claimedManifestPaths.Contains(AssetDatabase.GetAssetPath(m)))
+                    list.Add(new Candidate { manifest = m });
+
+            return list;
         }
 
         /// <summary>
-        /// What are we preflighting? Priority: a selected CampaignAuthoring; a
-        /// selected CampaignManifest (authoring matched by its emitted path when
-        /// one exists); otherwise the project's only authoring, else its only
-        /// manifest. A campaign does not NEED an authoring asset to be checked —
-        /// the A0 test-manifest flow makes manifest-only campaigns, and refusing
-        /// those silently is how this tool "did nothing".
+        /// The explicit ask: which campaign? Always shown — with several
+        /// campaigns in a project, guessing from selection state is how the
+        /// wrong one gets built. The Project-view selection only preselects.
         /// </summary>
-        private static bool ResolveTarget(out CampaignManifest manifest, out CampaignAuthoring authoring, out string why)
+        private class CampaignPicker : EditorWindow
         {
-            manifest = null;
-            why = null;
+            private List<Candidate> _candidates;
+            private string _action;
+            private System.Action<Candidate> _onPick;
+            private Vector2 _scroll;
 
-            authoring = Selection.activeObject as CampaignAuthoring;
-            if (authoring == null && Selection.activeObject is CampaignManifest selected)
+            public static void Open(string action, System.Action<Candidate> onPick)
             {
-                manifest = selected;
-                authoring = FindAll<CampaignAuthoring>()
-                    .FirstOrDefault(a => a.ManifestAssetPath == AssetDatabase.GetAssetPath(selected));
-                return true;
-            }
-
-            if (authoring == null)
-            {
-                var all = FindAll<CampaignAuthoring>();
-                if (all.Count == 1) authoring = all[0];
-                else if (all.Count > 1)
+                var candidates = AllCandidates();
+                if (candidates.Count == 0)
                 {
-                    why = "Several CampaignAuthoring assets exist — select the one to check in the Project view, then re-run.";
-                    return false;
+                    EditorUtility.DisplayDialog($"Campaign {action}",
+                        "No campaign found: no CampaignAuthoring and no CampaignManifest in the project.\n\n" +
+                        "Make one with the Campaign Builder (Tools → COREHOLD → Campaign), or the test " +
+                        "flow's 'Create Test Manifest'.", "OK");
+                    return;
                 }
+
+                // The Project-view selection floats to the top as the default.
+                var selected = Selection.activeObject;
+                candidates = candidates
+                    .OrderByDescending(c => (Object)c.authoring == selected || (Object)c.manifest == selected)
+                    .ToList();
+
+                var w = CreateInstance<CampaignPicker>();
+                w.titleContent = new GUIContent($"Campaign {action}");
+                w._candidates = candidates;
+                w._action = action;
+                w._onPick = onPick;
+                w.minSize = new Vector2(460, Mathf.Min(120 + candidates.Count * 30, 420));
+                w.ShowUtility();
             }
 
-            if (authoring != null)
+            private void OnGUI()
             {
-                manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(authoring.ManifestAssetPath);
-                return true; // a missing manifest is a preflight FINDING, not a refusal
+                EditorGUILayout.Space(8);
+                EditorGUILayout.LabelField($"Which campaign do you want to {_action.ToLowerInvariant()}?",
+                                           EditorStyles.boldLabel);
+                EditorGUILayout.Space(4);
+
+                _scroll = EditorGUILayout.BeginScrollView(_scroll);
+                foreach (var c in _candidates)
+                {
+                    if (GUILayout.Button(c.Label, GUILayout.Height(26)))
+                    {
+                        var pick = c;
+                        var act = _onPick;
+                        // Defer past this GUI pass: the action may start a full
+                        // player build, which must not run inside OnGUI.
+                        EditorApplication.delayCall += () => act?.Invoke(pick);
+                        Close();
+                        GUIUtility.ExitGUI();
+                    }
+                }
+                EditorGUILayout.EndScrollView();
+
+                EditorGUILayout.Space(6);
+                if (GUILayout.Button("Cancel"))
+                    Close();
             }
-
-            var manifests = FindAll<CampaignManifest>();
-            if (manifests.Count == 1) { manifest = manifests[0]; return true; }
-
-            why = manifests.Count == 0
-                ? "No campaign found: no CampaignAuthoring and no CampaignManifest in the project.\n\n" +
-                  "Make one with the Campaign Builder (Tools → COREHOLD → Campaign), or the test flow's " +
-                  "'Create Test Manifest'."
-                : "Several CampaignManifest assets and no CampaignAuthoring — select the manifest to check " +
-                  "in the Project view, then re-run.";
-            return false;
         }
 
         private static List<T> FindAll<T>() where T : Object
