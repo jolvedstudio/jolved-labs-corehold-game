@@ -96,6 +96,15 @@ namespace CoreholdEditor
 
         // ============================================================ THEME
 
+        /// <summary>Skin slot or fallback. Null-safe on both the skin and the slot,
+        /// so partial skins compose with the historical defaults per slot.</summary>
+        static Sprite SkinSlot(System.Func<Campaign.UISkin, Sprite> pick, Sprite fallback)
+        {
+            var skin = Campaign.UISkin.Active;
+            var sprite = skin != null ? pick(skin) : null;
+            return sprite != null ? sprite : fallback;
+        }
+
         static UITheme BuildTheme(StringBuilder sb)
         {
             var go = SceneLookup.Find("UITheme");
@@ -105,16 +114,19 @@ namespace CoreholdEditor
             theme.font = _font;
             theme.fontSizeLarge = _large;
             theme.fontSizeSmall = _small;
-            theme.panel = Load(PanelSprite);
-            theme.popup = Load(PopupSprite);
-            theme.buttonNormal = Load(BtnNormal);
-            theme.buttonPressed = Load(BtnPressed);
-            theme.buttonDisabled = Load(BtnDisabled);
-            theme.barBackground = Load(BarBg);
-            theme.barFill = Load(BarFill);
-            theme.pauseIcon = Load(PauseIcon);
-            theme.starFull = Load(StarFull);
-            theme.starEmpty = Load(StarEmpty);
+            // Sprite slots: the campaign skin's shape language outranks the kit
+            // paths, slot by slot — a skin overrides only what it fills, and with
+            // no skin active this is exactly the historical Load() block.
+            theme.panel = SkinSlot(s => s.panel, Load(PanelSprite));
+            theme.popup = SkinSlot(s => s.popup, Load(PopupSprite));
+            theme.buttonNormal = SkinSlot(s => s.buttonNormal, Load(BtnNormal));
+            theme.buttonPressed = SkinSlot(s => s.buttonPressed, Load(BtnPressed));
+            theme.buttonDisabled = SkinSlot(s => s.buttonDisabled, Load(BtnDisabled));
+            theme.barBackground = SkinSlot(s => s.barBackground, Load(BarBg));
+            theme.barFill = SkinSlot(s => s.barFill, Load(BarFill));
+            theme.pauseIcon = SkinSlot(s => s.pauseIcon, Load(PauseIcon));
+            theme.starFull = SkinSlot(s => s.starFull, Load(StarFull));
+            theme.starEmpty = SkinSlot(s => s.starEmpty, Load(StarEmpty));
             theme.cyan = Cyan; theme.amber = Amber; theme.danger = Danger;
 
             // Catalogue, in menu order. The roster registry replaced the old

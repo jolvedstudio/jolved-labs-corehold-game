@@ -52,6 +52,22 @@ namespace CoreholdEditor.Campaign
         [Tooltip("Optional font override for everything the builders create. Null = the project's default UI font.")]
         public TMP_FontAsset font;
 
+        [Header("Sprite slots — the SHAPE language (v2)")]
+        [Tooltip("Every slot maps 1:1 onto a UITheme sprite field. Null = the builder's default for that slot " +
+                 "(kit path or procedural), so a skin overrides only what it cares about. Fill these from a UI " +
+                 "kit with Tools → COREHOLD → Campaign → Create Skin From UI Kit, which copies the chosen " +
+                 "sprites into a COMMITTED folder — a skin must never reference git-ignored vendor files.")]
+        public Sprite panel;            // main nine-sliced panel frame
+        public Sprite popup;            // popup / dialog frame
+        public Sprite buttonNormal;
+        public Sprite buttonPressed;
+        public Sprite buttonDisabled;
+        public Sprite barBackground;    // health/integrity bar bg
+        public Sprite barFill;
+        public Sprite pauseIcon;
+        public Sprite starFull;
+        public Sprite starEmpty;
+
         [Tooltip("Who this skin is for, e.g. 'kids — bright, rounded, high-saturation'. Notes only.")]
         [TextArea] public string audience;
     }

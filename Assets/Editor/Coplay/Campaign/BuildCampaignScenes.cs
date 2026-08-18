@@ -241,7 +241,18 @@ namespace CoreholdEditor.Campaign
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             var img = go.AddComponent<Image>();
-            img.color = Panel;
+            if (UISkin.Active != null && UISkin.Active.buttonNormal != null)
+            {
+                // The skin's shape language: sliced button sprite, tinted by the
+                // Button state colors below (white base keeps the art true).
+                img.sprite = UISkin.Active.buttonNormal;
+                img.type = Image.Type.Sliced;
+                img.color = Color.white;
+            }
+            else
+            {
+                img.color = Panel;
+            }
             var btn = go.AddComponent<Button>();
             var colors = btn.colors;
             colors.highlightedColor = new Color(0.12f, 0.19f, 0.25f);
