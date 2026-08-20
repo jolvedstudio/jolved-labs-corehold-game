@@ -38,7 +38,7 @@ namespace CoreholdEditor.Campaign
         private static readonly Color DefaultCyan = new Color(0.20f, 0.95f, 0.95f);
         private static readonly Color DefaultTextDim = new Color(0.62f, 0.72f, 0.78f);
         private static Color Bg => UISkin.Active != null ? UISkin.Active.background : DefaultBg;
-        private static Color Panel => UISkin.Active != null ? UISkin.Active.panel : DefaultPanel;
+        private static Color Panel => UISkin.Active != null ? UISkin.Active.panelColor : DefaultPanel;
         private static Color Cyan => UISkin.Active != null ? UISkin.Active.accent : DefaultCyan;
         private static Color TextDim => UISkin.Active != null ? UISkin.Active.textDim : DefaultTextDim;
 

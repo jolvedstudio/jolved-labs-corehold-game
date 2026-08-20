@@ -1,5 +1,6 @@
 using TMPro;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace CoreholdEditor.Campaign
 {
@@ -43,7 +44,8 @@ namespace CoreholdEditor.Campaign
         public Color background = new Color(0.043f, 0.062f, 0.086f);
 
         [Tooltip("Button/panel fill in menu scenes.")]
-        public Color panel = new Color(0.075f, 0.11f, 0.15f);
+        [FormerlySerializedAs("panel")] // renamed: the Sprite slot below owns 'panel', mirroring UITheme
+        public Color panelColor = new Color(0.075f, 0.11f, 0.15f);
 
         [Tooltip("De-emphasised text in menu scenes.")]
         public Color textDim = new Color(0.62f, 0.72f, 0.78f);
