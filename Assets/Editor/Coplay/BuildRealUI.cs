@@ -38,10 +38,15 @@ namespace CoreholdEditor
         const string StarEmpty      = Base + "Options/Icon_VictoryStar_gray.png";
         const string FontPath       = "Assets/Vendor/SCI-FI UI Pack Pro/Common/Fonts/Aldrich-Regular SDF.asset";
 
-        // Cached theme colours.
-        static readonly Color Cyan = new Color(0.20f, 0.85f, 1f, 1f);
-        static readonly Color Amber = new Color(1f, 0.6f, 0.1f, 1f);
-        static readonly Color Danger = new Color(1f, 0.3f, 0.3f, 1f);
+        // Theme colours — read through the campaign UI skin when one is active
+        // (Campaign Builder sets UISkin.Active around generation), else the
+        // historical defaults, so unskinned output stays byte-identical.
+        static readonly Color DefaultCyan = new Color(0.20f, 0.85f, 1f, 1f);
+        static readonly Color DefaultAmber = new Color(1f, 0.6f, 0.1f, 1f);
+        static readonly Color DefaultDanger = new Color(1f, 0.3f, 0.3f, 1f);
+        static Color Cyan => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.accent : DefaultCyan;
+        static Color Amber => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.warm : DefaultAmber;
+        static Color Danger => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.danger : DefaultDanger;
         static readonly Color PanelTint = new Color(1f, 1f, 1f, 1f);
 
         static TMP_FontAsset _font;
@@ -53,6 +58,8 @@ namespace CoreholdEditor
             var sb = new StringBuilder();
             _font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontPath);
             if (_font == null) _font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset");
+            if (Campaign.UISkin.Active != null && Campaign.UISkin.Active.font != null)
+                _font = Campaign.UISkin.Active.font; // campaign skin outranks both fallbacks
 
             // 1. Theme + catalogues.
             var theme = BuildTheme(sb);
@@ -89,6 +96,15 @@ namespace CoreholdEditor
 
         // ============================================================ THEME
 
+        /// <summary>Skin slot or fallback. Null-safe on both the skin and the slot,
+        /// so partial skins compose with the historical defaults per slot.</summary>
+        static Sprite SkinSlot(System.Func<Campaign.UISkin, Sprite> pick, Sprite fallback)
+        {
+            var skin = Campaign.UISkin.Active;
+            var sprite = skin != null ? pick(skin) : null;
+            return sprite != null ? sprite : fallback;
+        }
+
         static UITheme BuildTheme(StringBuilder sb)
         {
             var go = SceneLookup.Find("UITheme");
@@ -98,16 +114,19 @@ namespace CoreholdEditor
             theme.font = _font;
             theme.fontSizeLarge = _large;
             theme.fontSizeSmall = _small;
-            theme.panel = Load(PanelSprite);
-            theme.popup = Load(PopupSprite);
-            theme.buttonNormal = Load(BtnNormal);
-            theme.buttonPressed = Load(BtnPressed);
-            theme.buttonDisabled = Load(BtnDisabled);
-            theme.barBackground = Load(BarBg);
-            theme.barFill = Load(BarFill);
-            theme.pauseIcon = Load(PauseIcon);
-            theme.starFull = Load(StarFull);
-            theme.starEmpty = Load(StarEmpty);
+            // Sprite slots: the campaign skin's shape language outranks the kit
+            // paths, slot by slot — a skin overrides only what it fills, and with
+            // no skin active this is exactly the historical Load() block.
+            theme.panel = SkinSlot(s => s.panel, Load(PanelSprite));
+            theme.popup = SkinSlot(s => s.popup, Load(PopupSprite));
+            theme.buttonNormal = SkinSlot(s => s.buttonNormal, Load(BtnNormal));
+            theme.buttonPressed = SkinSlot(s => s.buttonPressed, Load(BtnPressed));
+            theme.buttonDisabled = SkinSlot(s => s.buttonDisabled, Load(BtnDisabled));
+            theme.barBackground = SkinSlot(s => s.barBackground, Load(BarBg));
+            theme.barFill = SkinSlot(s => s.barFill, Load(BarFill));
+            theme.pauseIcon = SkinSlot(s => s.pauseIcon, Load(PauseIcon));
+            theme.starFull = SkinSlot(s => s.starFull, Load(StarFull));
+            theme.starEmpty = SkinSlot(s => s.starEmpty, Load(StarEmpty));
             theme.cyan = Cyan; theme.amber = Amber; theme.danger = Danger;
 
             // Catalogue, in menu order. The roster registry replaced the old

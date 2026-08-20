@@ -30,12 +30,17 @@ namespace CoreholdEditor.Campaign
         internal const string ManifestDir = "Assets/_COREHOLD/Data/Campaign";
         internal const string ManifestPath = ManifestDir + "/Manifest_Test.asset";
 
-        // The game's palette, hardcoded: UITheme lives in gameplay scenes and
-        // menu scenes must not depend on one existing.
-        private static readonly Color Bg = new Color(0.043f, 0.062f, 0.086f);      // deep navy
-        private static readonly Color Panel = new Color(0.075f, 0.11f, 0.15f);
-        private static readonly Color Cyan = new Color(0.20f, 0.95f, 0.95f);
-        private static readonly Color TextDim = new Color(0.62f, 0.72f, 0.78f);
+        // The game's palette — hardcoded defaults (UITheme lives in gameplay
+        // scenes and menu scenes must not depend on one existing), read through
+        // the campaign UI skin when the Campaign Builder has one active.
+        private static readonly Color DefaultBg = new Color(0.043f, 0.062f, 0.086f); // deep navy
+        private static readonly Color DefaultPanel = new Color(0.075f, 0.11f, 0.15f);
+        private static readonly Color DefaultCyan = new Color(0.20f, 0.95f, 0.95f);
+        private static readonly Color DefaultTextDim = new Color(0.62f, 0.72f, 0.78f);
+        private static Color Bg => UISkin.Active != null ? UISkin.Active.background : DefaultBg;
+        private static Color Panel => UISkin.Active != null ? UISkin.Active.panel : DefaultPanel;
+        private static Color Cyan => UISkin.Active != null ? UISkin.Active.accent : DefaultCyan;
+        private static Color TextDim => UISkin.Active != null ? UISkin.Active.textDim : DefaultTextDim;
 
         [MenuItem("Tools/COREHOLD/Campaign/Build Welcome + Closing Scenes (stub)", false, 10)]
         public static void BuildBoth()
@@ -128,7 +133,8 @@ namespace CoreholdEditor.Campaign
             var nightmare = MakeButton(canvas.transform, "Btn_Nightmare", "NIGHTMARE", new Vector2(0.5f, 0.26f));
             var cont = MakeButton(canvas.transform, "Btn_Continue", "CONTINUE RUN", new Vector2(0.5f, 0.14f));
             var contLabel = cont.GetComponentInChildren<TMP_Text>();
-            if (contLabel != null) contLabel.color = new Color(1f, 0.72f, 0.25f); // amber — it resumes, not restarts
+            if (contLabel != null) // warm-role — it resumes, not restarts
+                contLabel.color = UISkin.Active != null ? UISkin.Active.warm : new Color(1f, 0.72f, 0.25f);
 
             var welcome = canvas.gameObject.AddComponent<CampaignWelcome>();
             var so = new SerializedObject(welcome);
@@ -220,6 +226,8 @@ namespace CoreholdEditor.Campaign
             tmp.text = text;
             tmp.fontSize = size;
             tmp.color = color;
+            if (UISkin.Active != null && UISkin.Active.font != null)
+                tmp.font = UISkin.Active.font;
             tmp.alignment = TextAlignmentOptions.Center;
             var rt = tmp.rectTransform;
             rt.anchorMin = rt.anchorMax = anchor;
@@ -233,7 +241,18 @@ namespace CoreholdEditor.Campaign
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             var img = go.AddComponent<Image>();
-            img.color = Panel;
+            if (UISkin.Active != null && UISkin.Active.buttonNormal != null)
+            {
+                // The skin's shape language: sliced button sprite, tinted by the
+                // Button state colors below (white base keeps the art true).
+                img.sprite = UISkin.Active.buttonNormal;
+                img.type = Image.Type.Sliced;
+                img.color = Color.white;
+            }
+            else
+            {
+                img.color = Panel;
+            }
             var btn = go.AddComponent<Button>();
             var colors = btn.colors;
             colors.highlightedColor = new Color(0.12f, 0.19f, 0.25f);

@@ -27,6 +27,11 @@ namespace CoreholdEditor.Campaign
             economyCarry = ProgressionRules.EconomyCarry.ResetPerLevel,
         };
 
+        [Tooltip("The campaign's UI identity — palette + font baked into every generated scene and both " +
+                 "menu scenes. Null = the shipped look. Change it, then re-generate: the skin is applied " +
+                 "at BUILD time, existing scenes keep whatever they were baked with.")]
+        public UISkin uiSkin;
+
         [Tooltip("Menu scenes. Defaults are the stub-builder outputs; A1 reuses them.")]
         public string welcomeScenePath = BuildCampaignScenes.WelcomePath;
         public string closingScenePath = BuildCampaignScenes.ClosingPath;

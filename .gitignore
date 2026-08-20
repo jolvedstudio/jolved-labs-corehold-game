@@ -14,10 +14,16 @@
 /[Aa]ssets/Plugins/Editor/JetBrains*
 
 # ---- Vendored assets (excluded from version control) ----
+# Purchased/imported art packs stay machine-local; anything a shipped scene or
+# skin needs is COPIED into committed _COREHOLD folders (the Skin From Kit tool
+# does this for UI sprites). Committing whole kits bloats the repo and invites
+# the dangling-GUID trap on other machines.
 /[Aa]ssets/Vendor/
 /[Aa]ssets/Vendor.meta
 /[Aa]ssets/Yoge/
 /[Aa]ssets/Yoge.meta
+/[Aa]ssets/Layer Lab/
+/[Aa]ssets/Layer Lab.meta
 
 # ---- Visual Studio / Rider / VS Code ----
 .vs/
