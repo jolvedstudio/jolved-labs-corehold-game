@@ -468,13 +468,19 @@ namespace CoreholdEditor.Forge
         /// </summary>
         private static void AppendModelRow(CharacterRecipe r, EnemyDefinition def, StringBuilder log)
         {
-            string armour = def.armourType.ToString();
-            string air = def.isAir ? ", \"air\": True" : "";
-            string alt = def.isAir ? $", \"alt\": {def.flightAltitude:0.#}" : "";
+            // The row must match the model's ACTUAL schema (dict(hp=…, armour=INT,
+            // …)): armour is an index into DAMAGE_MULT, the altitude key is
+            // "altitude", and leak is part of every row. The first version of this
+            // printed a row that raised TypeError on paste — the audit caught it.
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            string air = def.isAir
+                ? string.Format(inv, ", air=True, altitude={0:0.0#}", Mathf.Max(0.1f, def.flightAltitude))
+                : ", air=False";
             log.AppendLine("\nBalance model — paste into docs/balance_model.py ENEMIES before using this unit in waves " +
-                           "(without it, Gate 3 either KeyErrors or silently certifies the wrong roster):");
-            log.AppendLine($"    \"{def.id}\": {{\"hp\": {def.baseHealth:0.#}, \"speed\": {def.moveSpeed:0.#}, " +
-                           $"\"bounty\": {def.bounty}, \"armour\": \"{armour}\"{air}{alt}}},");
+                           "(without it, wave synthesis refuses the roster and --waves exits with the missing id):");
+            log.AppendLine(string.Format(inv,
+                "    \"{0}\": dict(hp={1:0.#}, armour={2}, speed={3:0.##}, bounty={4}, leak={5}{6}),",
+                def.id, def.baseHealth, (int)def.armourType, def.moveSpeed, def.bounty, def.leakDamage, air));
         }
 
         private static string Sanitise(string name)

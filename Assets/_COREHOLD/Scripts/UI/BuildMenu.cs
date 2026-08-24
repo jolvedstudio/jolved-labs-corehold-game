@@ -223,13 +223,16 @@ namespace Corehold.UI
         private static string RoleTag(TowerDefinition def)
         {
             // A one-word role tag (GDD §9.1). Derived from the turret's identity.
+            // Ids must match the ASSETS' ids exactly — four of these once used
+            // shorthand ("missile", "arcnode"…) that matched nothing, so those
+            // turrets silently fell through to the generic heuristic below.
             switch (def.id)
             {
                 case "autocannon": return "WORKHORSE";
-                case "missile": return "SPLASH";
-                case "arcnode": return "CHAIN";
-                case "mortar": return "SIEGE";
-                case "scanrelay": return "SUPPORT";
+                case "missile_battery": return "SPLASH";
+                case "arc_node": return "CHAIN";
+                case "siege_mortar": return "SIEGE";
+                case "scan_relay": return "SUPPORT";
                 case "floodlight": return "LIGHT";
             }
             if (def.damageType == DamageType.Explosive) return "SPLASH";
