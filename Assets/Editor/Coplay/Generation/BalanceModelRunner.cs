@@ -223,7 +223,14 @@ public static class BalanceModelRunner
             Vector3 p = g.transform.position;
             sb.Append($"{{\"name\":\"{g.name}\",\"x\":{p.x.ToString("0.###", inv)}," +
                       $"\"z\":{p.z.ToString("0.###", inv)}," +
-                      $"\"tower\":\"{TowerId(g.intendedTurret)}\",\"cls\":\"{g.padClass}\"}}");
+                      $"\"tower\":\"{TowerId(g.intendedTurret)}\",\"cls\":\"{g.padClass}\"");
+            // High ground (M-b): the pad's terrain damage bonus, written by the
+            // terrain stage. Emitted only when nonzero so flat-map exports stay
+            // byte-identical to the pre-terrain format.
+            var hardpoint = g.GetComponent<Corehold.Towers.TowerHardpoint>();
+            if (hardpoint != null && hardpoint.HighGroundBonus > 0f)
+                sb.Append($",\"hg\":{hardpoint.HighGroundBonus.ToString("0.####", inv)}");
+            sb.Append('}');
         }
         sb.Append($"],\"spread_ground_groups\":{(routes.Count > 2 ? "true" : "false")},\"build_priority\":[");
         var ordered = pads.OrderBy(g => ClassOrder(g.padClass))

@@ -57,8 +57,31 @@ namespace Corehold.Towers
         private EnemyMover _currentMover;
         private float _nextTick;
 
+        /// <summary>
+        /// Manual override (M-a, man-the-turret): while set and engageable, the
+        /// player's pick outranks automatic acquisition. Everything downstream —
+        /// weapon fire, turret aim — reads <see cref="CurrentTarget"/>, so this
+        /// one seam is the whole takeover.
+        /// </summary>
+        public Enemy ManualTarget { get; set; }
+
         /// <summary>The enemy this turret is currently tracking, or null.</summary>
-        public Enemy CurrentTarget => _current;
+        public Enemy CurrentTarget =>
+            ManualTarget != null && ManualTarget.IsAlive && CanEngage(ManualTarget)
+                ? ManualTarget
+                : _current;
+
+        /// <summary>Public engageability check (range, dead zone, air rules) for
+        /// the manual-control layer — the same rules automatic acquisition uses.</summary>
+        public bool CanEngage(Enemy e)
+        {
+            if (e == null || !e.IsAlive || _range <= 0f)
+                return false;
+            if (!CanTarget(e))
+                return false;
+            float distSqr = (e.HitPoint - RangeOriginPosition).sqrMagnitude;
+            return InRange(distSqr, _range * _range, _minRange * _minRange, AcquisitionScale(e));
+        }
 
         /// <summary>Effective range in metres, sourced from the current definition tier.</summary>
         public float Range => _range;

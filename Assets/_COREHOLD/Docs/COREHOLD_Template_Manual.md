@@ -48,8 +48,16 @@ automatically). The ship-preflight warns on vendor-dependent scenes.
 
 ## 2. First session, ten minutes
 
-1. Clone, open in Unity 6 (URP 17.5). Install vendor packs if you have them.
-2. Open `Assets/_COREHOLD/Scenes/Game.unity`, press Play.
+1. **Get the vendor packs installed BEFORE judging anything visually.** The
+   shipped scene's visuals are almost entirely pack-sourced — of the 15 source
+   prefabs `Game.unity` instances, 14 live in the git-ignored vendor folders,
+   and the runtime enemy/tower prefabs are vendor-composed too. **Without the
+   packs, Game.unity opens as an empty shell**: managers, UI and pad logic all
+   present and functional, every mesh missing. That is the §1 policy, not a
+   broken clone. Ask the lead for the packs, import them at the exact paths in
+   §1, then continue.
+2. Open in Unity 6 (URP 17.5), then open
+   `Assets/_COREHOLD/Scenes/Game.unity` and press Play.
 3. Pick a difficulty (that tap is also the WebGL audio unlock). Tap a pad →
    build menu carousel → build. START WAVE drives everything; no auto-start.
 4. Press **F2** — the debug console's key map. You will live in this thing:
@@ -289,6 +297,7 @@ tables have drifted from the live assets (documented in
 | Symptom | Cause / fix |
 |---|---|
 | Pink or invisible enemies/towers on a fresh clone | Vendor packs absent (§1 policy). Install packs; forge/icon transcripts name the exact missing GUIDs |
+| `Game.unity` opens as an "empty shell" (managers + UI, no world) | Same cause at scene scale: 14 of its 15 source prefabs are vendor. Install the packs. If it's empty **with** packs installed, the packs were probably re-imported at a different path (new GUIDs) — restore the exact folder paths from §1 |
 | Generation FAILs at a gate | Read the stage line — it names the rule (clearance/coverage/occlusion/margins). Reseed first; a blueprint failing 6 seeds needs its fix panel, not more seeds |
 | "Generation needs Python 3" | Install python3 on PATH (dev machines only) |
 | Icons blank / stale | `Art → Render Icons`; its log names every skipped unit and why (missing prefab, filtered renderers, NO MESH) |

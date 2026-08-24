@@ -68,6 +68,9 @@ namespace Corehold.Systems
         /// <summary>The scene's ability instance, if one exists.</summary>
         public static StrikeWingAbility Instance => _instance;
 
+        /// <summary>Raised at strike COMMIT with the impact point (M-a flyby cam).</summary>
+        public static event System.Action<Vector3> OnStrikeCommitted;
+
         private InputRouter _router;
         private PathRoute[] _routes;
         private Corehold.UI.RangeRing _ring;
@@ -214,6 +217,9 @@ namespace Corehold.Systems
             _target = snapped;
             _phase = Phase.Telegraph;
             _telegraphUntil = Time.time + Mathf.Max(0.05f, telegraphSeconds);
+            // Spectacle hook (M-a): the turret-cam panel plays a flyby over the
+            // strike point. Fired at commit so the sweep covers the telegraph.
+            OnStrikeCommitted?.Invoke(snapped);
             // Cooldown runs from COMMIT; it dwarfs the telegraph so the overlap
             // is invisible, and commit is the moment the player paid.
             _cooldownUntil = Time.time + Mathf.Max(1f, cooldownSeconds);

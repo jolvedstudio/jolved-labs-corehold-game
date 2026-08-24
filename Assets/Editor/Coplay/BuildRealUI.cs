@@ -487,6 +487,15 @@ namespace CoreholdEditor
             var gridRoot = MakeRect(root, "CounterGrid", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -376), new Vector2(380, 180));
             var (cells, rows) = BuildCounterGrid(gridRoot, theme);
 
+            // Mid-term feature row (M-a camera/control, M-c relocation): three
+            // compact actions above the money buttons.
+            var featRow = MakeRect(root, "FeatureRow", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 172), new Vector2(360, 44));
+            var featHlg = featRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+            featHlg.spacing = 6; featHlg.childControlWidth = true; featHlg.childForceExpandWidth = true; featHlg.childControlHeight = true; featHlg.childForceExpandHeight = true;
+            var move = MakeButton(featRow, "MoveButton", "MOVE", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            var cam = MakeButton(featRow, "CamButton", "CAM", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            var control = MakeButton(featRow, "ControlButton", "CONTROL", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+
             // Actions.
             var upgrade = MakeButton(root, "UpgradeButton", "UPGRADE 130", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 96), new Vector2(360, 64));
             var sell = MakeButton(root, "SellButton", "SELL +60", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(360, 60));
@@ -510,6 +519,10 @@ namespace CoreholdEditor
             SetRef(so, "priorityFirst", pFirst.GetComponent<Button>());
             SetRef(so, "priorityClosest", pClose.GetComponent<Button>());
             SetRef(so, "priorityStrongest", pStrong.GetComponent<Button>());
+            SetRef(so, "moveButton", move.GetComponent<Button>());
+            SetRef(so, "moveLabel", move.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "camButton", cam.GetComponent<Button>());
+            SetRef(so, "controlButton", control.GetComponent<Button>());
             SetRef(so, "rangeRing", ring);
             SetArray(so, "gridCells", cells.Cast<Object>().ToArray());
             SetArray(so, "rowHighlights", rows.Cast<Object>().ToArray());

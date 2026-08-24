@@ -100,6 +100,21 @@ namespace Corehold.UI
         {
             if (pad == null) return;
 
+            // A pending relocation claims the next FREE-pad tap (M-c): the move
+            // completes instead of the build menu opening. Tapping an occupied
+            // pad abandons the move and behaves normally — switching attention
+            // should never leave a mode armed.
+            if (Corehold.Towers.TurretRelocation.Pending)
+            {
+                if (!pad.IsOccupied && !pad.IsReserved &&
+                    Corehold.Towers.TurretRelocation.TryCompleteAt(pad))
+                {
+                    if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+                    return;
+                }
+                Corehold.Towers.TurretRelocation.Cancel();
+            }
+
             if (pad.IsOccupied)
             {
                 // Occupied pads open the tower panel, not the build menu.
@@ -108,12 +123,16 @@ namespace Corehold.UI
                 return;
             }
 
+            if (pad.IsReserved)
+                return; // a turret is already walking here
+
             if (towerPanel != null) towerPanel.Hide();
             Open(pad);
         }
 
         private void HandleEmptyTapped()
         {
+            Corehold.Towers.TurretRelocation.Cancel();
             Hide();
         }
 
