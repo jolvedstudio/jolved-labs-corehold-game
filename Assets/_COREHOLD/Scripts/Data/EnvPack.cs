@@ -88,6 +88,29 @@ namespace Corehold.Data
         [Tooltip("Texture repeats per metre — used ONLY when groundPrefab is empty (a prefab carries its own tiling). The plane is scaled to fit each map's camera solve, so one fixed tiling would stretch by a different amount on every map; this recomputes it from the final size. 0 leaves the material's own tiling alone.")]
         public float groundTilingPerMetre;
 
+        [Header("Look & lighting (M-d)")]
+
+        [Tooltip("Sun override baked at generation. 0 leaves the scene's authored Directional Light untouched — every pre-existing pack behaves exactly as before.")]
+        public float sunIntensity;
+
+        [Tooltip("Sun colour, used only when sunIntensity > 0.")]
+        public Color sunColor = Color.white;
+
+        [Tooltip("Sun angles in degrees, used only when sunIntensity > 0: X = pitch above the horizon, Y = yaw (compass bearing).")]
+        public Vector2 sunAngles = new Vector2(50f, -30f);
+
+        [Tooltip("Scene fog baked at generation as the BASE look. A weather preset still layers its own fog over this at load and restores it on clear (R13 authority is unchanged). Density 0 leaves fog untouched.")]
+        public Color fogColor = new Color(0.65f, 0.70f, 0.78f);
+
+        [Tooltip("ExponentialSquared fog density. 0 = leave the scene's fog alone. Values around 0.004-0.010 read as atmospheric depth at this camera distance.")]
+        [Range(0f, 0.05f)] public float fogDensity;
+
+        [Tooltip("The worn-path band drawn along every route at generation (M-d route legibility). Alpha 0 disables it. Dark translucent reads as a trodden road over any ground texture.")]
+        public Color roadwayColor = new Color(0.03f, 0.03f, 0.04f, 0.35f);
+
+        [Tooltip("Optional full post-processing profile for this theme's maps, replacing the shared default (ACES + bloom + vignette + grade). Weather grades still layer over whichever profile is active.")]
+        public UnityEngine.Rendering.VolumeProfile postProfile;
+
         /// <summary>
         /// Tiling to write for a ground of <paramref name="sizeMetres"/>, or
         /// <c>Vector2.zero</c> when this pack does not manage tiling.

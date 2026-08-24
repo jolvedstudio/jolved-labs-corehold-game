@@ -121,11 +121,11 @@ public static class PropPlacer
 
         // ---- in-field roles, biggest first so landmarks claim space ----------
         PlaceRole(EnvPack.PropRole.Landmark, Mathf.RoundToInt(2f * areaScale) + 1, true);
-        PlaceRole(EnvPack.PropRole.MidField, Mathf.RoundToInt(5f * areaScale) + 1, true);
-        PlaceRole(EnvPack.PropRole.Clutter, Mathf.RoundToInt(10f * areaScale) + 2, true);
+        PlaceRole(EnvPack.PropRole.MidField, Mathf.RoundToInt(7f * areaScale) + 1, true);
+        PlaceRole(EnvPack.PropRole.Clutter, Mathf.RoundToInt(14f * areaScale) + 3, true);
 
         // ---- silhouettes: the far band beyond the field's north edge ---------
-        PlaceRole(EnvPack.PropRole.Silhouette, Mathf.RoundToInt(5f * areaScale) + 1, false);
+        PlaceRole(EnvPack.PropRole.Silhouette, Mathf.RoundToInt(7f * areaScale) + 1, false);
 
         void PlaceRole(EnvPack.PropRole role, int target, bool inField)
         {
@@ -138,18 +138,25 @@ public static class PropPlacer
             }
 
             int placedCount = 0;
+            var used = new HashSet<GameObject>();
             for (int i = 0; i < target; i++)
             {
-                EnvPack.Entry entry = entries[(int)(rng.NextU() % (uint)entries.Count)];
-                float scale = Mathf.Lerp(
-                    entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
-                    entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
-                    rng.Range(0f, 1f));
-                float radius = entry.footprintRadius * scale;    // PLACED dimensions —
-                float height = entry.height * scale;             // never the raw fields
-
+                // The ENTRY redraws on every attempt, not once per slot: when a
+                // big kit prop cannot fit anywhere, its slot used to burn all
+                // its attempts on that one prefab and place NOTHING — a
+                // 50-entry pack came out as the same 2-3 props. A fresh draw
+                // per attempt lets a smaller prop take the slot instead, which
+                // raises both fill rate and variety. Still fully seeded.
                 for (int attempt = 0; attempt < MaxAttemptsPerProp; attempt++)
                 {
+                    EnvPack.Entry entry = entries[(int)(rng.NextU() % (uint)entries.Count)];
+                    float scale = Mathf.Lerp(
+                        entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
+                        entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
+                        rng.Range(0f, 1f));
+                    float radius = entry.footprintRadius * scale;    // PLACED dimensions —
+                    float height = entry.height * scale;             // never the raw fields
+
                     Vector3 pos = inField
                         ? new Vector3(rng.Range(-halfW, halfW), 0f, rng.Range(-halfD, halfD))
                         : new Vector3(rng.Range(-halfW * 1.2f, halfW * 1.2f), 0f,
@@ -183,10 +190,14 @@ public static class PropPlacer
                     hiddenMetres += pendingHidden.Count * RouteVisibility.SampleStep;
 
                     placedCount++;
+                    used.Add(entry.prefab);
                     break;
                 }
             }
-            log.AppendLine($"  {role,-10} {placedCount}/{target} placed");
+            // The distinct count is the variety truth: "12/12 placed" can still
+            // be three prefabs on repeat, and that only shows up here.
+            log.AppendLine($"  {role,-10} {placedCount}/{target} placed " +
+                           $"({used.Count} distinct of {entries.Count} in the pack's pool)");
         }
 
         bool ClearOf(Vector3 pos, float radius, float height, bool allowInFold)

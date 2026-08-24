@@ -122,6 +122,12 @@ namespace Corehold.Systems
         /// </summary>
         private void RouteTap(Vector2 screenPos, int pointerId)
         {
+            // 0. First-person turret control owns the mouse (M-a): LMB is the
+            //    trigger there, not a tap — routing it would pop panels while
+            //    the player is firing.
+            if (ManualTurretControl.IsActive)
+                return;
+
             // 1. UI gets first refusal. Must pass the fingerId — the parameterless
             //    overload is mouse-only and misreports on mobile (GDD §9.3).
             if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(pointerId))
