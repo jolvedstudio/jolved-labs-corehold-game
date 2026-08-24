@@ -531,6 +531,51 @@ namespace CoreholdEditor.Campaign
             if (!RelocateOutputs(stage, index, usedSeed, generatedScene, generatedDef, def, log))
                 return false;
 
+            // Synthesized waves invalidate the growth the pipeline solved
+            // against the SHIPPED tables — re-solve against the waves this level
+            // will actually play, on the same open scene's real geometry, and
+            // bake the result into the stage's LevelDefinition. This is what
+            // keeps "model-certified" true under wave variability (Part C).
+            if (_authoring.waveRecipe != null && !string.IsNullOrEmpty(stage.wavesJsonPath))
+            {
+                var routes = new List<Corehold.Core.PathRoute>(
+                    Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None));
+                var spawners = Object.FindObjectsByType<Spawner>(FindObjectsSortMode.None);
+                var airSp = spawners.FirstOrDefault(s => s.name.Contains("Air"));
+                var coreSp = spawners.FirstOrDefault(s => s.CoreTarget != null);
+                if (routes.Count == 0 || coreSp == null)
+                {
+                    log.AppendLine("  wave re-solve SKIPPED — scene geometry not reachable; the stage's " +
+                                   "growth still describes the shipped tables. Run Validate/Run Balance Model.");
+                    return false;
+                }
+
+                var model = BalanceModelRunner.Run(
+                    routes, airSp != null ? airSp.transform.position : coreSp.transform.position,
+                    coreSp.CoreTarget.position, solveGrowth: true, hpGrowth: 0f,
+                    maxLive: def.maxLiveEnemies, out string err, wavesJsonPath: stage.wavesJsonPath);
+
+                if (model == null)
+                {
+                    log.AppendLine($"  wave re-solve FAILED to run — {err}");
+                    return false;
+                }
+                if (!model.in_band)
+                {
+                    log.AppendLine($"  synthesized waves OUT OF BAND even at solved growth " +
+                                   $"{model.solved_hp_growth:0.###} — soften the recipe (budget, growth, " +
+                                   "escalation) or reseed the stage.");
+                    return false;
+                }
+
+                var defSo2 = new SerializedObject(def);
+                defSo2.FindProperty("hpGrowthPerWave").floatValue = model.solved_hp_growth;
+                defSo2.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(def);
+                AssetDatabase.SaveAssets();
+                log.AppendLine($"  waves certified: growth re-solved to {model.solved_hp_growth:0.###}, all in band.");
+            }
+
             stage.acceptedSeed = usedSeed;
             EditorUtility.SetDirty(_authoring);
             AssetDatabase.SaveAssets();
@@ -573,16 +618,45 @@ namespace CoreholdEditor.Campaign
             err = AssetDatabase.MoveAsset(defPath, defDest);
             if (!string.IsNullOrEmpty(err)) { log.AppendLine($"  definition move failed: {err}"); return false; }
 
-            // Deep-clone the wave tables (plan v2 §A.3): the emitted definition
-            // is a shallow clone still pointing at the SHARED shipped
-            // WaveDefinition assets — per-stage edits or roster swaps would
-            // otherwise change every level at once, shipped map included.
             string wavesFolder = $"{_authoring.DataFolder}/{tag}_Waves";
             AssetDatabase.DeleteAsset(wavesFolder);
             EnsureFolder(wavesFolder);
 
             var defSo = new SerializedObject(def);
             var wavesProp = defSo.FindProperty("waves");
+
+            if (_authoring.waveRecipe != null)
+            {
+                // Part C: SYNTHESIZE this stage's waves from the recipe — the
+                // variability lane. Deterministic from the stage's accepted
+                // seed; the JSON twin feeds the model re-solve that follows.
+                int stagePos = Mathf.Max(0, _authoring.stages.IndexOf(stage));
+                int groundRoutes = Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None).Length;
+                var synth = WaveSynthesizer.Synthesize(_authoring.waveRecipe, stagePos, seed,
+                                                       groundRoutes, wavesFolder);
+                log.Append(synth.transcript);
+                if (synth.waves == null || synth.waves.Length == 0)
+                    return false; // the transcript already says why
+
+                wavesProp.arraySize = synth.waves.Length;
+                for (int w = 0; w < synth.waves.Length; w++)
+                    wavesProp.GetArrayElementAtIndex(w).objectReferenceValue = synth.waves[w];
+                defSo.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(def);
+                AssetDatabase.SaveAssets();
+
+                stage.scenePath = sceneDest;
+                stage.levelDefPath = defDest;
+                stage.wavesFolder = wavesFolder;
+                stage.wavesJsonPath = synth.wavesJsonPath;
+                log.AppendLine($"  {synth.waves.Length} waves SYNTHESIZED from '{_authoring.waveRecipe.name}'.");
+                return true;
+            }
+
+            // No recipe: deep-clone the shipped wave tables (plan v2 §A.3) — the
+            // emitted definition is a shallow clone still pointing at the SHARED
+            // shipped WaveDefinition assets, and per-stage edits would otherwise
+            // change every level at once, shipped map included.
             int cloned = 0;
             for (int w = 0; w < wavesProp.arraySize; w++)
             {
@@ -602,6 +676,7 @@ namespace CoreholdEditor.Campaign
             stage.scenePath = sceneDest;
             stage.levelDefPath = defDest;
             stage.wavesFolder = wavesFolder;
+            stage.wavesJsonPath = null;
             log.AppendLine($"  relocated to campaign folders; {cloned} wave tables deep-cloned (shipped assets untouched).");
             return true;
         }
