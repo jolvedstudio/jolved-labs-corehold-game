@@ -159,17 +159,22 @@ namespace CoreholdEditor.Campaign
             if (!welcome || !closing)
                 _issues.Add("Step 5: Welcome/Closing scenes not built — the campaign cannot boot without its Welcome scene at index 0.");
 
-            // 6 — manifest
+            // 6 — manifest, and whether the Welcome scene actually references it
             var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(_authoring.ManifestAssetPath);
             int manifestLevels = manifest != null ? manifest.stages.Count(m => m.kind == CampaignStageKind.Level) : 0;
-            s[5].done = manifest != null && manifestLevels == generated && generated > 0;
+            bool wired = manifest != null && WelcomeWiredToManifest();
+            s[5].done = manifest != null && manifestLevels == generated && generated > 0 && wired;
             s[5].status = manifest == null
                 ? "not emitted"
-                : manifestLevels == generated ? $"{manifestLevels} level(s) in manifest" : $"manifest has {manifestLevels}, disk has {generated} — re-emit";
+                : (manifestLevels == generated ? $"{manifestLevels} level(s) in manifest" : $"manifest has {manifestLevels}, disk has {generated} — re-emit")
+                  + (wired ? ", Welcome wired" : ", Welcome NOT wired");
             if (manifest == null && s[3].done)
                 _issues.Add("Step 6: no manifest emitted — Verify carry economy, then Emit manifest + wire Welcome.");
             if (manifest != null && manifestLevels != generated)
                 _issues.Add("Step 6: the manifest is out of date with the generated levels — re-emit it.");
+            if (manifest != null && !wired)
+                _issues.Add("Step 6: the Welcome scene does not reference this campaign's manifest — the campaign " +
+                            "would boot to a dead menu. Build the menu scenes (step 5) and/or Emit manifest again.");
 
             // 7 — build settings
             var scenes = EditorBuildSettings.scenes;
@@ -384,14 +389,16 @@ namespace CoreholdEditor.Campaign
         private void DrawMenuScenesStep()
         {
             EditorGUILayout.LabelField(
-                "Builds the Welcome (difficulty gate, CONTINUE RUN) and Closing (stars, totals) scenes. " +
+                "Builds the Welcome (difficulty gate, CONTINUE RUN) and Closing (stars, totals) scenes " +
+                "into THIS campaign's own folder and wires its manifest when one exists. " +
                 "Re-run after changing the UI skin.", EditorStyles.miniLabel);
             if (GUILayout.Button("Build menu scenes", GUILayout.Width(280)))
             {
                 UISkin.Active = _authoring.uiSkin;
-                try { BuildCampaignScenes.BuildBoth(); }
+                string built;
+                try { built = BuildCampaignScenes.BuildBoth(_authoring); }
                 finally { UISkin.Active = null; }
-                ShowReport("Welcome + Closing scenes built.");
+                ShowReport(built);
             }
         }
 
@@ -414,8 +421,12 @@ namespace CoreholdEditor.Campaign
                 }
                 if (GUILayout.Button("Emit manifest + wire Welcome", GUILayout.Width(220)))
                 {
-                    EmitManifest();
-                    ShowReport($"Manifest emitted → {_authoring.ManifestAssetPath} and wired into the Welcome scene.");
+                    bool wired = EmitManifest();
+                    ShowReport(wired
+                        ? $"Manifest emitted → {_authoring.ManifestAssetPath} and wired into " +
+                          $"'{_authoring.welcomeScenePath}'."
+                        : $"Manifest emitted → {_authoring.ManifestAssetPath}, but NOT wired into the " +
+                          "Welcome scene — build the menu scenes (step 5), then emit again.");
                 }
                 GUI.enabled = true;
             }
@@ -495,6 +506,14 @@ namespace CoreholdEditor.Campaign
         {
             var log = new StringBuilder();
             int passed = 0;
+
+            // The campaign's home folders exist from the FIRST action — they
+            // used to appear only mid-relocation, so an early stage failure
+            // left no campaign footprint on disk at all.
+            BuildCampaignScenes.EnsureFolder(_authoring.SceneFolder);
+            BuildCampaignScenes.EnsureFolder(_authoring.DataFolder);
+            BuildCampaignScenes.EnsureFolder(BuildCampaignScenes.ManifestDir);
+
             UISkin.Active = _authoring.uiSkin; // the skin bakes in at build time (BuildRealUI reads it)
             try
             {
@@ -522,9 +541,13 @@ namespace CoreholdEditor.Campaign
                 }
                 else
                 {
-                    EmitManifest();
+                    bool wired = EmitManifest();
                     RegisterCampaign();
-                    log.AppendLine("Manifest emitted and Build Settings registered — open the Welcome scene and press Play.");
+                    log.AppendLine(wired
+                        ? "Manifest emitted (wired into the Welcome scene) and Build Settings registered — " +
+                          "open the Welcome scene and press Play."
+                        : "Manifest emitted and Build Settings registered — but the Welcome scene is NOT " +
+                          "wired yet (build the menu scenes, step 5, then Emit manifest again).");
                 }
             }
             ShowReport(log.ToString());
@@ -618,9 +641,10 @@ namespace CoreholdEditor.Campaign
             finally { UISkin.Active = null; }
             if (ok)
             {
-                EmitManifest();
+                bool wired = EmitManifest();
                 RegisterCampaign();
-                log.AppendLine("Manifest + Build Settings refreshed for the regenerated stage.");
+                log.AppendLine("Manifest + Build Settings refreshed for the regenerated stage." +
+                               (wired ? "" : " (Welcome scene NOT wired — build the menu scenes, then emit again.)"));
             }
             ShowReport(log.ToString());
         }
@@ -896,7 +920,11 @@ namespace CoreholdEditor.Campaign
 
         // ----------------------------------------------------------- manifest
 
-        private void EmitManifest()
+        /// <summary>Emit the runtime manifest and wire it into THIS campaign's
+        /// Welcome scene. Returns whether the wiring actually happened — a
+        /// manifest the Welcome scene does not reference boots to a dead menu,
+        /// so callers surface a false loudly instead of assuming.</summary>
+        private bool EmitManifest()
         {
             var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(_authoring.ManifestAssetPath);
             bool created = manifest == null;
@@ -931,7 +959,11 @@ namespace CoreholdEditor.Campaign
             EditorUtility.SetDirty(manifest);
             AssetDatabase.SaveAssets();
 
-            BuildCampaignScenes.WireManifestIntoWelcome(manifest);
+            // Wire into THIS campaign's welcome scene — the authored path, not
+            // a fixed one (the old hardcoded target silently missed campaigns
+            // whose welcome scene lived anywhere else).
+            _wireCheckStamp = 0; // invalidate the cached wiring check
+            return BuildCampaignScenes.WireManifestIntoWelcome(manifest, _authoring.welcomeScenePath);
         }
 
         // ------------------------------------------------------ build settings
@@ -976,13 +1008,39 @@ namespace CoreholdEditor.Campaign
 
         // -------------------------------------------------------------- utils
 
-        private static void EnsureFolder(string path)
+        // One hardened implementation for every campaign-side folder create.
+        private static void EnsureFolder(string path) => BuildCampaignScenes.EnsureFolder(path);
+
+        // ---- Welcome-scene wiring check (cheap, cached by file timestamp) ----
+
+        private string _wireCheckScene, _wireCheckGuid;
+        private long _wireCheckStamp;
+        private bool _wireCheckResult;
+
+        /// <summary>
+        /// True when the Welcome scene FILE references this campaign's manifest
+        /// asset (by GUID). Text scan cached on the scene's write time, so the
+        /// Issues panel can verify the wiring live without opening the scene —
+        /// this is the check that catches "the manifest field went stale".
+        /// </summary>
+        private bool WelcomeWiredToManifest()
         {
-            if (AssetDatabase.IsValidFolder(path)) return;
-            string parent = path.Substring(0, path.LastIndexOf('/'));
-            string leaf = path.Substring(path.LastIndexOf('/') + 1);
-            EnsureFolder(parent);
-            AssetDatabase.CreateFolder(parent, leaf);
+            string scenePath = _authoring.welcomeScenePath;
+            if (string.IsNullOrEmpty(scenePath) || !System.IO.File.Exists(scenePath))
+                return false;
+            string guid = AssetDatabase.AssetPathToGUID(_authoring.ManifestAssetPath);
+            if (string.IsNullOrEmpty(guid))
+                return false;
+
+            long stamp = System.IO.File.GetLastWriteTimeUtc(scenePath).Ticks;
+            if (scenePath == _wireCheckScene && guid == _wireCheckGuid && stamp == _wireCheckStamp)
+                return _wireCheckResult;
+
+            _wireCheckScene = scenePath;
+            _wireCheckGuid = guid;
+            _wireCheckStamp = stamp;
+            _wireCheckResult = System.IO.File.ReadAllText(scenePath).Contains(guid);
+            return _wireCheckResult;
         }
     }
 }
