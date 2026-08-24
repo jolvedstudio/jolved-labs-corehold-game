@@ -212,10 +212,48 @@ namespace Corehold.Towers
             _occupant = tower;
             _invested = cost;
 
+            EnsureTapProxy(tower);
             SetRimDark();
             SetAuraDark();
             OnOccupancyChanged?.Invoke(this);
             return true;
+        }
+
+        /// <summary>
+        /// Make the BUILT TURRET tappable, not just the pad. The pad's tap
+        /// sphere sits at ground level, so clicks on a tall turret's BODY fell
+        /// through to "empty ground" and the tower panel seemed to open only
+        /// sometimes. A trigger capsule on the pad's layer, sized from the
+        /// model's renderers, rides the turret; the router's
+        /// GetComponentInParent&lt;TowerHardpoint&gt; resolves it to this pad, so
+        /// every existing code path (panel, relocation cancel) just works.
+        /// Rebuilt on build/upgrade/relocate because the model changes size.
+        /// </summary>
+        private void EnsureTapProxy(Tower tower)
+        {
+            if (tower == null)
+                return;
+            Transform t = tower.transform;
+            Transform old = t.Find("TapProxy");
+            if (old != null)
+                Destroy(old.gameObject);
+
+            var renderers = tower.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0)
+                return;
+            Bounds b = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+                b.Encapsulate(renderers[i].bounds);
+
+            var proxy = new GameObject("TapProxy");
+            proxy.layer = gameObject.layer;   // the Hardpoint layer the router masks to
+            proxy.transform.SetParent(t, false);
+            var cap = proxy.AddComponent<CapsuleCollider>();
+            cap.isTrigger = true;             // tap target only — never a physical blocker
+            cap.direction = 1;                // Y
+            cap.center = t.InverseTransformPoint(b.center);
+            cap.height = Mathf.Max(0.5f, b.size.y);
+            cap.radius = Mathf.Clamp(Mathf.Max(b.size.x, b.size.z) * 0.5f, 0.35f, 1.4f);
         }
 
         /// <summary>
@@ -247,6 +285,7 @@ namespace Corehold.Towers
             _occupant.SetTier(nextTier);
             _invested += cost;
 
+            EnsureTapProxy(_occupant); // tier models change size — refit the tap capsule
             OnOccupancyChanged?.Invoke(this);
             return true;
         }
@@ -319,6 +358,7 @@ namespace Corehold.Towers
             _occupant = tower;
             _invested = invested;
             IsReserved = false;
+            EnsureTapProxy(tower);
             SetRimDark();
             SetAuraDark();
             OnOccupancyChanged?.Invoke(this);

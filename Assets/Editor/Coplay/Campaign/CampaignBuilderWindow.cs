@@ -35,23 +35,167 @@ namespace CoreholdEditor.Campaign
             w.minSize = new Vector2(560, 480);
         }
 
+        // The builder is a SEQUENCE — the same visual contract as the Level
+        // Generator's stage list. Each step shows its state up front (✓ done,
+        // → do this next, · not reached), and a live Issues panel says exactly
+        // what is blocking, so "it failed" always has a visible why.
+        private struct StepState
+        {
+            public bool done;
+            public string status;
+        }
+
+        private readonly List<string> _issues = new List<string>();
+
         private void OnGUI()
         {
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
+            GUILayout.Label("Campaign Builder — work top to bottom", EditorStyles.boldLabel);
+
+            StepState[] steps = ComputeSteps();
+            int next = 0;
+            while (next < steps.Length && steps[next].done)
+                next++;
+
+            DrawStepHeader(1, "Campaign asset", steps, next);
             DrawAuthoringPicker();
-            if (_authoring == null)
+
+            if (_authoring != null)
             {
-                EditorGUILayout.EndScrollView();
-                return;
+                DrawStepHeader(2, "Identity & rules", steps, next);
+                DrawHeaderFields();
+
+                DrawStepHeader(3, "Levels", steps, next);
+                DrawStages();
+
+                DrawStepHeader(4, "Generate scenes", steps, next);
+                DrawGenerateStep();
+
+                DrawStepHeader(5, "Menu scenes (Welcome + Closing)", steps, next);
+                DrawMenuScenesStep();
+
+                DrawStepHeader(6, "Verify economy & emit manifest", steps, next);
+                DrawManifestStep();
+
+                DrawStepHeader(7, "Register Build Settings", steps, next);
+                DrawRegisterStep();
+
+                DrawStepHeader(8, "Preflight & ship", steps, next);
+                DrawShipStep();
             }
 
-            DrawHeaderFields();
-            DrawStages();
-            DrawActions();
+            DrawIssues();
             DrawReport();
 
             EditorGUILayout.EndScrollView();
+        }
+
+        // -------------------------------------------------------- step status
+
+        /// <summary>Cheap, per-repaint state of every step — file existence and
+        /// asset lookups only, never a model run or a scene open.</summary>
+        private StepState[] ComputeSteps()
+        {
+            _issues.Clear();
+            var s = new StepState[8];
+
+            // 1 — asset
+            s[0].done = _authoring != null;
+            s[0].status = _authoring != null ? _authoring.name : "pick or create";
+            if (_authoring == null)
+            {
+                _issues.Add("Step 1: no CampaignAuthoring asset selected — pick one or Create New.");
+                return s;
+            }
+
+            // 2 — identity
+            bool idOk = !string.IsNullOrWhiteSpace(_authoring.campaignId);
+            s[1].done = idOk;
+            s[1].status = idOk ? $"id '{_authoring.campaignId}', seed {_authoring.masterSeed}" : "campaign id required";
+            if (!idOk)
+                _issues.Add("Step 2: campaign id is empty — it names the save keys, folders and manifest.");
+
+            // 3 — levels resolvable
+            int unresolved = _authoring.stages.Count(st => st.blueprint == null && string.IsNullOrEmpty(st.scenePath));
+            s[2].done = _authoring.stages.Count > 0 && unresolved == 0;
+            s[2].status = _authoring.stages.Count == 0
+                ? "add at least one level"
+                : unresolved == 0 ? $"{_authoring.stages.Count} level(s)" : $"{unresolved} level(s) unresolved";
+            if (_authoring.stages.Count == 0)
+                _issues.Add("Step 3: the campaign has no levels — Add level, then assign a blueprint or an existing scene.");
+            for (int i = 0; i < _authoring.stages.Count; i++)
+            {
+                var st = _authoring.stages[i];
+                if (st.blueprint == null && string.IsNullOrEmpty(st.scenePath))
+                    _issues.Add($"Step 3: Level {i + 1} '{st.title}' has neither a blueprint nor an existing scene.");
+            }
+
+            // 4 — generated scenes on disk
+            int expected = _authoring.stages.Count;
+            int generated = 0, stale = 0;
+            for (int i = 0; i < _authoring.stages.Count; i++)
+            {
+                var st = _authoring.stages[i];
+                if (string.IsNullOrEmpty(st.scenePath))
+                    continue;
+                if (System.IO.File.Exists(st.scenePath)) generated++;
+                else
+                {
+                    stale++;
+                    _issues.Add($"Step 4: Level {i + 1} '{st.title}' records a scene that is missing on disk — regenerate it.");
+                }
+            }
+            s[3].done = expected > 0 && generated == expected && stale == 0;
+            s[3].status = $"{generated}/{expected} on disk" + (stale > 0 ? $", {stale} stale" : "");
+            if (expected > 0 && generated < expected && s[2].done)
+                _issues.Add($"Step 4: {expected - generated} level(s) not generated yet — Generate ALL (or per-level Generate).");
+
+            // 5 — menu scenes
+            bool welcome = System.IO.File.Exists(_authoring.welcomeScenePath);
+            bool closing = System.IO.File.Exists(_authoring.closingScenePath);
+            s[4].done = welcome && closing;
+            s[4].status = welcome && closing ? "built" : $"welcome {(welcome ? "ok" : "MISSING")}, closing {(closing ? "ok" : "MISSING")}";
+            if (!welcome || !closing)
+                _issues.Add("Step 5: Welcome/Closing scenes not built — the campaign cannot boot without its Welcome scene at index 0.");
+
+            // 6 — manifest
+            var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(_authoring.ManifestAssetPath);
+            int manifestLevels = manifest != null ? manifest.stages.Count(m => m.kind == CampaignStageKind.Level) : 0;
+            s[5].done = manifest != null && manifestLevels == generated && generated > 0;
+            s[5].status = manifest == null
+                ? "not emitted"
+                : manifestLevels == generated ? $"{manifestLevels} level(s) in manifest" : $"manifest has {manifestLevels}, disk has {generated} — re-emit";
+            if (manifest == null && s[3].done)
+                _issues.Add("Step 6: no manifest emitted — Verify carry economy, then Emit manifest + wire Welcome.");
+            if (manifest != null && manifestLevels != generated)
+                _issues.Add("Step 6: the manifest is out of date with the generated levels — re-emit it.");
+
+            // 7 — build settings
+            var scenes = EditorBuildSettings.scenes;
+            bool welcomeFirst = scenes.Length > 0 && scenes[0].path == _authoring.welcomeScenePath && scenes[0].enabled;
+            var inBuild = new HashSet<string>(scenes.Where(b => b.enabled).Select(b => b.path));
+            int missing = _authoring.stages.Count(st => !string.IsNullOrEmpty(st.scenePath) &&
+                                                        System.IO.File.Exists(st.scenePath) && !inBuild.Contains(st.scenePath));
+            s[6].done = welcomeFirst && missing == 0 && s[4].done;
+            s[6].status = welcomeFirst
+                ? (missing == 0 ? "campaign first, all levels in" : $"{missing} level(s) not registered")
+                : "Welcome is not Build Settings index 0";
+            if (s[3].done && (!welcomeFirst || missing > 0))
+                _issues.Add("Step 7: Build Settings are stale — Register Campaign rewrites them (Welcome first, levels in order).");
+
+            // 8 — ship (never "done": preflight is a report, not a state)
+            s[7].done = false;
+            s[7].status = "preflight tells the truth";
+            return s;
+        }
+
+        private static void DrawStepHeader(int number, string title, StepState[] steps, int next)
+        {
+            EditorGUILayout.Space(number == 1 ? 4 : 12);
+            StepState st = steps[number - 1];
+            string marker = st.done ? "✓" : (number - 1 == next ? "→" : "·");
+            GUILayout.Label($"{marker}  Step {number} — {title}     [{st.status}]", EditorStyles.boldLabel);
         }
 
         // ------------------------------------------------------------- picker
@@ -92,16 +236,28 @@ namespace CoreholdEditor.Campaign
             _authoring.campaignId = EditorGUILayout.TextField("Campaign id", _authoring.campaignId);
             _authoring.displayName = EditorGUILayout.TextField("Display name", _authoring.displayName);
             _authoring.masterSeed = EditorGUILayout.IntField("Master seed", _authoring.masterSeed);
+            _authoring.uiSkin = (UISkin)EditorGUILayout.ObjectField(
+                new GUIContent("UI skin", "Optional. Bakes into every scene this builder generates — palette, fonts, sprites, proportions."),
+                _authoring.uiSkin, typeof(UISkin), false);
+            _authoring.waveRecipe = (WaveRecipe)EditorGUILayout.ObjectField(
+                new GUIContent("Wave recipe", "Optional (Part C). SYNTHESIZES each stage's waves from a roster + curve instead of cloning the shipped tables; growth is re-solved and certified per stage."),
+                _authoring.waveRecipe, typeof(WaveRecipe), false);
             if (EditorGUI.EndChangeCheck())
                 EditorUtility.SetDirty(_authoring);
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("Carry rules (economy/integrity) are edited on the asset:", EditorStyles.miniLabel);
+                if (GUILayout.Button("Select asset", GUILayout.Width(90)))
+                    Selection.activeObject = _authoring;
+            }
         }
 
         // ------------------------------------------------------------- stages
 
         private void DrawStages()
         {
-            EditorGUILayout.Space(8);
-            EditorGUILayout.LabelField($"Levels ({_authoring.stages.Count})", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"Levels ({_authoring.stages.Count})", EditorStyles.miniLabel);
 
             for (int i = 0; i < _authoring.stages.Count; i++)
             {
@@ -210,52 +366,83 @@ namespace CoreholdEditor.Campaign
             EditorUtility.SetDirty(_authoring);
         }
 
-        // ------------------------------------------------------------ actions
+        // ---------------------------------------------------- per-step actions
 
-        private void DrawActions()
+        private void DrawGenerateStep()
         {
-            EditorGUILayout.Space(10);
-            using (new EditorGUILayout.HorizontalScope())
+            EditorGUILayout.LabelField(
+                "Generates every blueprint stage (bounded auto-reseed), relocates outputs into the " +
+                "committed campaign folders, clones/synthesizes waves, then verifies, emits and " +
+                "registers in one run. Manual stages are kept as-is.", EditorStyles.miniLabel);
+            GUI.enabled = _authoring.stages.Count > 0 &&
+                          _authoring.stages.All(s => s.blueprint != null || !string.IsNullOrEmpty(s.scenePath));
+            if (GUILayout.Button("Generate ALL levels", GUILayout.Height(26), GUILayout.Width(280)))
+                GenerateAll();
+            GUI.enabled = true;
+        }
+
+        private void DrawMenuScenesStep()
+        {
+            EditorGUILayout.LabelField(
+                "Builds the Welcome (difficulty gate, CONTINUE RUN) and Closing (stars, totals) scenes. " +
+                "Re-run after changing the UI skin.", EditorStyles.miniLabel);
+            if (GUILayout.Button("Build menu scenes", GUILayout.Width(280)))
             {
-                GUI.enabled = _authoring.stages.Count > 0 &&
-                              _authoring.stages.All(s => s.blueprint != null || !string.IsNullOrEmpty(s.scenePath));
-                if (GUILayout.Button("Generate ALL levels", GUILayout.Height(28)))
-                    GenerateAll();
-                GUI.enabled = true;
+                UISkin.Active = _authoring.uiSkin;
+                try { BuildCampaignScenes.BuildBoth(); }
+                finally { UISkin.Active = null; }
+                ShowReport("Welcome + Closing scenes built.");
             }
+        }
 
+        private void DrawManifestStep()
+        {
+            EditorGUILayout.LabelField(
+                "Verify re-runs the balance model per stage at the WORST-CASE entry bank the carry " +
+                "rules allow; Emit writes the runtime manifest and wires it into the Welcome scene. " +
+                "Generate ALL already does both — these are for reruns after edits.", EditorStyles.miniLabel);
             using (new EditorGUILayout.HorizontalScope())
             {
-                if (GUILayout.Button("Build menu scenes (stub)"))
-                {
-                    UISkin.Active = _authoring.uiSkin;
-                    try { BuildCampaignScenes.BuildBoth(); }
-                    finally { UISkin.Active = null; }
-                }
-
                 GUI.enabled = _authoring.stages.Any(s => !string.IsNullOrEmpty(s.scenePath));
-                if (GUILayout.Button("Verify carry economy"))
+                if (GUILayout.Button("Verify carry economy", GUILayout.Width(180)))
                 {
                     var vlog = new StringBuilder();
-                    VerifyCarryEconomy(vlog);
+                    bool ok = VerifyCarryEconomy(vlog);
+                    vlog.AppendLine(ok ? "\nAll stages hold at the worst-case entry."
+                                       : "\nAt least one stage fails at the worst-case entry — see rows above.");
                     ShowReport(vlog.ToString());
                 }
-                if (GUILayout.Button("Emit manifest + wire Welcome"))
+                if (GUILayout.Button("Emit manifest + wire Welcome", GUILayout.Width(220)))
+                {
                     EmitManifest();
-                if (GUILayout.Button("Register Campaign (Build Settings)"))
-                    RegisterCampaign();
+                    ShowReport($"Manifest emitted → {_authoring.ManifestAssetPath} and wired into the Welcome scene.");
+                }
                 GUI.enabled = true;
             }
+        }
 
-            // ---- shipping (CampaignShipTool) ----
+        private void DrawRegisterStep()
+        {
+            EditorGUILayout.LabelField(
+                "Rewrites Build Settings wholesale: Welcome at index 0, levels in campaign order, " +
+                "Closing, then the surviving singles (Game.unity keeps single-map play).", EditorStyles.miniLabel);
+            if (GUILayout.Button("Register Campaign (Build Settings)", GUILayout.Width(280)))
+            {
+                RegisterCampaign();
+                ShowReport("Build Settings rewritten — Welcome first, campaign in order. Open the Welcome scene and press Play.");
+            }
+        }
+
+        private void DrawShipStep()
+        {
             // Never disabled: preflight on an incomplete campaign is the POINT —
             // its report says exactly what is missing. (A greyed-out button that
             // explains nothing is how this tool once "did nothing".)
             using (new EditorGUILayout.HorizontalScope())
             {
-                if (GUILayout.Button("Preflight (shippable?)"))
+                if (GUILayout.Button("Preflight (shippable?)", GUILayout.Width(180)))
                     ShowReport(CampaignShipTool.PreflightReport(_authoring, out _));
-                if (GUILayout.Button("BUILD shippable game (WebGL)", GUILayout.Height(24)))
+                if (GUILayout.Button("BUILD shippable game (WebGL)", GUILayout.Height(24), GUILayout.Width(220)))
                 {
                     // Preflight runs inside and aborts on errors; the report
                     // lands in the console either way.
@@ -265,6 +452,19 @@ namespace CoreholdEditor.Campaign
                         : "Build did not run or failed — the console has the preflight/build report.");
                 }
             }
+        }
+
+        // ---------------------------------------------------- issues & report
+
+        private void DrawIssues()
+        {
+            EditorGUILayout.Space(14);
+            GUILayout.Label("Issues", EditorStyles.boldLabel);
+            if (_issues.Count == 0)
+                EditorGUILayout.HelpBox("Nothing blocking — run Preflight for the shippability truth, then BUILD.",
+                    MessageType.Info);
+            else
+                EditorGUILayout.HelpBox(string.Join("\n", _issues), MessageType.Warning);
         }
 
         /// <summary>Set the report AND scroll to it — it renders at the bottom of
@@ -282,7 +482,7 @@ namespace CoreholdEditor.Campaign
             EditorGUILayout.Space(6);
             using (new EditorGUILayout.HorizontalScope())
             {
-                EditorGUILayout.LabelField("Report", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Last action report", EditorStyles.boldLabel);
                 if (GUILayout.Button("Copy", GUILayout.Width(60)))
                     EditorGUIUtility.systemCopyBuffer = _report;
             }
@@ -327,7 +527,7 @@ namespace CoreholdEditor.Campaign
                     log.AppendLine("Manifest emitted and Build Settings registered — open the Welcome scene and press Play.");
                 }
             }
-            _report = log.ToString();
+            ShowReport(log.ToString());
         }
 
         /// <summary>
@@ -422,7 +622,7 @@ namespace CoreholdEditor.Campaign
                 RegisterCampaign();
                 log.AppendLine("Manifest + Build Settings refreshed for the regenerated stage.");
             }
-            _report = log.ToString();
+            ShowReport(log.ToString());
         }
 
         private bool GenerateStageInternal(int index, StringBuilder log)
