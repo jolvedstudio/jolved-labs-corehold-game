@@ -39,6 +39,18 @@ namespace CoreholdEditor.Campaign
         [Tooltip("Damage, defeat, danger states (the shipped red).")]
         public Color danger = new Color(1f, 0.3f, 0.3f, 1f);
 
+        [Tooltip("Secondary in-game label text: turret role tags, upgrade costs, the title's build tag. " +
+                 "Was a scattered hardcoded pale blue — promoted to a role so it moves with the skin.")]
+        public Color textMuted = new Color(0.8f, 0.9f, 0.95f, 1f);
+
+        [Tooltip("Dark scrims and unskinned panel fills: the Strike Wing cooldown wipe, the boss-bar " +
+                 "backing, the settings dim, a panel with no sprite. Alpha is applied per use.")]
+        public Color scrim = new Color(0.04f, 0.06f, 0.09f, 1f);
+
+        [Tooltip("The boss health bar's fill — deliberately its own role: it must read as THREAT, not as " +
+                 "the accent, whatever the campaign's palette is.")]
+        public Color boss = new Color(1f, 0.35f, 0.25f, 1f);
+
         [Header("Surfaces (menu scenes)")]
         [Tooltip("Menu-scene background (the Welcome/Closing camera clear color).")]
         public Color background = new Color(0.043f, 0.062f, 0.086f);
@@ -53,6 +65,26 @@ namespace CoreholdEditor.Campaign
         [Header("Type")]
         [Tooltip("Optional font override for everything the builders create. Null = the project's default UI font.")]
         public TMP_FontAsset font;
+
+        [Tooltip("Multiplies both UI text sizes (shipped 34/22). A kids skin wants ~1.25; a dense tactical " +
+                 "one can go below 1. Applied at bake time, so re-generate to see it.")]
+        [Range(0.6f, 2f)] public float textScale = 1f;
+
+        [Header("Proportions — how CHUNKY the UI is")]
+        [Tooltip("Scales the whole UI against the screen (via the canvas reference resolution). 1.2 makes " +
+                 "every panel, button and label 20% larger relative to the screen — the single most " +
+                 "effective knob for casual/kids art, which needs more room than slim sci-fi art.")]
+        [Range(0.7f, 1.8f)] public float uiScale = 1f;
+
+        [Tooltip("Extra pixels added to every built BUTTON's width and height. Fat 9-sliced kit art has " +
+                 "thick borders that eat the label's room; this gives it back without moving anything else.")]
+        [Range(0f, 48f)] public float buttonPadding = 0f;
+
+        [Tooltip("Corner roundness of the PROCEDURAL fill the builders use where no sprite slot is filled: " +
+                 "0 = square, 1 = fully rounded (pill). Shipped look is 0.56. Round for casual, near-0 for " +
+                 "hard-edged grim. Ignored wherever a skin sprite fills the slot — that art carries its own " +
+                 "shape. Each distinct value generates its own small sprite asset.")]
+        [Range(0f, 1f)] public float cornerRoundness = 0.5625f;
 
         [Header("Sprite slots — the SHAPE language (v2)")]
         [Tooltip("Every slot maps 1:1 onto a UITheme sprite field. Null = the builder's default for that slot " +
