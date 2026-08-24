@@ -59,6 +59,24 @@ namespace CoreholdEditor
             Color c = Skin != null ? Skin.scrim : DefaultScrim;
             return new Color(c.r, c.g, c.b, alpha);
         }
+
+        /// <summary>
+        /// A palette colour guaranteed to read against a dark/scrimmed backdrop:
+        /// lifted toward white until its relative luminance clears the floor,
+        /// hue preserved. For fills that sit on skinned bar frames — a skin may
+        /// legitimately author a dark boss red, but a health LEVEL that cannot
+        /// be seen is a defect, not a style.
+        /// </summary>
+        static Color ReadableOnDark(Color c, float minLuma = 0.55f)
+        {
+            float luma = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+            if (luma >= minLuma || luma >= 1f)
+                return c;
+            float t = (minLuma - luma) / (1f - luma);
+            Color lifted = Color.Lerp(c, Color.white, Mathf.Clamp01(t));
+            lifted.a = c.a;
+            return lifted;
+        }
         static readonly Color PanelTint = new Color(1f, 1f, 1f, 1f);
 
         // ---- Proportions (skin, baked at build time) ----
@@ -274,7 +292,10 @@ namespace CoreholdEditor
             bossFillRect.offsetMin = new Vector2(4, 4); bossFillRect.offsetMax = new Vector2(-4, -4);
             var bossFill = bossFillRect.gameObject.AddComponent<Image>();
             bossFill.sprite = theme.barFill; bossFill.type = Image.Type.Filled; bossFill.fillMethod = Image.FillMethod.Horizontal;
-            bossFill.color = Boss; bossFill.fillAmount = 1f;
+            // The health level must READ against the scrimmed bar frame — kit
+            // frames are often dark wood, and a dark boss red over dark brown
+            // was nearly invisible. Keep the skin's boss hue, floor its luminance.
+            bossFill.color = ReadableOnDark(Boss); bossFill.fillAmount = 1f;
             var bossLbl = MakeText(bossRoot, "Label", "COLOSSUS", _small, TextAlignmentOptions.Center, Vector2.zero, new Vector2(880, 34));
             bossRoot.gameObject.SetActive(false);
 
@@ -453,8 +474,11 @@ namespace CoreholdEditor
 
         static TowerPanel BuildTowerPanel(Canvas canvas, UITheme theme, RangeRing ring)
         {
+            // 700 tall: the counter grid ends 466 below the top, and the bottom
+            // stack (feature row + upgrade + sell) needs 200 — at the old 620 the
+            // feature row landed ON the grid's last row.
             var root = MakePanel(canvas.transform, "TowerPanel",
-                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-24, 0), new Vector2(420, 620), theme.popup);
+                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-24, 0), new Vector2(420, 700), theme.popup);
             var comp = canvas.gameObject.AddComponent<TowerPanel>();
 
             var name = MakeText(root, "Name", "AUTOCANNON", _large, TextAlignmentOptions.TopLeft, new Vector2(20, -14), new Vector2(300, 40));
@@ -496,11 +520,17 @@ namespace CoreholdEditor
             var cam = MakeButton(featRow, "CamButton", "CAM", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
             var control = MakeButton(featRow, "ControlButton", "CONTROL", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
 
-            // Actions.
-            var upgrade = MakeButton(root, "UpgradeButton", "UPGRADE 130", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 96), new Vector2(360, 64));
-            var sell = MakeButton(root, "SellButton", "SELL +60", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(360, 60));
-            var close = MakeIconButton(root, "CloseButton", theme.pauseIcon, theme, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-8, -8), new Vector2(44, 44));
-            close.GetComponentInChildren<TMP_Text>(true)?.SetText("X");
+            // Actions. Sell sits fully inside the panel (at 24 it clipped 6 px
+            // out the bottom); upgrade above it; the feature row above that.
+            var upgrade = MakeButton(root, "UpgradeButton", "UPGRADE 130", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 108), new Vector2(360, 64));
+            var sell = MakeButton(root, "SellButton", "SELL +60", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 40), new Vector2(360, 60));
+
+            // Close: a small labelled X, not the old 44 px icon button — the icon
+            // slot carried the PAUSE glyph (or a skin's blank sprite), which read
+            // as an empty box in the panel's corner.
+            var close = MakeButton(root, "CloseButton", "X", theme, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-26, -26), new Vector2(34, 34));
+            var closeLbl = close.GetComponentInChildren<TMP_Text>();
+            if (closeLbl != null) closeLbl.fontSize = 18f;
 
             var so = new SerializedObject(comp);
             SetRef(so, "theme", theme);
@@ -543,11 +573,21 @@ namespace CoreholdEditor
             float colW = w / 4f;   // first column is the row label
             float rowH = h / 4f;   // first row is the header
 
-            // Header row (armour names). Grid root pivot is centre; use top-left anchors.
+            // MakeRect pivots every rect at its CENTRE, so each cell's intended
+            // top-left corner must be converted to a centre. Feeding corners in
+            // directly (the old code) shifted the whole grid half a cell up-left
+            // — and pushed the row-highlight strip out through the panel's left
+            // edge, which is exactly how it looked in play.
+            Vector2 CellPos(float x, float y, Vector2 size) =>
+                new Vector2(x + size.x * 0.5f, y - size.y * 0.5f);
+
+            var cellSize = new Vector2(colW - 4, rowH - 4);
+
+            // Header row (armour names).
             for (int a = 0; a < 3; a++)
             {
                 var hr = MakeRect(root, $"H_{a}", new Vector2(0,1), new Vector2(0,1),
-                    new Vector2(colW*(a+1) + 2, -rowH/2 - 2), new Vector2(colW-4, rowH-4));
+                    CellPos(colW*(a+1) + 2, -2, cellSize), cellSize);
                 var ht = hr.gameObject.AddComponent<TextMeshProUGUI>();
                 Style(ht, armNames[a], 14f, TextAlignmentOptions.Center);
                 ht.color = Cyan;
@@ -555,23 +595,24 @@ namespace CoreholdEditor
 
             for (int d = 0; d < 3; d++)
             {
-                float y = h/2 - rowH*(d+1) - rowH/2;
-                // row highlight strip
+                // row highlight strip — spans the three value columns, inside the grid
+                var hlSize = new Vector2(w - colW - 2, rowH - 4);
                 var hlRect = MakeRect(root, $"Row_{d}", new Vector2(0,1), new Vector2(0,1),
-                    new Vector2(colW, -rowH*(d+1) - 2), new Vector2(w - colW - 2, rowH - 4));
+                    CellPos(colW, -rowH*(d+1) - 2, hlSize), hlSize);
                 var hlImg = hlRect.gameObject.AddComponent<Image>();
                 var hc = Cyan; hc.a = 0.30f; hlImg.color = hc; hlImg.enabled = false;
                 rows[d] = hlImg;
 
                 // row label
-                var lbl = MakeRect(root, $"L_{d}", new Vector2(0,1), new Vector2(0,1), new Vector2(2, -rowH*(d+1) - 2), new Vector2(colW-4, rowH-4));
+                var lbl = MakeRect(root, $"L_{d}", new Vector2(0,1), new Vector2(0,1),
+                    CellPos(2, -rowH*(d+1) - 2, cellSize), cellSize);
                 var lblT = lbl.gameObject.AddComponent<TextMeshProUGUI>();
                 Style(lblT, dmgNames[d], 14f, TextAlignmentOptions.Center); lblT.color = Amber;
 
                 for (int a = 0; a < 3; a++)
                 {
                     var cell = MakeRect(root, $"C_{d}_{a}", new Vector2(0,1), new Vector2(0,1),
-                        new Vector2(colW*(a+1) + 2, -rowH*(d+1) - 2), new Vector2(colW-4, rowH-4));
+                        CellPos(colW*(a+1) + 2, -rowH*(d+1) - 2, cellSize), cellSize);
                     var ct = cell.gameObject.AddComponent<TextMeshProUGUI>();
                     Style(ct, "×1.00", 16f, TextAlignmentOptions.Center);
                     cells[d*3 + a] = ct;
