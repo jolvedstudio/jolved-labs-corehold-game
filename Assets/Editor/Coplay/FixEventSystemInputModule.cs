@@ -17,7 +17,10 @@ namespace CoreholdEditor
     /// </summary>
     public static class FixEventSystemInputModule
     {
-        [MenuItem("Tools/COREHOLD/Scene Setup/Fix EventSystem Input Module", false, 49)]
+        // No menu item: the generation pipeline calls this on every scene it
+        // builds (GenerationPipeline's skeleton stage) and SceneSkeleton creates
+        // EventSystems with the right module to begin with, so the repair is
+        // automatic. Kept as a callable class for that pipeline use.
         public static string Run()
         {
             var sb = new StringBuilder();
