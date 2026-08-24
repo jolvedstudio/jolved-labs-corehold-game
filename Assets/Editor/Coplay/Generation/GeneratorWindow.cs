@@ -744,8 +744,8 @@ public class GeneratorWindow : EditorWindow
         if (!_utilities)
             return;
 
-        if (GUILayout.Button("Build Env Packs From Folders  (Authoring/EnvPack/<Theme>/<Category>)"))
-            EnvPackTools.BuildFromFolders();
+        if (GUILayout.Button("Build Env Packs From Folders…  (opens the window: pick folders, see the report)"))
+            EnvPackWindow.Open();
         if (GUILayout.Button("Create Refinery Env Pack  (shipped map's nine props)"))
             EnvPackTools.CreateRefineryPack();
         if (GUILayout.Button("Measure Selected Env Pack"))
