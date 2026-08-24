@@ -184,8 +184,35 @@ public static class TerrainStage
         meshGo.transform.SetParent(SceneContainers.Ensure("_Level"), false);
         meshGo.AddComponent<MeshFilter>().sharedMesh = BuildMesh(field, bounds, uvPerMetre);
         var mr = meshGo.AddComponent<MeshRenderer>();
-        if (groundMat != null)
+
+        // M-d terrain shading: the mesh bakes valley/slope tint into vertex
+        // colours, which URP Lit ignores — so the relief wears the project's
+        // vertex-colour-aware terrain shader, seeded with the theme ground's
+        // texture and tint. Missing shader (or texture-less ground) falls back
+        // to the flat ground material: worse-looking, never broken.
+        Shader terrainShader = Shader.Find("COREHOLD/Terrain Lit");
+        if (terrainShader != null)
+        {
+            var tMat = new Material(terrainShader) { name = "TerrainRelief(Baked)" };
+            if (groundMat != null)
+            {
+                Texture baseTex =
+                    groundMat.HasProperty("_BaseMap") && groundMat.GetTexture("_BaseMap") != null
+                        ? groundMat.GetTexture("_BaseMap")
+                        : groundMat.HasProperty("_MainTex") ? groundMat.GetTexture("_MainTex") : null;
+                if (baseTex != null)
+                    tMat.SetTexture("_BaseMap", baseTex);
+                if (groundMat.HasProperty("_BaseColor"))
+                    tMat.SetColor("_BaseColor", groundMat.GetColor("_BaseColor"));
+                else if (groundMat.HasProperty("_Color"))
+                    tMat.SetColor("_BaseColor", groundMat.GetColor("_Color"));
+            }
+            mr.sharedMaterial = tMat;
+        }
+        else if (groundMat != null)
+        {
             mr.sharedMaterial = groundMat;
+        }
         Undo.RegisterCreatedObjectUndo(meshGo, "Generate Level");
 
         // The flat floor becomes the void-catcher: dropped below the deepest
@@ -311,6 +338,7 @@ public static class TerrainStage
         int n = MeshCells;
         var verts = new Vector3[(n + 1) * (n + 1)];
         var uvs = new Vector2[verts.Length];
+        var colors = new Color[verts.Length];
         var tris = new int[n * n * 6];
 
         Vector3 min = bounds.min;
@@ -322,8 +350,10 @@ public static class TerrainStage
                 float x = min.x + i * sx;
                 float z = min.z + j * sz;
                 int v = j * (n + 1) + i;
-                verts[v] = new Vector3(x, field.Height(x, z), z);
+                float h = field.Height(x, z);
+                verts[v] = new Vector3(x, h, z);
                 uvs[v] = new Vector2(x * uvPerMetre, z * uvPerMetre);
+                colors[v] = TintAt(field, x, z, h);
             }
         }
 
@@ -345,9 +375,36 @@ public static class TerrainStage
         var mesh = new Mesh { name = "TerrainRelief" };
         mesh.vertices = verts;
         mesh.uv = uvs;
+        mesh.colors = colors;
         mesh.triangles = tris;
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
         return mesh;
+    }
+
+    /// <summary>
+    /// The baked terrain tint (M-d), computed from the analytic field so it is
+    /// deterministic and free: valleys of the rolling band darken slightly
+    /// (moisture/shadow), steep relief faces darken and desaturate toward rock,
+    /// crests keep near-full albedo. Multiplied over the ground texture by the
+    /// terrain shader — a flat map has no relief mesh, so nothing else changes.
+    /// </summary>
+    private static Color TintAt(TerrainField field, float x, float z, float h)
+    {
+        const float e = 0.75f;
+        float dhx = field.Height(x + e, z) - field.Height(x - e, z);
+        float dhz = field.Height(x, z + e) - field.Height(x, z - e);
+        float ny = 2f * e / Mathf.Sqrt(dhx * dhx + dhz * dhz + 4f * e * e);
+        float steep = Mathf.Clamp01((1f - ny) * 2.2f);
+
+        float baseY = field.Base(x, z);
+        float valley = Mathf.Clamp01(-baseY / TerrainField.BaseAmplitude);
+        float crest = Mathf.Clamp01((h - baseY) / TerrainField.ReliefAmplitude);
+
+        Color c = Color.white;
+        c = Color.Lerp(c, new Color(0.72f, 0.74f, 0.78f), valley * 0.8f);
+        c = Color.Lerp(c, new Color(0.55f, 0.53f, 0.50f), steep);
+        c = Color.Lerp(c, Color.white, crest * 0.25f);
+        return c;
     }
 }
