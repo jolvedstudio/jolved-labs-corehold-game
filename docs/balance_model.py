@@ -463,6 +463,14 @@ class Geometry:
     #: map nobody plays. Off for the shipped map and for corridor synthesis.
     spread_ground_groups: bool = False
 
+    #: Per-pad high-ground damage bonus (M-b terrain), pad name → fraction
+    #: (0.05 = +5%). Written by the generator's terrain stage from the pad's
+    #: height over the nearby lane; composes ADDITIVELY with the aura damage
+    #: bonus because the live TowerWeapon folds both into one (1 + Σbonus)
+    #: factor. Empty on flat maps ⇒ every dps figure is bit-identical to the
+    #: pre-terrain model.
+    pad_hg: dict = field(default_factory=dict)
+
     def ground_indices(self) -> list:
         """Ground spawner indices, ascending — the rotation order."""
         return sorted(self.routes)
@@ -727,7 +735,11 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
         rng = tier["range"] * (1.0 + a_range) * blackout_rng
         # Veterancy (R21/R22): the fleet-average damage ramp rides the same
         # multiplier stack the live TowerWeapon uses ((1+aura)×(1+rank·4%)).
-        dps = tier["dps"] * (1.0 + a_fire) * (1.0 + a_dmg) * vet
+        # High ground (M-b) joins the damage factor ADDITIVELY, mirroring the
+        # weapon's single (1 + aura_dmg + hg) funnel — a separate (1+hg)
+        # multiplier would over-credit the defender whenever both are nonzero.
+        dps = (tier["dps"] * (1.0 + a_fire)
+               * (1.0 + a_dmg + geom.pad_hg.get(inst.pad, 0.0)) * vet)
         if dps <= 0.0:
             continue
         px, pz = geom.pads[inst.pad][0], geom.pads[inst.pad][1]
@@ -853,6 +865,8 @@ def load_geometry(path: str) -> Geometry:
         pads={p["name"]: (float(p["x"]), float(p["z"]), p["tower"], p.get("cls", "?"))
               for p in data["pads"]},
         spread_ground_groups=bool(data.get("spread_ground_groups", False)),
+        # High ground (M-b): absent key ⇒ 0 ⇒ dps math identical to pre-terrain.
+        pad_hg={p["name"]: float(p["hg"]) for p in data["pads"] if p.get("hg")},
     )
     geom.apply_measured_lengths(
         {int(r["spawner"]): float(r["measured_length"]) for r in data["routes"]

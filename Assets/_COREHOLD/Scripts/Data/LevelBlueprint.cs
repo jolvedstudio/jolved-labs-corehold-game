@@ -232,6 +232,14 @@ namespace Corehold.Data
         /// <summary>Pads this map will have. The mix is the authority; this is its sum.</summary>
         public int HardpointCount => classMix.Total;
 
+        [Header("Terrain (M-b)")]
+        [Tooltip("Sculpt the map: a gentle rolling band under routes and pads, real hills outside " +
+                 "the play corridor, sight-line gated and deterministic from the seed like everything " +
+                 "else. Pads gain a small modelled high-ground damage bonus. Untick to regenerate the " +
+                 "classic flat geometry — note that a seed accepted BEFORE terrain existed only " +
+                 "reproduces its old scene with this off.")]
+        public bool terrainRelief = true;
+
         [Header("Dressing & atmosphere")]
         [Tooltip("Themes this level may be dressed in. The seed picks one, so a single blueprint yields visually distinct maps. ONE entry pins the theme. Entries carry the footprint radius and height the clearance and occlusion tests need.")]
         public EnvPack[] envPackPool;

@@ -129,7 +129,12 @@ namespace Corehold.Towers
         public float MannedFireRateBonus { get; set; } = 0.25f;
 
         // Aura buff fractions, sourced from the owning Tower (0 when none present).
-        private float DamageBonus => _tower != null ? _tower.CurrentModifiers.damageBonus : 0f;
+        // High ground (M-b) joins the SAME additive damage funnel — and the
+        // balance model's per-pad hg term composes identically (1 + aura + hg),
+        // so certified margins stay in step with what the weapon actually deals.
+        // The Tower resolves its pad per read, so relocation (M-c) is honest.
+        private float DamageBonus =>
+            _tower != null ? _tower.CurrentModifiers.damageBonus + _tower.HighGroundBonus : 0f;
         private float FireRateBonus =>
             (_tower != null ? _tower.CurrentModifiers.fireRateBonus : 0f) +
             (ManualMode ? MannedFireRateBonus : 0f);

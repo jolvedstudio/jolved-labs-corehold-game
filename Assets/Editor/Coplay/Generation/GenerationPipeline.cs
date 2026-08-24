@@ -103,6 +103,7 @@ public static class GenerationPipeline
         new Stage { title = "Dressing",                  ticket = "R26/R28", run = StDressing },
         new Stage { title = "GATE 2b — occlusion re-run", ticket = "R28",    run = StOcclusion, gate = true },
         new Stage { title = "Weather",                   ticket = "R13",     run = StWeather },
+        new Stage { title = "Terrain relief",            ticket = "M-b",     run = TerrainStage.Run },
         new Stage { title = "Group & verify hierarchy",  ticket = "R26",     run = StHierarchy },
         new Stage { title = "Emit LevelDefinition",      ticket = "R30",     run = StEmitLevel },
         new Stage { title = "GATE 3 — model margins",    ticket = "R29/R30", run = StModelGate, gate = true },

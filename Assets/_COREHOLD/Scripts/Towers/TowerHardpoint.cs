@@ -79,6 +79,18 @@ namespace Corehold.Towers
         [Tooltip("How much the aura breathes in scale (0 = none, 0.15 = +/-15%).")]
         [SerializeField] private float auraScalePulse = 0.12f;
 
+        [Header("High ground (M-b)")]
+        [Tooltip("Terrain-derived damage bonus fraction for whatever turret occupies this pad " +
+                 "(0.05 = +5%). WRITTEN BY THE GENERATOR's terrain stage from the pad's height " +
+                 "over the nearby lane, and exported into the balance model's per-pad hg term so " +
+                 "certified margins include it — hand-editing it desynchronises scene and " +
+                 "certification. 0 on every flat map: the game then behaves exactly as before.")]
+        [SerializeField] private float highGroundBonus;
+
+        /// <summary>Additive damage-bonus fraction from terrain high ground (M-b).
+        /// TowerWeapon folds it into the same funnel as aura damage bonuses.</summary>
+        public float HighGroundBonus => highGroundBonus;
+
         /// <summary>Raised whenever this pad is built on, upgraded or sold. Argument is this pad.</summary>
         public event Action<TowerHardpoint> OnOccupancyChanged;
 

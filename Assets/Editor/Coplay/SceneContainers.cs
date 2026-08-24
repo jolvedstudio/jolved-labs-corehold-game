@@ -41,7 +41,8 @@ public static class SceneContainers
         }),
         ("_Level", new[]
         {
-            "RefineryLevel", "Level*", "Floor", "SilhouetteBand", "Spawner_*"
+            "RefineryLevel", "Level*", "Floor", "SilhouetteBand", "Spawner_*",
+            "TerrainRelief"
         }),
         ("_UI", new[]
         {

@@ -119,16 +119,34 @@ namespace Corehold.Towers
         /// <summary>Base fire rate × (1 + aura fire-rate bonus). Recomputed on every read.</summary>
         public float EffectiveFireRate => BaseFireRate * (1f + _modifiers.fireRateBonus);
 
-        /// <summary>Base damage × (1 + aura bonus) × veterancy (R21). Recomputed on every read.</summary>
-        public float EffectiveDamage => BaseDamage * (1f + _modifiers.damageBonus) * VeterancyDamageMultiplier;
+        /// <summary>
+        /// Additive damage-bonus fraction from terrain high ground (M-b), read
+        /// from the hosting pad on EVERY access — the same no-cache doctrine as
+        /// the aura stats, so a relocated turret (M-c) can never carry its old
+        /// pad's bonus. 0 off-pad (mid-transit, with weapons offline) and on
+        /// every flat map.
+        /// </summary>
+        public float HighGroundBonus
+        {
+            get
+            {
+                var pad = GetComponentInParent<TowerHardpoint>();
+                return pad != null ? pad.HighGroundBonus : 0f;
+            }
+        }
+
+        /// <summary>Base damage × (1 + aura bonus + high ground) × veterancy (R21/M-b). Recomputed on every read.</summary>
+        public float EffectiveDamage =>
+            BaseDamage * (1f + _modifiers.damageBonus + HighGroundBonus) * VeterancyDamageMultiplier;
 
         /// <summary>
-        /// True damage-per-second including aura buffs and veterancy, summed per
-        /// mount so a multi-weapon turret is not overstated. Recomputed on every read.
+        /// True damage-per-second including aura buffs, terrain high ground and
+        /// veterancy, summed per mount so a multi-weapon turret is not
+        /// overstated. Recomputed on every read.
         /// </summary>
         public float EffectiveDps => HasTier
-            ? CurrentTier.TotalDps * (1f + _modifiers.damageBonus) * (1f + _modifiers.fireRateBonus)
-              * VeterancyDamageMultiplier
+            ? CurrentTier.TotalDps * (1f + _modifiers.damageBonus + HighGroundBonus)
+              * (1f + _modifiers.fireRateBonus) * VeterancyDamageMultiplier
             : 0f;
 
         // ----- Veterancy (R21) -----
