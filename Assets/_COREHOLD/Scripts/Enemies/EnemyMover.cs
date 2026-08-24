@@ -53,6 +53,13 @@ namespace Corehold.Enemies
                  "maps have flat tangents, so this is inert on every pre-terrain scene.")]
         [SerializeField] private float gradeSpeedFactor = 0.6f;
 
+        [Tooltip("[TUNE] Cosmetic terrain lean (M-b): ground units pitch into the travel " +
+                 "tangent's grade so they visibly climb and descend, clamped to ±this many " +
+                 "degrees. The corridor band tops out near 8°, so the clamp only guards spline " +
+                 "overshoot. Purely visual — position, speed and scheduling never read it. " +
+                 "0 keeps bodies upright; flat tangents make it inert on every pre-terrain scene.")]
+        [SerializeField] private float maxLeanDegrees = 10f;
+
         [Header("Anti-overlap")]
         [Tooltip("This unit's physical radius in metres. Drives car-following spacing and lane assignment. Set per enemy size.")]
         [SerializeField] private float bodyRadius = 0.6f;
@@ -420,10 +427,25 @@ namespace Corehold.Enemies
 
         private void FaceDirection(Vector3 direction, float dt)
         {
-            direction.y = 0f;
-            if (direction.sqrMagnitude < 0.0001f)
+            // Yaw from the FLATTENED direction, exactly as pre-terrain — the
+            // turn-rate semantics and the up-vector (no roll) stay untouched.
+            Vector3 flat = direction;
+            flat.y = 0f;
+            if (flat.sqrMagnitude < 0.0001f)
                 return;
-            Quaternion targetRot = Quaternion.LookRotation(direction, Vector3.up);
+            Quaternion targetRot = Quaternion.LookRotation(flat, Vector3.up);
+
+            // Terrain lean (M-b, cosmetic): compose a clamped pitch toward the
+            // 3-D travel tangent so walkers lean into climbs and descents.
+            // Positive X rotation pitches nose-DOWN in Unity, hence the minus.
+            // A flat tangent composes identity, so pre-terrain maps are inert.
+            if (!_isAir && maxLeanDegrees > 0f && direction.sqrMagnitude > 0.0001f)
+            {
+                float pitch = Mathf.Asin(Mathf.Clamp(direction.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+                pitch = Mathf.Clamp(pitch, -maxLeanDegrees, maxLeanDegrees);
+                targetRot *= Quaternion.Euler(-pitch, 0f, 0f);
+            }
+
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, turnRate * dt);
         }
 
