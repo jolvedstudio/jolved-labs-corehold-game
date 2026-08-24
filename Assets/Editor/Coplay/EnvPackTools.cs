@@ -49,7 +49,7 @@ public static class EnvPackTools
     // Data/<PluralNoun>/ is the established convention here — Enemies, Levels,
     // Towers, Waves, Blueprints. Packs are their own type, not LevelDefinitions,
     // so they get their own folder rather than sharing Data/Levels.
-    private const string PackDir = "Assets/_COREHOLD/Data/EnvPacks";
+    internal const string PackDir = "Assets/_COREHOLD/Data/EnvPacks";
     private const string RefineryPackPath = PackDir + "/EnvPack_RefineryDelta.asset";
     private const string CreepyRoot = "Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Prefabs/";
 
@@ -109,7 +109,7 @@ public static class EnvPackTools
     /// </summary>
     private const string PrefabRoot = "Assets/Authoring/EnvPack";
 
-    private static readonly (string folder, EnvPack.PropRole role)[] CategoryFolders =
+    internal static readonly (string folder, EnvPack.PropRole role)[] CategoryFolders =
     {
         ("Landmarks",   EnvPack.PropRole.Landmark),
         ("MidField",    EnvPack.PropRole.MidField),
@@ -229,9 +229,12 @@ public static class EnvPackTools
     /// range — is carried through untouched. A rescan only adds prefabs that are new,
     /// measures numbers that are still zero, and reports what it saw. That is what makes
     /// the folders a starting point rather than a source of truth that overwrites you.
+    ///
+    /// The menu entry lives on <see cref="EnvPackWindow"/> now, which fronts BOTH this
+    /// authoring-tree build and the pick-your-own-folders scan, and shows the report
+    /// inline instead of only in the console. Returns the full report text.
     /// </summary>
-    [MenuItem("Tools/COREHOLD/Level/Build Env Packs From Folders", false, 4)]
-    public static void BuildFromFolders()
+    public static string BuildFromFolders()
     {
         var log = new StringBuilder();
         log.AppendLine("=== Build Env Packs From Folders (R25) ===");
@@ -245,7 +248,7 @@ public static class EnvPackTools
                            "Ice, Desert…), each with the four category folders inside. Props that " +
                            "suit every theme go in _Shared/ instead.");
             Debug.Log(log.ToString());
-            return;
+            return log.ToString();
         }
 
         if (!AssetDatabase.IsValidFolder(PackDir))
@@ -260,6 +263,7 @@ public static class EnvPackTools
 
         AssetDatabase.SaveAssets();
         Debug.Log(log.ToString());
+        return log.ToString();
     }
 
     /// <summary>Build one theme's pack from <c>_Shared</c> + its own folders + labels.</summary>
@@ -448,7 +452,7 @@ public static class EnvPackTools
     /// Sorted, because pack contents must not depend on filesystem enumeration order —
     /// generation is seed-deterministic and that has to survive a different machine.
     /// </summary>
-    private static List<string> DiscoverThemes()
+    internal static List<string> DiscoverThemes()
     {
         var themes = new List<string>();
         if (!AssetDatabase.IsValidFolder(PrefabRoot))
@@ -475,7 +479,7 @@ public static class EnvPackTools
     /// (which is what lets one asset carry both a role and a theme), and are searchable in
     /// the Project window as <c>l:Landmark</c>.
     /// </summary>
-    private static bool TryRoleFromLabels(GameObject prefab, out EnvPack.PropRole role)
+    internal static bool TryRoleFromLabels(GameObject prefab, out EnvPack.PropRole role)
     {
         role = EnvPack.PropRole.Unassigned;
         string[] labels = AssetDatabase.GetLabels(prefab);
@@ -557,7 +561,7 @@ public static class EnvPackTools
     /// segment-based and depth-independent, so a substring test would both miss
     /// <c>Props/Editor/x.prefab</c> and wrongly flag <c>EditorProps/x.prefab</c>.
     /// </summary>
-    private static bool IsUnderEditorFolder(string assetPath)
+    internal static bool IsUnderEditorFolder(string assetPath)
     {
         foreach (string segment in assetPath.Split('/'))
             if (segment == "Editor")
@@ -566,7 +570,7 @@ public static class EnvPackTools
     }
 
     /// <summary>Measure only what is still zero. Authored numbers are never touched.</summary>
-    private static void FillMissing(ref EnvPack.Entry entry, GameObject prefab, StringBuilder log)
+    internal static void FillMissing(ref EnvPack.Entry entry, GameObject prefab, StringBuilder log)
     {
         if (entry.footprintRadius > 0f && entry.height > 0f)
             return;
@@ -697,7 +701,7 @@ public static class EnvPackTools
 
     // ------------------------------------------------------------------ helpers
 
-    private struct Measurement
+    internal struct Measurement
     {
         /// <summary>Circumscribing XZ radius measured about the PREFAB PIVOT, at scale 1.</summary>
         public float radius;
@@ -717,7 +721,7 @@ public static class EnvPackTools
     /// whose pivot sits off to one side genuinely needs a larger radius, and measuring
     /// about the centre would under-report it by exactly the pivot offset.
     /// </summary>
-    private static bool TryMeasure(GameObject prefab, out Measurement m)
+    internal static bool TryMeasure(GameObject prefab, out Measurement m)
     {
         m = default;
 
@@ -773,7 +777,7 @@ public static class EnvPackTools
     /// Flag the cases where a single radius is a poor model of the prop, so a human
     /// overrides it deliberately rather than discovering it as a prop in the lane.
     /// </summary>
-    private static void AppendMeasurementWarnings(string name, Measurement m, float scale, StringBuilder log)
+    internal static void AppendMeasurementWarnings(string name, Measurement m, float scale, StringBuilder log)
     {
         float longSide = Mathf.Max(m.footprint.x, m.footprint.y);
         float shortSide = Mathf.Max(0.01f, Mathf.Min(m.footprint.x, m.footprint.y));
@@ -809,7 +813,7 @@ public static class EnvPackTools
     ///   • ≤ 2 m and ≤ 2 m — below enemy eye height, so it cannot break a turret's line
     ///     to a covered span, which is what makes clutter safe to scatter freely.
     /// </summary>
-    private static EnvPack.PropRole SuggestRole(Measurement m, float scale)
+    internal static EnvPack.PropRole SuggestRole(Measurement m, float scale)
     {
         float h = m.height * scale;
         float r = m.radius * scale;
@@ -843,13 +847,20 @@ public static class EnvPackTools
         return $"Pinned into {bpPath} (envPackPool, one entry — a pinned theme does not vary by seed).";
     }
 
+    /// <summary>The machine-local roots .gitignore excludes — a pack referencing them
+    /// only resolves on machines with the same kits installed.</summary>
+    internal static readonly string[] IgnoredVendorRoots =
+    {
+        "Assets/Vendor/", "Assets/Yoge/", "Assets/Layer Lab/"
+    };
+
     /// <summary>
-    /// A pack referencing Assets/Vendor/ carries GUIDs that resolve to nothing for
-    /// anyone without those packages. That failure is at least loud — CountInvalid
-    /// reports it and the generate gate refuses — but it is worth saying out loud
-    /// before the asset gets committed.
+    /// A pack referencing a git-ignored vendor root carries GUIDs that resolve to
+    /// nothing for anyone without those packages. That failure is at least loud —
+    /// CountInvalid reports it and the generate gate refuses — but it is worth
+    /// saying out loud before the asset gets committed.
     /// </summary>
-    private static void AppendCommitWarning(EnvPack pack, StringBuilder log)
+    internal static void AppendCommitWarning(EnvPack pack, StringBuilder log)
     {
         int vendor = 0;
         if (pack.entries != null)
@@ -858,8 +869,14 @@ public static class EnvPackTools
             {
                 if (e.prefab == null)
                     continue;
-                if (AssetDatabase.GetAssetPath(e.prefab).StartsWith("Assets/Vendor/"))
+                string path = AssetDatabase.GetAssetPath(e.prefab);
+                foreach (string root in IgnoredVendorRoots)
+                {
+                    if (!path.StartsWith(root))
+                        continue;
                     vendor++;
+                    break;
+                }
             }
         }
 
@@ -867,8 +884,9 @@ public static class EnvPackTools
             return;
 
         log.AppendLine();
-        log.AppendLine($"NOTE: {vendor} entr(ies) reference Assets/Vendor/, which is git-ignored. Committing this " +
-                       "pack ships GUIDs that resolve to null for anyone without those packages — the generate " +
-                       "gate will reject it rather than dress a level wrongly, but they will need the kit.");
+        log.AppendLine($"NOTE: {vendor} entr(ies) reference a git-ignored vendor root " +
+                       $"({string.Join(", ", IgnoredVendorRoots)}). Committing this pack ships GUIDs that " +
+                       "resolve to null for anyone without those packages — the generate gate will reject " +
+                       "it rather than dress a level wrongly, but they will need the kit installed.");
     }
 }
