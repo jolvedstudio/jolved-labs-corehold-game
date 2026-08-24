@@ -46,6 +46,12 @@ namespace Corehold.UI
         [SerializeField] private TMP_Text sellLabel;
         [SerializeField] private Button closeButton;
 
+        [Header("Mid-term features (M-a/M-c)")]
+        [SerializeField] private Button moveButton;
+        [SerializeField] private TMP_Text moveLabel;
+        [SerializeField] private Button camButton;
+        [SerializeField] private Button controlButton;
+
         [Header("Targeting priority")]
         [SerializeField] private Button priorityFirst;
         [SerializeField] private Button priorityClosest;
@@ -71,6 +77,9 @@ namespace Corehold.UI
             if (upgradeButton != null) upgradeButton.onClick.AddListener(OnUpgrade);
             if (sellButton != null) sellButton.onClick.AddListener(OnSell);
             if (closeButton != null) closeButton.onClick.AddListener(Hide);
+            if (moveButton != null) moveButton.onClick.AddListener(OnMove);
+            if (camButton != null) camButton.onClick.AddListener(OnCam);
+            if (controlButton != null) controlButton.onClick.AddListener(OnControl);
             if (priorityFirst != null) priorityFirst.onClick.AddListener(() => SetPriority(TargetingPriority.First));
             if (priorityClosest != null) priorityClosest.onClick.AddListener(() => SetPriority(TargetingPriority.Closest));
             if (priorityStrongest != null) priorityStrongest.onClick.AddListener(() => SetPriority(TargetingPriority.Strongest));
@@ -81,6 +90,9 @@ namespace Corehold.UI
             if (upgradeButton != null) upgradeButton.onClick.RemoveAllListeners();
             if (sellButton != null) sellButton.onClick.RemoveAllListeners();
             if (closeButton != null) closeButton.onClick.RemoveAllListeners();
+            if (moveButton != null) moveButton.onClick.RemoveAllListeners();
+            if (camButton != null) camButton.onClick.RemoveAllListeners();
+            if (controlButton != null) controlButton.onClick.RemoveAllListeners();
             if (priorityFirst != null) priorityFirst.onClick.RemoveAllListeners();
             if (priorityClosest != null) priorityClosest.onClick.RemoveAllListeners();
             if (priorityStrongest != null) priorityStrongest.onClick.RemoveAllListeners();
@@ -97,6 +109,8 @@ namespace Corehold.UI
             // Show the current range as a ground ring while the panel is open.
             if (rangeRing != null && _pad.Occupant != null)
                 rangeRing.Show(_pad.transform.position, _pad.Occupant.EffectiveRange);
+
+            TurretCamera.NotifySelected(pad);
         }
 
         public void Hide()
@@ -104,6 +118,33 @@ namespace Corehold.UI
             _pad = null;
             if (root != null) root.SetActive(false);
             if (rangeRing != null) rangeRing.Hide();
+            TurretCamera.NotifyDeselected();
+        }
+
+        // ----- Mid-term features (M-a camera/control, M-c relocation) -----
+
+        private void OnMove()
+        {
+            if (_pad == null) return;
+            if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+            TurretRelocation.Begin(_pad);
+            Hide(); // the next free-pad tap completes the move; empty ground cancels
+        }
+
+        private void OnCam()
+        {
+            if (_pad == null) return;
+            if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+            TurretCamera.Toggle(_pad);
+        }
+
+        private void OnControl()
+        {
+            if (_pad == null) return;
+            if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+            var pad = _pad;
+            Hide();
+            ManualTurretControl.Enter(pad);
         }
 
         private void Refresh()
@@ -153,6 +194,11 @@ namespace Corehold.UI
 
             // Sell value.
             if (sellLabel != null) sellLabel.text = $"SELL  +{_pad.SellValue}";
+
+            // Relocation reads differently by phase: free instant MOVE while
+            // building, a weapons-offline WALK mid-wave (M-c).
+            if (moveLabel != null)
+                moveLabel.text = gm != null && gm.State == GameState.Wave ? "WALK" : "MOVE";
 
             // Upgrade button.
             if (upgradeButton != null)

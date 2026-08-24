@@ -113,9 +113,26 @@ namespace Corehold.Towers
         /// <summary>Combined shots-per-second across every mount, scaled by any aura fire-rate buff.</summary>
         public float FireRate => HasTier ? CurrentTier.TotalFireRate * (1f + FireRateBonus) : 0f;
 
+        // ----- Manual control (M-a, man-the-turret) -----
+
+        /// <summary>While manned, the weapon fires only when the trigger is held —
+        /// the player's hand replaces the autonomous loop.</summary>
+        public bool ManualMode { get; set; }
+
+        /// <summary>The player's trigger state while manned.</summary>
+        public bool ManualTrigger { get; set; }
+
+        /// <summary>[TUNE] Fire-rate bonus while a player mans this turret. A
+        /// player-optional buff only makes runs EASIER than certified, the same
+        /// class as skilled play — deliberately unmodeled, the model stays a
+        /// lower bound.</summary>
+        public float MannedFireRateBonus { get; set; } = 0.25f;
+
         // Aura buff fractions, sourced from the owning Tower (0 when none present).
         private float DamageBonus => _tower != null ? _tower.CurrentModifiers.damageBonus : 0f;
-        private float FireRateBonus => _tower != null ? _tower.CurrentModifiers.fireRateBonus : 0f;
+        private float FireRateBonus =>
+            (_tower != null ? _tower.CurrentModifiers.fireRateBonus : 0f) +
+            (ManualMode ? MannedFireRateBonus : 0f);
 
         // Veterancy damage multiplier from the owning Tower (R21; 1 when none present).
         private float VeterancyMultiplier => _tower != null ? _tower.VeterancyDamageMultiplier : 1f;
@@ -225,8 +242,9 @@ namespace Corehold.Towers
             Vector3 aimPoint = target.HitPoint;
             _aim.AimAt(aimPoint);
 
-            // Fire every ready mount only once aimed.
-            if (_aim.IsAimed)
+            // Fire every ready mount only once aimed. Manned turrets add one more
+            // condition: the player's trigger — the aim keeps tracking either way.
+            if (_aim.IsAimed && !(ManualMode && !ManualTrigger))
             {
                 for (int i = 0; i < weapons.Length; i++)
                 {

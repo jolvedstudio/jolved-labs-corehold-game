@@ -173,7 +173,7 @@ namespace Corehold.Towers
         /// </summary>
         public bool TryBuild(TowerDefinition def)
         {
-            if (IsOccupied)
+            if (IsOccupied || IsReserved)
                 return false;
             if (def == null || def.tiers == null || def.tiers.Length == 0 || def.basePrefab == null)
                 return false;
@@ -265,6 +265,51 @@ namespace Corehold.Towers
 
             OnOccupancyChanged?.Invoke(this);
             // Rim resumes pulsing automatically in Update now that the pad is empty.
+        }
+
+        // ----- Relocation (M-c): turrets move between pads without the sell tax -----
+
+        /// <summary>A transit is inbound — the pad reads as taken for building and
+        /// tap-routing even though no occupant sits on it yet.</summary>
+        public bool IsReserved { get; private set; }
+
+        public void SetReserved(bool value)
+        {
+            IsReserved = value;
+            OnOccupancyChanged?.Invoke(this);
+        }
+
+        /// <summary>
+        /// Hand the occupant off for relocation WITHOUT selling: tier, veterancy
+        /// and invested value all travel with the Tower object. The pad is free
+        /// (and buildable) the moment the turret departs.
+        /// </summary>
+        public bool DetachForRelocation(out Tower tower, out int invested)
+        {
+            tower = _occupant;
+            invested = _invested;
+            if (tower == null) return false;
+            _occupant = null;
+            _invested = 0;
+            OnOccupancyChanged?.Invoke(this);
+            return true;
+        }
+
+        /// <summary>Receive a relocated turret (instant or end-of-transit). The
+        /// mount re-parents it; investment carries so SellValue stays honest.</summary>
+        public void ReceiveRelocated(Tower tower, int invested)
+        {
+            if (tower == null || IsOccupied) return;
+            var t = tower.transform;
+            t.SetParent(turretMount != null ? turretMount : transform, false);
+            t.localPosition = Vector3.zero;
+            t.localRotation = Quaternion.identity;
+            _occupant = tower;
+            _invested = invested;
+            IsReserved = false;
+            SetRimDark();
+            SetAuraDark();
+            OnOccupancyChanged?.Invoke(this);
         }
 
         /// <summary>
