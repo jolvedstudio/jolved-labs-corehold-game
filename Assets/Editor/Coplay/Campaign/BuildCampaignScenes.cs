@@ -50,14 +50,55 @@ namespace CoreholdEditor.Campaign
 
             EnsureFolder(SceneDir);
 
-            BuildWelcome();
-            BuildClosing();
+            // The stub flow wires the TEST manifest if one exists — the real
+            // campaign flow goes through BuildBoth(authoring) below.
+            BuildWelcome(WelcomePath, AssetDatabase.LoadAssetAtPath<CampaignManifest>(ManifestPath));
+            BuildClosing(ClosingPath);
 
             RegisterInBuildSettings(WelcomePath);
             RegisterInBuildSettings(ClosingPath);
 
             Debug.Log($"[Campaign] Built {WelcomePath} and {ClosingPath} and registered both in Build Settings.\n" +
                       "Next: Tools → COREHOLD → Campaign → Create Test Manifest, then open the Welcome scene and press Play.");
+        }
+
+        /// <summary>
+        /// The Campaign Builder's menu-scene build: scenes live in THE
+        /// CAMPAIGN'S OWN folder (Scenes/Campaign/&lt;id&gt;/), the authoring's
+        /// scene paths are updated to match, and the campaign's OWN manifest is
+        /// wired into the Welcome scene when it already exists. This is what
+        /// removes the old fragility where every campaign shared one Welcome
+        /// scene at a fixed path and the last-emitted manifest won.
+        /// </summary>
+        internal static string BuildBoth(CampaignAuthoring authoring)
+        {
+            if (authoring == null || string.IsNullOrWhiteSpace(authoring.campaignId))
+                return "Menu scenes NOT built — the campaign needs an id first (step 2).";
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                return "Menu scenes NOT built — cancelled at the save prompt.";
+
+            string dir = authoring.SceneFolder;
+            EnsureFolder(dir);
+            string welcomePath = $"{dir}/Campaign_Welcome.unity";
+            string closingPath = $"{dir}/Campaign_Closing.unity";
+
+            var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(authoring.ManifestAssetPath);
+            BuildWelcome(welcomePath, manifest);
+            BuildClosing(closingPath);
+
+            authoring.welcomeScenePath = welcomePath;
+            authoring.closingScenePath = closingPath;
+            EditorUtility.SetDirty(authoring);
+            AssetDatabase.SaveAssets();
+
+            RegisterInBuildSettings(welcomePath);
+            RegisterInBuildSettings(closingPath);
+
+            return $"Welcome + Closing built in {dir} and registered.\n" +
+                   (manifest != null
+                       ? $"Manifest '{manifest.name}' wired into the Welcome scene."
+                       : "No manifest emitted yet — 'Emit manifest + wire Welcome' (or Generate ALL) " +
+                         "wires it into this scene once it exists.");
         }
 
         [MenuItem("Tools/COREHOLD/Campaign/Create Test Manifest (first 2 registered levels)", false, 11)]
@@ -116,7 +157,7 @@ namespace CoreholdEditor.Campaign
 
         // ------------------------------------------------------------- welcome
 
-        private static void BuildWelcome()
+        private static void BuildWelcome(string scenePath, CampaignManifest manifestToWire)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -144,17 +185,16 @@ namespace CoreholdEditor.Campaign
             so.FindProperty("veteranButton").objectReferenceValue = veteran;
             so.FindProperty("nightmareButton").objectReferenceValue = nightmare;
             so.FindProperty("continueButton").objectReferenceValue = cont;
-            var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(ManifestPath);
-            if (manifest != null)
-                so.FindProperty("manifest").objectReferenceValue = manifest;
+            if (manifestToWire != null)
+                so.FindProperty("manifest").objectReferenceValue = manifestToWire;
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            EditorSceneManager.SaveScene(scene, WelcomePath);
+            EditorSceneManager.SaveScene(scene, scenePath);
         }
 
         // ------------------------------------------------------------- closing
 
-        private static void BuildClosing()
+        private static void BuildClosing(string scenePath)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -180,7 +220,7 @@ namespace CoreholdEditor.Campaign
             so.FindProperty("welcomeButton").objectReferenceValue = home;
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            EditorSceneManager.SaveScene(scene, ClosingPath);
+            EditorSceneManager.SaveScene(scene, scenePath);
         }
 
         // -------------------------------------------------------------- pieces
@@ -270,24 +310,54 @@ namespace CoreholdEditor.Campaign
             return btn;
         }
 
+        /// <summary>Test-tool overload: wires into the stub Welcome scene.</summary>
         internal static void WireManifestIntoWelcome(CampaignManifest manifest)
+            => WireManifestIntoWelcome(manifest, WelcomePath);
+
+        /// <summary>
+        /// Write <paramref name="manifest"/> into the CampaignWelcome component
+        /// of the scene at <paramref name="welcomePath"/> — the ACTUAL welcome
+        /// scene the campaign uses, not a fixed path (the old hardcoded target
+        /// silently missed any campaign whose welcome scene lived elsewhere).
+        /// If that scene is already the open one it is wired in place; otherwise
+        /// it is opened, wired, saved, and the PREVIOUS scene is restored, so a
+        /// mid-batch wire never leaves the editor somewhere unexpected. Returns
+        /// false when the wiring did not happen — callers surface that, because
+        /// a campaign whose Welcome lost its manifest boots to a dead menu.
+        /// </summary>
+        internal static bool WireManifestIntoWelcome(CampaignManifest manifest, string welcomePath)
         {
-            if (!System.IO.File.Exists(WelcomePath))
+            if (string.IsNullOrEmpty(welcomePath) || !System.IO.File.Exists(welcomePath))
             {
-                Debug.LogWarning("[Campaign] Welcome scene not built yet — run Build Welcome + Closing Scenes, " +
-                                 "which picks the manifest up automatically.");
-                return;
+                Debug.LogWarning($"[Campaign] Welcome scene not built yet ({welcomePath}) — build the menu " +
+                                 "scenes; the campaign flow wires the manifest into them automatically.");
+                return false;
             }
 
-            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                return;
+            var active = SceneManager.GetActiveScene();
+            bool inPlace = active.path == welcomePath;
+            string restorePath = null;
 
-            var scene = EditorSceneManager.OpenScene(WelcomePath, OpenSceneMode.Single);
+            if (!inPlace)
+            {
+                if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                {
+                    Debug.LogWarning("[Campaign] Manifest NOT wired into the Welcome scene — cancelled at the " +
+                                     "save prompt. Run 'Emit manifest + wire Welcome' again.");
+                    return false;
+                }
+                // Remember where the user was — only a real, saved scene can be
+                // restored (an untitled scene has no path to reopen).
+                if (!string.IsNullOrEmpty(active.path) && System.IO.File.Exists(active.path))
+                    restorePath = active.path;
+            }
+
+            var scene = inPlace ? active : EditorSceneManager.OpenScene(welcomePath, OpenSceneMode.Single);
             var welcome = Object.FindFirstObjectByType<CampaignWelcome>();
             if (welcome == null)
             {
-                Debug.LogError("[Campaign] Welcome scene has no CampaignWelcome component — rebuild the stub scenes.");
-                return;
+                Debug.LogError($"[Campaign] '{welcomePath}' has no CampaignWelcome component — rebuild the menu scenes.");
+                return false;
             }
 
             var so = new SerializedObject(welcome);
@@ -295,15 +365,36 @@ namespace CoreholdEditor.Campaign
             so.ApplyModifiedPropertiesWithoutUndo();
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
+
+            if (restorePath != null && restorePath != welcomePath)
+                EditorSceneManager.OpenScene(restorePath, OpenSceneMode.Single);
+            return true;
         }
 
         // -------------------------------------------------------------- utils
 
-        private static void EnsureFolder(string path)
+        /// <summary>
+        /// Create every missing folder along an Assets/… path. Hardened: a path
+        /// with no separator (or outside Assets) is refused loudly instead of
+        /// throwing on Substring — folder creation is the campaign flow's
+        /// foundation, and it must never die half-way with no explanation.
+        /// </summary>
+        internal static void EnsureFolder(string path)
         {
-            if (AssetDatabase.IsValidFolder(path)) return;
-            string parent = path.Substring(0, path.LastIndexOf('/'));
-            string leaf = path.Substring(path.LastIndexOf('/') + 1);
+            if (string.IsNullOrEmpty(path) || AssetDatabase.IsValidFolder(path)) return;
+            int slash = path.LastIndexOf('/');
+            if (slash <= 0 || !path.StartsWith("Assets"))
+            {
+                Debug.LogError($"[Campaign] Cannot create folder '{path}' — not a valid Assets/ path.");
+                return;
+            }
+            string parent = path.Substring(0, slash);
+            string leaf = path.Substring(slash + 1);
+            if (string.IsNullOrEmpty(leaf))
+            {
+                Debug.LogError($"[Campaign] Cannot create folder '{path}' — empty leaf (trailing slash?).");
+                return;
+            }
             EnsureFolder(parent);
             AssetDatabase.CreateFolder(parent, leaf);
         }
