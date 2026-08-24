@@ -32,6 +32,11 @@ namespace CoreholdEditor.Campaign
                  "at BUILD time, existing scenes keep whatever they were baked with.")]
         public UISkin uiSkin;
 
+        [Tooltip("Part C: synthesize each stage's waves from this recipe (roster + intensity curve, " +
+                 "seeded per stage, escalating per stage, re-certified by the balance model against the " +
+                 "generated map). Null = clone the shipped wave tables per stage, as before.")]
+        public WaveRecipe waveRecipe;
+
         [Tooltip("Menu scenes. Defaults are the stub-builder outputs; A1 reuses them.")]
         public string welcomeScenePath = BuildCampaignScenes.WelcomePath;
         public string closingScenePath = BuildCampaignScenes.ClosingPath;
@@ -55,7 +60,10 @@ namespace CoreholdEditor.Campaign
             public int acceptedSeed;
             public string scenePath;      // committed campaign copy, Scenes/Campaign/<id>/
             public string levelDefPath;   // committed LevelDefinition, Data/Levels/Campaign/<id>/
-            public string wavesFolder;    // this stage's deep-cloned WaveDefinition assets
+            public string wavesFolder;    // this stage's own WaveDefinition assets (cloned or synthesized)
+
+            [System.NonSerialized]
+            public string wavesJsonPath;  // synth twin for the model re-solve (temp; this run only)
         }
 
         /// <summary>Where this campaign's committed scenes live (decision D1).</summary>

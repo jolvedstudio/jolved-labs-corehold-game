@@ -22,10 +22,16 @@ namespace Corehold.EditorTools
         /// <summary>
         /// Menu wrapper — this tool predates the menu convention and was only
         /// reachable through CoPlay, while every re-run instruction assumed a
-        /// click. Safe to re-run: assets are updated in place, prefabs are
-        /// linked when they exist (Shrike/Warden/Colossus), never duplicated.
+        /// click.
+        ///
+        /// NO MENU ITEM any more — this is a GDD transcription, and the live
+        /// assets have moved past the GDD: Wave_01 gained a hand-authored boss
+        /// group, air groups were retuned, and Enemy_Colossus.asset was replaced
+        /// by the A/B variants. Re-running would silently revert all of that
+        /// (the same failure mode that de-menued Build Refinery Delta). Waves
+        /// are authored by the WaveRecipe/WaveSynthesizer now; this class stays
+        /// as the historical bootstrap, callable deliberately, never by click.
         /// </summary>
-        [MenuItem("Tools/COREHOLD/Scene Setup/Wave Data (Enemies + Waves)", false, 52)]
         public static void Run() =>
             Debug.Log("[COREHOLD] Wave data generator:\n" + Execute());
 

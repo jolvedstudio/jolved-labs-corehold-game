@@ -107,7 +107,7 @@ public static class BalanceModelRunner
     /// </summary>
     public static Result Run(List<PathRoute> routes, Vector3 airSpawn, Vector3 coreTarget,
                              bool solveGrowth, float hpGrowth, int maxLive, out string error,
-                             int startingSalvage = -1)
+                             int startingSalvage = -1, string wavesJsonPath = null)
     {
         error = null;
 
@@ -126,6 +126,10 @@ public static class BalanceModelRunner
         // difficulty economy multiplier for it). -1 = the model's default.
         if (startingSalvage >= 0)
             args.Append($"--starting-salvage {startingSalvage} ");
+        // Part C: synthesized wave tables replace the shipped ones for this run,
+        // so the gate certifies the waves the level will actually play.
+        if (!string.IsNullOrEmpty(wavesJsonPath))
+            args.Append($"--waves \"{wavesJsonPath}\" ");
         args.Append(solveGrowth
             ? "--solve-hp-growth"
             : $"--hp-growth {hpGrowth.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)}");

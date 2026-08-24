@@ -44,10 +44,27 @@ namespace CoreholdEditor
         static readonly Color DefaultCyan = new Color(0.20f, 0.85f, 1f, 1f);
         static readonly Color DefaultAmber = new Color(1f, 0.6f, 0.1f, 1f);
         static readonly Color DefaultDanger = new Color(1f, 0.3f, 0.3f, 1f);
-        static Color Cyan => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.accent : DefaultCyan;
-        static Color Amber => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.warm : DefaultAmber;
-        static Color Danger => Campaign.UISkin.Active != null ? Campaign.UISkin.Active.danger : DefaultDanger;
+        static readonly Color DefaultTextMuted = new Color(0.8f, 0.9f, 0.95f, 1f);
+        static readonly Color DefaultScrim = new Color(0.04f, 0.06f, 0.09f, 1f);
+        static readonly Color DefaultBoss = new Color(1f, 0.35f, 0.25f, 1f);
+        static Campaign.UISkin Skin => Campaign.UISkin.Active;
+        static Color Cyan => Skin != null ? Skin.accent : DefaultCyan;
+        static Color Amber => Skin != null ? Skin.warm : DefaultAmber;
+        static Color Danger => Skin != null ? Skin.danger : DefaultDanger;
+        static Color TextMuted => Skin != null ? Skin.textMuted : DefaultTextMuted;
+        static Color Boss => Skin != null ? Skin.boss : DefaultBoss;
+        /// <summary>Scrim role at a given alpha — dark fills whose opacity is per-use.</summary>
+        static Color Scrim(float alpha)
+        {
+            Color c = Skin != null ? Skin.scrim : DefaultScrim;
+            return new Color(c.r, c.g, c.b, alpha);
+        }
         static readonly Color PanelTint = new Color(1f, 1f, 1f, 1f);
+
+        // ---- Proportions (skin, baked at build time) ----
+        /// <summary>Extra px on every built button, for kit art with thick borders.</summary>
+        static float ButtonPad => Skin != null ? Skin.buttonPadding : 0f;
+        static Vector2 PadButton(Vector2 size) => size + new Vector2(ButtonPad, ButtonPad);
 
         static TMP_FontAsset _font;
         static float _large = 34f, _small = 22f;
@@ -58,8 +75,15 @@ namespace CoreholdEditor
             var sb = new StringBuilder();
             _font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(FontPath);
             if (_font == null) _font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset");
-            if (Campaign.UISkin.Active != null && Campaign.UISkin.Active.font != null)
-                _font = Campaign.UISkin.Active.font; // campaign skin outranks both fallbacks
+            if (Skin != null && Skin.font != null)
+                _font = Skin.font; // campaign skin outranks both fallbacks
+
+            // Type scale rides on the shipped 34/22 rather than replacing them,
+            // so a skin states intent ("25% bigger") and inherits any future
+            // retune of the base sizes.
+            float typeScale = Skin != null ? Mathf.Max(0.1f, Skin.textScale) : 1f;
+            _large = 34f * typeScale;
+            _small = 22f * typeScale;
 
             // 1. Theme + catalogues.
             var theme = BuildTheme(sb);
@@ -231,7 +255,7 @@ namespace CoreholdEditor
             strikeCdImg.fillOrigin = (int)Image.Origin360.Top;
             strikeCdImg.fillClockwise = false;
             strikeCdImg.fillAmount = 0f;
-            strikeCdImg.color = new Color(0.02f, 0.04f, 0.06f, 0.62f);
+            strikeCdImg.color = Scrim(0.62f);
             strikeCdImg.raycastTarget = false;
             var strikeLabel = strikeBtn.GetComponentInChildren<TMP_Text>();
             strikeLabel.transform.SetAsLastSibling(); // keep text above the sweep
@@ -245,12 +269,12 @@ namespace CoreholdEditor
             // ---- Colossus bar (top, hidden by default) ----
             var bossRoot = MakeRect(canvas.transform, "ColossusBar", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -160), new Vector2(900, 40));
             var bossBg = bossRoot.gameObject.AddComponent<Image>();
-            bossBg.sprite = theme.barBackground; bossBg.type = Image.Type.Sliced; bossBg.color = new Color(0.05f, 0.06f, 0.08f, 0.9f);
+            bossBg.sprite = theme.barBackground; bossBg.type = Image.Type.Sliced; bossBg.color = Scrim(0.9f);
             var bossFillRect = MakeRect(bossRoot, "Fill", new Vector2(0, 0), new Vector2(1, 1), Vector2.zero, Vector2.zero);
             bossFillRect.offsetMin = new Vector2(4, 4); bossFillRect.offsetMax = new Vector2(-4, -4);
             var bossFill = bossFillRect.gameObject.AddComponent<Image>();
             bossFill.sprite = theme.barFill; bossFill.type = Image.Type.Filled; bossFill.fillMethod = Image.FillMethod.Horizontal;
-            bossFill.color = new Color(1f, 0.35f, 0.25f, 1f); bossFill.fillAmount = 1f;
+            bossFill.color = Boss; bossFill.fillAmount = 1f;
             var bossLbl = MakeText(bossRoot, "Label", "COLOSSUS", _small, TextAlignmentOptions.Center, Vector2.zero, new Vector2(880, 34));
             bossRoot.gameObject.SetActive(false);
 
@@ -418,7 +442,7 @@ namespace CoreholdEditor
             SetAnchors(nm.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -4));
             var role = MakeText(cell, "Role", "ROLE", 11f, TextAlignmentOptions.Center, new Vector2(0, -22), new Vector2(132, 14));
             SetAnchors(role.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -22));
-            role.color = new Color(0.7f, 0.85f, 0.9f, 1f);
+            role.color = TextMuted;
             var cost = MakeText(cell, "Cost", "100", 18f, TextAlignmentOptions.Center, new Vector2(0, 10), new Vector2(132, 22));
             SetAnchors(cost.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 20));
             cost.color = Cyan;
@@ -443,7 +467,7 @@ namespace CoreholdEditor
             var dps = MakeText(root, "DPS", "DPS  20.0", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -84), new Vector2(380, 24));
             var range = MakeText(root, "Range", "RANGE  12 m", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -112), new Vector2(380, 24));
             var next = MakeText(root, "Next", "NEXT (T2): 130", 18f, TextAlignmentOptions.TopLeft, new Vector2(20, -142), new Vector2(380, 44));
-            next.color = new Color(0.8f, 0.9f, 0.95f, 1f);
+            next.color = TextMuted;
 
             // Priority selector.
             var prioLbl = MakeText(root, "PriorityLabel", "TARGETING", 16f, TextAlignmentOptions.Left, new Vector2(-172, -186), new Vector2(200, 20));
@@ -644,7 +668,7 @@ namespace CoreholdEditor
             SetAnchors(restTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new Vector2(wordLeft + cW + markGap + markW + markGap + 260f, 0)); // left edge starts after the mark
             var tag = MakeText(root, "Tagline", "HOLD THE LINE", _small, TextAlignmentOptions.Center, new Vector2(0, 190), new Vector2(1200, 30));
-            tag.color = new Color(0.8f,0.9f,0.95f,1f);
+            tag.color = TextMuted;
             SetAnchors(tag.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 185));
             var best = MakeText(root, "BestScore", "", _small, TextAlignmentOptions.Center, new Vector2(0, 150), new Vector2(1200, 30));
             best.color = Amber;
@@ -736,7 +760,7 @@ namespace CoreholdEditor
             rt.pivot = new Vector2(0.5f, 0.5f);
             var bg = rt.gameObject.AddComponent<Image>();
             bg.sprite = theme.barBackground; bg.type = Image.Type.Sliced;
-            bg.color = new Color(0.10f, 0.12f, 0.16f, 1f);
+            bg.color = Scrim(1f);
 
             var fillArea = MakeRect(rt, "FillArea", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             fillArea.offsetMin = new Vector2(4, 4); fillArea.offsetMax = new Vector2(-4, -4);
@@ -857,7 +881,13 @@ namespace CoreholdEditor
             canvas.sortingOrder = sortOrder;
             var scaler = go.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
+            // uiScale as a SMALLER reference resolution: the canvas then maps the
+            // same design pixels onto more screen, so every panel, button and
+            // label grows together and nothing needs re-anchoring. This is the
+            // one knob that makes chunky casual art fit a layout tuned for slim
+            // sci-fi art.
+            float ui = Skin != null ? Mathf.Max(0.1f, Skin.uiScale) : 1f;
+            scaler.referenceResolution = new Vector2(1920f / ui, 1080f / ui);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
             return canvas;
@@ -872,7 +902,20 @@ namespace CoreholdEditor
         static Sprite EnsureRoundedSprite()
         {
             const string dir = "Assets/_COREHOLD/Art/UI";
-            const string path = dir + "/UI_RoundedFill.png";
+            const int size = 16;
+            const float defaultRadius = 4.5f;
+
+            // The skin's roundness (0 square … 1 pill) maps onto this 16 px tile's
+            // half-size. Each distinct value gets its OWN asset — the default
+            // keeps the historical filename, so unskinned scenes and everything
+            // already referencing UI_RoundedFill.png are untouched.
+            float radius = Skin != null
+                ? Mathf.Clamp(Skin.cornerRoundness, 0f, 1f) * (size * 0.5f)
+                : defaultRadius;
+            bool isDefault = Mathf.Abs(radius - defaultRadius) < 0.05f;
+            string path = isDefault
+                ? dir + "/UI_RoundedFill.png"
+                : dir + $"/UI_RoundedFill_r{radius:0.0}.png";
 
             var existing = AssetDatabase.LoadAssetAtPath<Sprite>(path);
             if (existing != null)
@@ -881,8 +924,6 @@ namespace CoreholdEditor
             if (!AssetDatabase.IsValidFolder(dir))
                 AssetDatabase.CreateFolder("Assets/_COREHOLD/Art", "UI");
 
-            const int size = 16;
-            const float radius = 4.5f;
             var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
             for (int y = 0; y < size; y++)
             {
@@ -906,7 +947,11 @@ namespace CoreholdEditor
             var importer = (TextureImporter)AssetImporter.GetAtPath(path);
             importer.textureType = TextureImporterType.Sprite;
             importer.spriteImportMode = SpriteImportMode.Single;
-            importer.spriteBorder = new Vector4(5f, 5f, 5f, 5f);
+            // The border must cover the corner or slicing cuts it, but must stay
+            // under half the tile or opposite corners overlap on small rects
+            // (the ~11 px integrity segments are the tightest case).
+            float border = Mathf.Clamp(radius + 0.5f, 2f, 7f);
+            importer.spriteBorder = new Vector4(border, border, border, border);
             importer.alphaIsTransparency = true;
             importer.mipmapEnabled = false;
             importer.filterMode = FilterMode.Bilinear;
@@ -1086,7 +1131,7 @@ namespace CoreholdEditor
             rt.pivot = PivotForAnchor(anchorMin);
             var img = rt.gameObject.AddComponent<Image>();
             img.sprite = sprite; img.type = Image.Type.Sliced; img.color = PanelTint;
-            if (sprite == null) img.color = new Color(0.06f, 0.09f, 0.12f, 0.85f);
+            if (sprite == null) img.color = Scrim(0.85f);
             return rt;
         }
 
@@ -1117,7 +1162,10 @@ namespace CoreholdEditor
 
         static RectTransform MakeButtonBase(string name, Transform parent, UITheme theme, Vector2 anchorMin, Vector2 anchorMax, Vector2 pos, Vector2 size)
         {
-            var rt = MakeRect(parent, name, anchorMin, anchorMax, pos, size);
+            // Skin padding lands here, at the ONE place every built button is
+            // born (MakeButton delegates to this), so thick kit borders get
+            // their room without touching a single call site's numbers.
+            var rt = MakeRect(parent, name, anchorMin, anchorMax, pos, PadButton(size));
             rt.pivot = new Vector2(0.5f, 0.5f);
             var img = rt.gameObject.AddComponent<Image>();
             img.sprite = theme.buttonNormal; img.type = Image.Type.Sliced; img.color = Color.white;
@@ -1159,7 +1207,7 @@ namespace CoreholdEditor
             var rt = MakeRect(parent, name, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
             var img = rt.gameObject.AddComponent<Image>();
-            img.color = new Color(0.02f, 0.03f, 0.05f, alpha);
+            img.color = Scrim(alpha);
             return rt;
         }
 

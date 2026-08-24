@@ -8,7 +8,8 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Ticket 30/31 — Refinery Delta blockout builder.
-/// Run: Tools/COREHOLD/Level/Build Refinery Delta.
+/// No longer exposed on the menu (see Build below); its helpers serve the
+/// generation pipeline, which is how maps are made now.
 ///
 /// Rebuilds the "RefineryLevel" container, route waypoints, hardpoints and set
 /// dressing, and removes the old placeholder Core / Route_* objects. Coordinate
@@ -58,8 +59,13 @@ public static class RefineryDeltaBlockout
         CorePos,                      // arrive at the Core (34.5,-6.5)
     };
 
-    [MenuItem("Tools/COREHOLD/Level/Build Refinery Delta", false, 1)]
-    public static void Build()
+    // No menu item. This rebuilds the SHIPPED map's blockout from the constants
+    // below, and the shipped scene is ground truth — its pads were hand-moved
+    // after this last ran, so a rebuild silently reverts that. With parity
+    // retired the generator makes new maps and Clone Level forks existing ones;
+    // nothing needs to re-run this. The class stays because the pipeline uses
+    // its helpers (BuildCore/BuildRoute/WireOne/BuildHardpoints/MakeHP).
+    internal static void Build()
     {
         var log = new StringBuilder();
 

@@ -1119,7 +1119,42 @@ def main(argv=None) -> int:
                     help="campaign entry bank (A2): ABSOLUTE starting salvage, used as-is "
                          "(no difficulty economy multiplier — the caller already settled it); "
                          "omit for the tunable default")
+    ap.add_argument("--waves", metavar="PATH",
+                    help="replace the shipped wave tables with synthesized ones (Part C): a JSON "
+                         "list of waves, each {clear, mutators?, groups:[{enemy,count,gap,offset,"
+                         "spawner}]}. Enemy ids must exist in ENEMIES (the forge prints the row "
+                         "to add). Omit for the shipped tables")
     args = ap.parse_args(argv)
+
+    if args.waves:
+        try:
+            with open(args.waves, encoding="utf-8") as f:
+                data = json.load(f)
+            parsed = []
+            for w in data:
+                groups = [(g["enemy"], int(g["count"]), float(g["gap"]),
+                           float(g["offset"]), int(g["spawner"])) for g in w["groups"]]
+                d = dict(clear=int(w.get("clear", 0)), groups=groups)
+                muts = {str(m).strip().lower() for m in w.get("mutators", []) if str(m).strip()}
+                bad_m = muts - {"storm", "convoy", "overcharge", "blackout"}
+                if bad_m:
+                    raise ValueError(f"unknown mutator(s): {', '.join(sorted(bad_m))}")
+                if muts:
+                    d["mutators"] = muts
+                parsed.append(d)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            print(f"--waves '{args.waves}': {e}", file=sys.stderr)
+            return 2
+
+        unknown = {g[0] for w in parsed for g in w["groups"]} - set(ENEMIES)
+        if unknown:
+            print(f"--waves references enemies missing from ENEMIES: {', '.join(sorted(unknown))} "
+                  "— add their rows first (the Character Forge transcript prints them).",
+                  file=sys.stderr)
+            return 2
+
+        # In place, so every module-level reference sees the synthesized tables.
+        WAVES[:] = parsed
 
     if args.hp_growth is not None:
         ACTIVE["hp_growth"] = args.hp_growth
