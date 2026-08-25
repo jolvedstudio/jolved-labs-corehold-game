@@ -143,7 +143,8 @@ namespace CoreholdEditor.Campaign
                 else
                 {
                     stale++;
-                    _issues.Add($"Step 4: Level {i + 1} '{st.title}' records a scene that is missing on disk — regenerate it.");
+                    _issues.Add($"Step 4: Level {i + 1} '{st.title}' records a scene that is missing on disk — " +
+                                (st.blueprint == null ? "re-pick or restore the manual scene." : "regenerate it."));
                 }
             }
             s[3].done = expected > 0 && generated == expected && stale == 0;
@@ -304,10 +305,14 @@ namespace CoreholdEditor.Campaign
                             current, typeof(SceneAsset), false);
                         if (picked != current)
                         {
+                            // Switching a GENERATED stage to manual: its old
+                            // campaign-owned outputs are deleted (no orphans);
+                            // a previously picked manual scene is only released.
+                            var cleanup = new StringBuilder();
+                            DeleteStageOutputs(s, cleanup);
+                            if (cleanup.Length > 0)
+                                Debug.Log("[Campaign] Stage switched to a manual scene:\n" + cleanup.ToString().TrimEnd());
                             s.scenePath = picked != null ? AssetDatabase.GetAssetPath(picked) : null;
-                            s.levelDefPath = null;  // the builder does not track a manual stage's rules
-                            s.wavesFolder = null;
-                            s.acceptedSeed = 0;
                         }
                     }
 
@@ -321,10 +326,12 @@ namespace CoreholdEditor.Campaign
                         EditorUtility.SetDirty(_authoring);
 
                     bool generated = !string.IsNullOrEmpty(s.scenePath);
+                    bool isManual = s.blueprint == null && generated;
                     string status = generated
                         ? (System.IO.File.Exists(s.scenePath)
-                            ? $"seed {s.acceptedSeed} → {s.scenePath}"
-                            : $"STALE — recorded scene missing ({s.scenePath}); regenerate")
+                            ? (isManual ? $"manual — {s.scenePath}" : $"seed {s.acceptedSeed} → {s.scenePath}")
+                            : (isManual ? $"MISSING manual scene ({s.scenePath}) — re-pick or restore it"
+                                        : $"STALE — recorded scene missing ({s.scenePath}); regenerate"))
                         : "not generated yet";
                     EditorGUILayout.LabelField(status, EditorStyles.miniLabel);
 
@@ -588,7 +595,9 @@ namespace CoreholdEditor.Campaign
                 var spawners = Object.FindObjectsByType<Spawner>(FindObjectsSortMode.None);
                 var air = spawners.FirstOrDefault(s => s.name.Contains("Air"));
                 var anySpawner = spawners.FirstOrDefault(s => s.CoreTarget != null);
-                var def = AssetDatabase.LoadAssetAtPath<LevelDefinition>(stage.levelDefPath);
+                var def = string.IsNullOrEmpty(stage.levelDefPath)
+                    ? null
+                    : AssetDatabase.LoadAssetAtPath<LevelDefinition>(stage.levelDefPath);
                 if (def == null)
                 {
                     // Manual/forked stages carry no tracked def path — read the
@@ -908,14 +917,35 @@ namespace CoreholdEditor.Campaign
         private void DeleteStageOutputs(CampaignAuthoring.AuthoredStage stage, StringBuilder log)
         {
             // Regeneration hygiene (plan v2 §A.3): superseded outputs die BEFORE
-            // new ones are written, or every regeneration ships a stale scene.
+            // new ones are written — but ONLY outputs THIS CAMPAIGN OWNS, i.e.
+            // paths inside its scene/data folders. A stage can carry a MANUAL
+            // scene (a Clone Level fork, a hand-authored level): assigning a
+            // blueprint to such a stage used to route the user's scene through
+            // this delete and DESTROY it. Ownership is the guard, not intent.
             int removed = 0;
-            if (!string.IsNullOrEmpty(stage.scenePath) && AssetDatabase.DeleteAsset(stage.scenePath)) removed++;
-            if (!string.IsNullOrEmpty(stage.levelDefPath) && AssetDatabase.DeleteAsset(stage.levelDefPath)) removed++;
-            if (!string.IsNullOrEmpty(stage.wavesFolder) && AssetDatabase.DeleteAsset(stage.wavesFolder)) removed++;
-            if (removed > 0) log.AppendLine($"  deleted {removed} superseded output(s).");
+            if (DeleteOwned(stage.scenePath, _authoring.SceneFolder, log)) removed++;
+            if (DeleteOwned(stage.levelDefPath, _authoring.DataFolder, log)) removed++;
+            if (DeleteOwned(stage.wavesFolder, _authoring.DataFolder, log)) removed++;
+            if (removed > 0) log.AppendLine($"  deleted {removed} superseded campaign-owned output(s).");
             stage.scenePath = stage.levelDefPath = stage.wavesFolder = null;
+            stage.wavesJsonPath = null;
             stage.acceptedSeed = 0;
+        }
+
+        /// <summary>Delete <paramref name="path"/> only when it lives under the
+        /// campaign-owned <paramref name="ownedRoot"/>. Anything else (manual
+        /// scenes, forks, shipped assets) is released from the stage RECORD but
+        /// never touched on disk — and the log says so.</summary>
+        private static bool DeleteOwned(string path, string ownedRoot, StringBuilder log)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+            if (string.IsNullOrEmpty(ownedRoot) || !path.StartsWith(ownedRoot + "/"))
+            {
+                log.AppendLine($"  released '{path}' from the stage — not campaign-owned, never deleted by the builder.");
+                return false;
+            }
+            return AssetDatabase.DeleteAsset(path);
         }
 
         // ----------------------------------------------------------- manifest
