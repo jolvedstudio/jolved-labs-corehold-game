@@ -214,6 +214,19 @@ public static class TerrainStage
                 else if (groundMat.HasProperty("_Color"))
                     tMat.SetColor("_BaseColor", groundMat.GetColor("_Color"));
             }
+
+            // Near-field detail (M-d/POV): the theme's texture, or a generated
+            // seamless noise so it works with zero assets. The texture is
+            // scene-embedded like the mesh and material.
+            float detailStrength = ctx.theme != null ? ctx.theme.groundDetailStrength : 0.35f;
+            float detailScale = ctx.theme != null ? ctx.theme.groundDetailScale : 9f;
+            Texture2D detail = ctx.theme != null && ctx.theme.groundDetail != null
+                ? ctx.theme.groundDetail
+                : BuildDetailNoise();
+            tMat.SetTexture("_DetailMap", detail);
+            tMat.SetFloat("_DetailScale", Mathf.Max(1f, detailScale));
+            tMat.SetFloat("_DetailStrength", Mathf.Clamp01(detailStrength));
+
             mr.sharedMaterial = tMat;
         }
         else if (groundMat != null)
@@ -387,6 +400,64 @@ public static class TerrainStage
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
         return mesh;
+    }
+
+    /// <summary>
+    /// Generated seamless grayscale noise for the shader's near-field detail
+    /// slot — works with zero assets, 16 KB, scene-embedded. Fixed lattice and
+    /// seed (content-identical on every map): wrap-around value noise, two
+    /// octaves, centred on 0.5 so the overlay-multiply is neutral on average.
+    /// </summary>
+    private static Texture2D BuildDetailNoise()
+    {
+        const int size = 128;
+        const int cells = 16;   // lattice period — wrapping makes the tile seamless
+        var tex = new Texture2D(size, size, TextureFormat.RGB24, true, true)
+        {
+            name = "TerrainDetail(Noise)",
+            wrapMode = TextureWrapMode.Repeat,
+            filterMode = FilterMode.Bilinear
+        };
+
+        float Hash(int x, int y, int s)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                h = (h ^ (uint)(x & (cells - 1))) * 16777619u;
+                h = (h ^ (uint)(y & (cells - 1))) * 16777619u;
+                h = (h ^ (uint)s) * 16777619u;
+                h ^= h >> 13; h *= 0x5BD1E995u; h ^= h >> 15;
+                return (h & 0xFFFF) / 65535f;
+            }
+        }
+
+        float Value(float fx, float fy, int s)
+        {
+            int x0 = Mathf.FloorToInt(fx), y0 = Mathf.FloorToInt(fy);
+            float tx = fx - x0, ty = fy - y0;
+            tx = tx * tx * (3f - 2f * tx);
+            ty = ty * ty * (3f - 2f * ty);
+            float a = Hash(x0, y0, s), b = Hash(x0 + 1, y0, s);
+            float c = Hash(x0, y0 + 1, s), d = Hash(x0 + 1, y0 + 1, s);
+            return Mathf.Lerp(Mathf.Lerp(a, b, tx), Mathf.Lerp(c, d, tx), ty);
+        }
+
+        var pixels = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float u = x * (cells / (float)size);
+                float v = y * (cells / (float)size);
+                float n = Value(u, v, 11) * 0.65f + Value(u * 2f, v * 2f, 29) * 0.35f;
+                byte g = (byte)Mathf.Clamp(Mathf.RoundToInt((0.5f + (n - 0.5f) * 0.9f) * 255f), 0, 255);
+                pixels[y * size + x] = new Color32(g, g, g, 255);
+            }
+        }
+        tex.SetPixels32(pixels);
+        tex.Apply(true, false);
+        return tex;
     }
 
     /// <summary>

@@ -88,6 +88,17 @@ namespace Corehold.Data
         [Tooltip("Texture repeats per metre — used ONLY when groundPrefab is empty (a prefab carries its own tiling). The plane is scaled to fit each map's camera solve, so one fixed tiling would stretch by a different amount on every map; this recomputes it from the final size. 0 leaves the material's own tiling alone.")]
         public float groundTilingPerMetre;
 
+        [Tooltip("Near-field ground detail for POV cameras (M-d): a small grayscale texture tiled " +
+                 "far denser than the base map. Empty = a generated seamless noise, which already " +
+                 "reads well; assign a texture to art-direct it (cracks, gravel, sand ripples).")]
+        public Texture2D groundDetail;
+
+        [Tooltip("How strongly the detail overlays the ground (0 = off).")]
+        [Range(0f, 1f)] public float groundDetailStrength = 0.35f;
+
+        [Tooltip("How many times denser than the base map the detail tiles.")]
+        [Range(2f, 32f)] public float groundDetailScale = 9f;
+
         [Header("Dressing density")]
 
         [Tooltip("Multiplier on LANDMARK placements inside the design box (1 ≈ 3 on the standard field). 0 disables the role for this theme.")]
