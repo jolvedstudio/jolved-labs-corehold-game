@@ -88,6 +88,26 @@ namespace Corehold.Data
         [Tooltip("Texture repeats per metre — used ONLY when groundPrefab is empty (a prefab carries its own tiling). The plane is scaled to fit each map's camera solve, so one fixed tiling would stretch by a different amount on every map; this recomputes it from the final size. 0 leaves the material's own tiling alone.")]
         public float groundTilingPerMetre;
 
+        [Header("Dressing density")]
+
+        [Tooltip("Multiplier on LANDMARK placements inside the design box (1 ≈ 3 on the standard field). 0 disables the role for this theme.")]
+        [Range(0f, 4f)] public float landmarkDensity = 1f;
+
+        [Tooltip("Multiplier on MID-FIELD placements (1 ≈ 8 on the standard field).")]
+        [Range(0f, 4f)] public float midFieldDensity = 1f;
+
+        [Tooltip("Multiplier on CLUTTER placements (1 ≈ 17 on the standard field).")]
+        [Range(0f, 4f)] public float clutterDensity = 1f;
+
+        [Tooltip("Multiplier on the far-band SILHOUETTES beyond the north edge (1 ≈ 8).")]
+        [Range(0f, 4f)] public float silhouetteDensity = 1f;
+
+        [Tooltip("Fills the VISIBLE APRON — the frustum-fit ground beyond the design box, where the " +
+                 "terrain hills live — with this theme's non-silhouette props: roughly one per 180 m² " +
+                 "at 1. The apron used to stay completely bare, which is most of why maps read as " +
+                 "empty. 0 restores the bare apron.")]
+        [Range(0f, 4f)] public float outfieldDensity = 1f;
+
         [Header("Look & lighting (M-d)")]
 
         [Tooltip("Sun override baked at generation. 0 leaves the scene's authored Directional Light untouched — every pre-existing pack behaves exactly as before.")]
