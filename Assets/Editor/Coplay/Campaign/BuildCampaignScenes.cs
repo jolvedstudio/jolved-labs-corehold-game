@@ -189,7 +189,7 @@ namespace CoreholdEditor.Campaign
                 so.FindProperty("manifest").objectReferenceValue = manifestToWire;
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            EditorSceneManager.SaveScene(scene, scenePath);
+            SaveBuiltScene(scene, scenePath);
         }
 
         // ------------------------------------------------------------- closing
@@ -220,7 +220,19 @@ namespace CoreholdEditor.Campaign
             so.FindProperty("welcomeButton").objectReferenceValue = home;
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            EditorSceneManager.SaveScene(scene, scenePath);
+            SaveBuiltScene(scene, scenePath);
+        }
+
+        /// <summary>Save a freshly built menu scene over its path, asking VCS to
+        /// make an existing file writable first and refusing to fail silently —
+        /// SaveScene returns false without a word when the file is locked.</summary>
+        private static void SaveBuiltScene(Scene scene, string scenePath)
+        {
+            if (System.IO.File.Exists(scenePath))
+                AssetDatabase.MakeEditable(scenePath);
+            if (!EditorSceneManager.SaveScene(scene, scenePath))
+                Debug.LogError($"[Campaign] SaveScene FAILED for '{scenePath}' — is the file locked by " +
+                               "version control? Check it out / make it writable and rebuild the menu scenes.");
         }
 
         // -------------------------------------------------------------- pieces
@@ -317,13 +329,17 @@ namespace CoreholdEditor.Campaign
         /// <summary>
         /// Write <paramref name="manifest"/> into the CampaignWelcome component
         /// of the scene at <paramref name="welcomePath"/> — the ACTUAL welcome
-        /// scene the campaign uses, not a fixed path (the old hardcoded target
-        /// silently missed any campaign whose welcome scene lived elsewhere).
-        /// If that scene is already the open one it is wired in place; otherwise
-        /// it is opened, wired, saved, and the PREVIOUS scene is restored, so a
-        /// mid-batch wire never leaves the editor somewhere unexpected. Returns
-        /// false when the wiring did not happen — callers surface that, because
-        /// a campaign whose Welcome lost its manifest boots to a dead menu.
+        /// scene the campaign uses, not a fixed path. A LOADED copy (active OR
+        /// additive) is wired in place; otherwise the scene is opened, wired,
+        /// saved, and the previous scene restored.
+        ///
+        /// The save is REQUESTED FROM VERSION CONTROL and then VERIFIED against
+        /// the file bytes: under a checkout workflow (Unity VCS, Perforce) a
+        /// scene file can be read-only, and SaveScene then returns false
+        /// SILENTLY — which is exactly how "wired" scenes kept coming back
+        /// empty unless the user happened to have the scene open (their manual
+        /// edit context had checked the file out). Returns true only when the
+        /// manifest reference demonstrably reached the file on disk.
         /// </summary>
         internal static bool WireManifestIntoWelcome(CampaignManifest manifest, string welcomePath)
         {
@@ -334,11 +350,23 @@ namespace CoreholdEditor.Campaign
                 return false;
             }
 
-            var active = SceneManager.GetActiveScene();
-            bool inPlace = active.path == welcomePath;
-            string restorePath = null;
+            // Already loaded? (Active OR additive — the active-only check missed
+            // multi-scene setups and needlessly reopened the scene.)
+            Scene target = default;
+            bool wasLoaded = false;
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                Scene s = SceneManager.GetSceneAt(i);
+                if (s.path == welcomePath && s.isLoaded)
+                {
+                    target = s;
+                    wasLoaded = true;
+                    break;
+                }
+            }
 
-            if (!inPlace)
+            string restorePath = null;
+            if (!wasLoaded)
             {
                 if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 {
@@ -346,14 +374,21 @@ namespace CoreholdEditor.Campaign
                                      "save prompt. Run 'Emit manifest + wire Welcome' again.");
                     return false;
                 }
-                // Remember where the user was — only a real, saved scene can be
-                // restored (an untitled scene has no path to reopen).
+                var active = SceneManager.GetActiveScene();
                 if (!string.IsNullOrEmpty(active.path) && System.IO.File.Exists(active.path))
                     restorePath = active.path;
+                target = EditorSceneManager.OpenScene(welcomePath, OpenSceneMode.Single);
             }
 
-            var scene = inPlace ? active : EditorSceneManager.OpenScene(welcomePath, OpenSceneMode.Single);
-            var welcome = Object.FindFirstObjectByType<CampaignWelcome>();
+            // Find the component in THE TARGET SCENE's roots — a global find
+            // could grab a CampaignWelcome from some other loaded scene.
+            CampaignWelcome welcome = null;
+            foreach (GameObject root in target.GetRootGameObjects())
+            {
+                welcome = root.GetComponentInChildren<CampaignWelcome>(true);
+                if (welcome != null)
+                    break;
+            }
             if (welcome == null)
             {
                 Debug.LogError($"[Campaign] '{welcomePath}' has no CampaignWelcome component — rebuild the menu scenes.");
@@ -363,12 +398,24 @@ namespace CoreholdEditor.Campaign
             var so = new SerializedObject(welcome);
             so.FindProperty("manifest").objectReferenceValue = manifest;
             so.ApplyModifiedPropertiesWithoutUndo();
-            EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene);
+            EditorSceneManager.MarkSceneDirty(target);
+
+            // Ask VCS to make the file writable, save, then PROVE the save: the
+            // manifest asset's GUID must appear in the scene file afterwards.
+            AssetDatabase.MakeEditable(welcomePath);
+            bool saved = EditorSceneManager.SaveScene(target);
+            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(manifest));
+            bool verified = saved && !string.IsNullOrEmpty(guid) &&
+                            System.IO.File.ReadAllText(welcomePath).Contains(guid);
+            if (!verified)
+                Debug.LogError($"[Campaign] Manifest wiring DID NOT PERSIST to '{welcomePath}' " +
+                               $"(SaveScene {(saved ? "reported success" : "FAILED")}). If the scene is under " +
+                               "version control, check it out / make it writable, then 'Emit manifest + wire " +
+                               "Welcome' again — an unwired Welcome boots to a dead menu.");
 
             if (restorePath != null && restorePath != welcomePath)
                 EditorSceneManager.OpenScene(restorePath, OpenSceneMode.Single);
-            return true;
+            return verified;
         }
 
         // -------------------------------------------------------------- utils
