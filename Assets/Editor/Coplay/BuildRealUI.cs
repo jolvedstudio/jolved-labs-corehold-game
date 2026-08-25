@@ -291,10 +291,14 @@ namespace CoreholdEditor
             var bossFillRect = MakeRect(bossRoot, "Fill", new Vector2(0, 0), new Vector2(1, 1), Vector2.zero, Vector2.zero);
             bossFillRect.offsetMin = new Vector2(4, 4); bossFillRect.offsetMax = new Vector2(-4, -4);
             var bossFill = bossFillRect.gameObject.AddComponent<Image>();
-            bossFill.sprite = theme.barFill; bossFill.type = Image.Type.Filled; bossFill.fillMethod = Image.FillMethod.Horizontal;
-            // The health level must READ against the scrimmed bar frame — kit
-            // frames are often dark wood, and a dark boss red over dark brown
-            // was nearly invisible. Keep the skin's boss hue, floor its luminance.
+            // FILLS never use the skin's barFill sprite: a tint MULTIPLIES, so a
+            // dark kit sprite stays dark under any colour. The white generated
+            // rounded sprite makes the tint the exact on-screen colour — and the
+            // tint is luminance-floored so a dark skin palette cannot hide the
+            // health level either. The kit sprite still dresses the FRAME
+            // (barBackground), where dark is fine.
+            bossFill.sprite = EnsureRoundedSprite();
+            bossFill.type = Image.Type.Filled; bossFill.fillMethod = Image.FillMethod.Horizontal;
             bossFill.color = ReadableOnDark(Boss); bossFill.fillAmount = 1f;
             var bossLbl = MakeText(bossRoot, "Label", "COLOSSUS", _small, TextAlignmentOptions.Center, Vector2.zero, new Vector2(880, 34));
             bossRoot.gameObject.SetActive(false);
@@ -821,8 +825,10 @@ namespace CoreholdEditor
             var fill = MakeRect(fillArea, "Fill", Vector2.zero, new Vector2(0, 1), Vector2.zero, Vector2.zero);
             fill.offsetMin = Vector2.zero; fill.offsetMax = Vector2.zero;
             var fillImg = fill.gameObject.AddComponent<Image>();
-            fillImg.sprite = theme.barFill; fillImg.type = Image.Type.Sliced;
-            fillImg.color = Cyan;
+            // White rounded sprite, not the kit's barFill — see the boss bar:
+            // fills must OWN their colour, tints cannot brighten dark art.
+            fillImg.sprite = EnsureRoundedSprite(); fillImg.type = Image.Type.Sliced;
+            fillImg.color = ReadableOnDark(Cyan);
 
             var handleArea = MakeRect(rt, "HandleArea", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             handleArea.offsetMin = new Vector2(10, 0); handleArea.offsetMax = new Vector2(-10, 0);

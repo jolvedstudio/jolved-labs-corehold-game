@@ -16,6 +16,14 @@ Shader "COREHOLD/Terrain Lit"
     {
         _BaseMap ("Base Map", 2D) = "white" {}
         _BaseColor ("Base Color", Color) = (1, 1, 1, 1)
+        // Near-field detail (M-d): a small grayscale map tiled _DetailScale×
+        // denser than the base, overlay-multiplied. This is what keeps the
+        // ground readable when a POV camera stands on it despite the 512/1024
+        // texture budget — high-frequency detail costs a 16 KB texture, not a
+        // 2048 base map. "grey" default (0.5 → ×1.0) is a perfect no-op.
+        _DetailMap ("Detail (grayscale)", 2D) = "grey" {}
+        _DetailScale ("Detail Scale", Float) = 9
+        _DetailStrength ("Detail Strength", Range(0, 1)) = 0.35
     }
 
     SubShader
@@ -27,10 +35,14 @@ Shader "COREHOLD/Terrain Lit"
 
         TEXTURE2D(_BaseMap);
         SAMPLER(sampler_BaseMap);
+        TEXTURE2D(_DetailMap);
+        SAMPLER(sampler_DetailMap);
 
         CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
             half4 _BaseColor;
+            float _DetailScale;
+            half _DetailStrength;
         CBUFFER_END
         ENDHLSL
 
@@ -82,6 +94,12 @@ Shader "COREHOLD/Terrain Lit"
             {
                 half3 albedo = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv).rgb
                              * _BaseColor.rgb * input.color.rgb;
+
+                // Overlay-multiply the high-frequency detail: 0.5 is neutral,
+                // so strength 0 or the default grey texture changes nothing.
+                half detail = SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap,
+                                               input.uv * _DetailScale).r;
+                albedo *= lerp(1.0h, detail * 2.0h, _DetailStrength);
 
                 half3 normalWS = normalize(input.normalWS);
                 float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);

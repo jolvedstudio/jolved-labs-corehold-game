@@ -1,5 +1,6 @@
 using Corehold.Enemies;
 using Corehold.Towers;
+using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
@@ -8,16 +9,25 @@ namespace Corehold.Systems
 {
     /// <summary>
     /// Man the turret (M-a, tier 2): full-screen control of one turret. The
-    /// player aims with the mouse, the nearest engageable enemy to the cursor
-    /// ray becomes the turret's target (fed through
+    /// player aims with the mouse, the nearest engageable enemy to the
+    /// crosshair becomes the turret's target (fed through
     /// <see cref="TowerTargeting.ManualTarget"/> — the one seam everything
-    /// downstream already reads), and rounds fire only while the left button is
-    /// held. Manning grants the weapon's MannedFireRateBonus.
+    /// downstream already reads), and rounds fire only while the left button
+    /// is held. Manning grants the weapon's MannedFireRateBonus.
+    ///
+    /// The view is a CINEMACHINE rig, not an in-barrel camera: OrbitalFollow
+    /// holds the camera a little ABOVE and BEHIND the turret (so the turret's
+    /// own model never fills the screen), a RotationComposer keeps the aim
+    /// point framed, and a Deoccluder pushes the camera clear of terrain
+    /// hills and props (the terrain stage bakes a collider for exactly this).
+    /// The mouse drives an aim yaw/pitch; the camera orbits to sit behind
+    /// that aim — axes feed the rig, never the reverse, so there is no
+    /// feedback loop.
     ///
     /// Enter from the tower panel's CONTROL button; exit with Esc or
-    /// right-click. The main camera is disabled, not moved, so leaving restores
-    /// the exact framing. First playable slice: desktop mouse only — mobile
-    /// stays on the automated loop.
+    /// right-click. The main camera is disabled, not moved, so leaving
+    /// restores the exact framing. Desktop mouse only — mobile stays on the
+    /// automated loop.
     /// </summary>
     [DisallowMultipleComponent]
     public class ManualTurretControl : MonoBehaviour
@@ -34,16 +44,25 @@ namespace Corehold.Systems
         private Camera _mainCam;
         private GameObject _hud;
 
+        private CinemachineOrbitalFollow _orbital;
+        private Transform _aimPoint;
+
         private float _yaw, _pitch;
 
-        /// <summary>[TUNE] Mouse sensitivity, degrees per pixel of delta.</summary>
+        /// <summary>[TUNE] Mouse sensitivity (deg/px), aim pitch limits, and the
+        /// rig shape: orbit centre height over the turret base, orbit radius,
+        /// camera elevation above the horizon.</summary>
         private const float Sensitivity = 0.14f;
-        private const float PitchMin = -8f, PitchMax = 28f;
+        private const float PitchMin = -12f, PitchMax = 35f;
+        private const float RigCentreUp = 1.9f;
+        private const float RigRadius = 3.6f;
+        private const float RigElevation = 14f;
 
         public static void Enter(TowerHardpoint pad)
         {
             if (pad == null || !pad.IsOccupied) return;
             Exit(); // one turret at a time
+            TurretCamera.Suppress(); // two brains must never contest the screen
 
             var go = new GameObject("ManualTurretControl(Runtime)");
             _active = go.AddComponent<ManualTurretControl>();
@@ -67,17 +86,49 @@ namespace Corehold.Systems
 
             Transform head = _aim != null && _aim.YawPivot != null ? _aim.YawPivot : tower.transform;
             _yaw = head.eulerAngles.y;
-            _pitch = 6f;
+            _pitch = 4f;
 
+            // The rendering camera + brain.
             var camGo = new GameObject("MannedCam");
             camGo.transform.SetParent(transform, false);
             _cam = camGo.AddComponent<Camera>();
-            _cam.fieldOfView = 58f;
-            _cam.nearClipPlane = 0.1f;
+            _cam.fieldOfView = 55f;
+            _cam.nearClipPlane = 0.12f;
+            camGo.AddComponent<CinemachineBrain>();
+
+            // What the composer frames: a point far out along the aim.
+            _aimPoint = new GameObject("AimPoint").transform;
+            _aimPoint.SetParent(transform, false);
+
+            // The rig: orbit above/behind the turret, aimed at the aim point,
+            // deoccluded against the world (never the Hardpoint tap layer).
+            var rigGo = new GameObject("MannedRig");
+            rigGo.transform.SetParent(transform, false);
+            var vcam = rigGo.AddComponent<CinemachineCamera>();
+            var lens = vcam.Lens;
+            lens.FieldOfView = 55f;
+            lens.NearClipPlane = 0.12f;
+            vcam.Lens = lens;
+            vcam.Follow = tower.transform;
+            vcam.LookAt = _aimPoint;
+
+            _orbital = rigGo.AddComponent<CinemachineOrbitalFollow>();
+            _orbital.TargetOffset = new Vector3(0f, RigCentreUp, 0f);
+            _orbital.Radius = RigRadius;
+            _orbital.HorizontalAxis.Wrap = true;
+            _orbital.VerticalAxis.Range = new Vector2(-5f, 60f);
+            _orbital.VerticalAxis.Value = RigElevation;
+
+            rigGo.AddComponent<CinemachineRotationComposer>();
+
+            var deocc = rigGo.AddComponent<CinemachineDeoccluder>();
+            int hardpoint = LayerMask.NameToLayer("Hardpoint");
+            deocc.CollideAgainst = hardpoint >= 0 ? ~(1 << hardpoint) : ~0;
 
             if (_mainCam != null) _mainCam.enabled = false;
             if (_weapon != null) _weapon.ManualMode = true;
 
+            DriveRig();
             BuildHud();
         }
 
@@ -107,13 +158,16 @@ namespace Corehold.Systems
             }
             if (mouse == null) return;
 
-            // Mouse look.
+            // Mouse look — this is the AIM; the camera follows it, never the
+            // other way around.
             Vector2 delta = mouse.delta.ReadValue();
             _yaw += delta.x * Sensitivity;
             _pitch = Mathf.Clamp(_pitch - delta.y * Sensitivity, PitchMin, PitchMax);
 
-            // Pick the engageable enemy nearest the view ray; the targeting seam
-            // does the rest (aim slews, weapon fires on trigger).
+            DriveRig();
+
+            // Pick the engageable enemy nearest the crosshair ray; the targeting
+            // seam does the rest (aim slews, weapon fires on trigger).
             if (_targeting != null)
                 _targeting.ManualTarget = PickTarget();
 
@@ -121,18 +175,20 @@ namespace Corehold.Systems
                 _weapon.ManualTrigger = mouse.leftButton.isPressed;
         }
 
-        private void LateUpdate()
+        /// <summary>Feed the aim state into the rig: aim point out along the
+        /// yaw/pitch, camera azimuth behind the aim at a fixed elevation.</summary>
+        private void DriveRig()
         {
-            if (_cam == null || _pad == null || !_pad.IsOccupied) return;
+            if (_pad == null || _orbital == null) return;
+            Transform head = _aim != null && _aim.YawPivot != null
+                ? _aim.YawPivot
+                : (_pad.Occupant != null ? _pad.Occupant.transform : _pad.transform);
 
-            Transform head = _aim != null
-                ? (_aim.PitchPivot != null ? _aim.PitchPivot
-                   : _aim.YawPivot != null ? _aim.YawPivot : _pad.transform)
-                : _pad.transform;
+            Quaternion aimRot = Quaternion.Euler(_pitch, _yaw, 0f);
+            _aimPoint.position = head.position + Vector3.up * 1.2f + aimRot * Vector3.forward * 50f;
 
-            Quaternion look = Quaternion.Euler(_pitch, _yaw, 0f);
-            _cam.transform.position = head.position - look * Vector3.forward * 1.6f + Vector3.up * 0.7f;
-            _cam.transform.rotation = look;
+            _orbital.HorizontalAxis.Value = _yaw + 180f; // behind the gun
+            _orbital.VerticalAxis.Value = RigElevation;
         }
 
         private Enemy PickTarget()
