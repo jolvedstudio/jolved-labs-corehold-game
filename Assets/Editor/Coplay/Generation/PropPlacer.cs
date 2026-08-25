@@ -43,6 +43,14 @@ public static class PropPlacer
     private const int MaxAttemptsPerProp = 24;
     private const int MaxOcclusionRemovals = 10;
 
+    /// <summary>[TUNE] Props settle this far into the ground (× their scale) so
+    /// nothing perches on a groundline. The terrain stage lifts by +Height
+    /// afterwards, so the sink survives on hills and on flat maps alike.</summary>
+    private const float SinkIn = 0.10f;
+
+    /// <summary>[TUNE] Placement attempts per cluster satellite (cheap misses).</summary>
+    private const int SatelliteAttempts = 6;
+
     // Placement counts per role: a floor plus an area-scaled component, so a
     // bigger field gets proportionally more dressing. [TUNE]
     private const float FieldAreaReference = 130f * 75f;
@@ -74,7 +82,8 @@ public static class PropPlacer
     /// save — which fails gate 2b and discards the seed.
     /// </summary>
     public static string Dress(LevelBlueprint blueprint, EnvPack theme, Transform levelContainer,
-                               List<PathRoute> routes, Vector3 corePos, out List<string> stillBlocked)
+                               List<PathRoute> routes, Vector3 corePos, Vector3 airSpawn,
+                               out List<string> stillBlocked)
     {
         var log = new StringBuilder();
         stillBlocked = new List<string>();
@@ -96,6 +105,37 @@ public static class PropPlacer
 
         var pads = SceneQuery.InActiveScene<HardpointCoverageGizmo>()
             .OrderBy(g => g.name, System.StringComparer.Ordinal).ToArray();
+
+        // The SAME analytic terrain field the terrain stage will build later —
+        // identical inputs (seed purpose, flat route samples, pads, core, air
+        // lane) ⇒ identical field — so placement can settle props onto slopes
+        // it KNOWS are coming and seek interesting relief, even though the
+        // mesh does not exist yet. Null on flat maps: every terrain-aware step
+        // simply skips.
+        TerrainField field = null;
+        if (blueprint.terrainRelief)
+        {
+            var polylines = new List<Vector3[]>();
+            foreach (PathRoute route in routes)
+            {
+                int n = Mathf.Max(2, Mathf.CeilToInt(route.Length / 2f) + 1);
+                var pts = new Vector3[n];
+                for (int i = 0; i < n; i++)
+                    pts[i] = route.SamplePosition(route.Length * i / (n - 1f), out _);
+                polylines.Add(pts);
+            }
+            if (blueprint.airCorridor)
+                polylines.Add(new[] { airSpawn, corePos });
+            var padPositions = new Vector3[pads.Length];
+            for (int i = 0; i < pads.Length; i++)
+                padPositions[i] = pads[i].transform.position;
+            field = new TerrainField((int)GenerationPipeline.Fnv1a(blueprint.randomSeed, "terrain"),
+                                     polylines, padPositions, corePos);
+        }
+
+        // Satellite pool for clusters: the pack's small stuff.
+        var clutterPool = theme.entries?.Where(e => e.prefab != null && e.role == EnvPack.PropRole.Clutter)
+            .OrderBy(e => e.prefab.name, System.StringComparer.Ordinal).ToList();
 
         // The camera is FIXED (38° pitch), so whether a prop hides a pad from the
         // player is decided at placement time and never changes. One reusable
@@ -152,7 +192,7 @@ public static class PropPlacer
                 return;
             }
 
-            int placedCount = 0;
+            int placedCount = 0, satellites = 0;
             var used = new HashSet<GameObject>();
             for (int i = 0; i < target; i++)
             {
@@ -169,49 +209,34 @@ public static class PropPlacer
                         entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
                         entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
                         rng.Range(0f, 1f));
-                    float radius = entry.footprintRadius * scale;    // PLACED dimensions —
-                    float height = entry.height * scale;             // never the raw fields
 
                     Vector3 pos = inField
                         ? new Vector3(rng.Range(-halfW, halfW), 0f, rng.Range(-halfD, halfD))
                         : new Vector3(rng.Range(-halfW * 1.2f, halfW * 1.2f), 0f,
                                       blueprint.playfieldSize.y * 0.5f + rng.Range(8f, 22f));
+                    float yaw = rng.Range(0f, 360f);
 
-                    if (inField && !ClearOf(pos, radius, height, entry.allowInFold))
+                    // Silhouettes keep the LITE checks (far band, outside every
+                    // gate's jurisdiction); everything in-field runs the full suite.
+                    var go = TryPlaceProp(entry, pos, yaw, scale,
+                        $"Prop_{role}_{placedCount + 1}", requireApron: false, liteChecks: !inField);
+                    if (go == null)
                         continue;
-                    if (!inField && !ClearOfProps(pos, radius))
-                        continue;
-
-                    var go = (GameObject)PrefabUtility.InstantiatePrefab(entry.prefab);
-                    go.transform.SetParent(dressing.transform, false);
-                    go.transform.position = pos;
-                    go.transform.rotation = Quaternion.Euler(0f, rng.Range(0f, 360f), 0f);
-                    go.transform.localScale = Vector3.one * scale;
-                    go.name = $"Prop_{role}_{placedCount + 1}";
-
-                    var marker = go.AddComponent<PlacedProp>();
-                    marker.placedFootprintRadius = radius;
-                    marker.placedHeight = height;
-                    marker.role = role.ToString();
-
-                    var data = new Placed { pos = pos, radius = radius, height = height };
-                    placed.Add(data);
-                    placedObjects.Add((go, data));
-
-                    // Spend the budget only on an accepted placement — a rejected
-                    // candidate must not charge the map for route it never hid.
-                    foreach (int idx in pendingHidden)
-                        routeHidden[idx] = true;
-                    hiddenMetres += pendingHidden.Count * RouteVisibility.SampleStep;
 
                     placedCount++;
                     used.Add(entry.prefab);
+
+                    // Composition: a placed anchor may seed a cluster of small
+                    // satellites — clumping is what reads as a real place.
+                    if (inField)
+                        satellites += PlaceSatellites(pos, entry.footprintRadius * scale, yaw,
+                                                      go.name, requireApron: false);
                     break;
                 }
             }
             // The distinct count is the variety truth: "12/12 placed" can still
             // be three prefabs on repeat, and that only shows up here.
-            log.AppendLine($"  {role,-10} {placedCount}/{target} placed " +
+            log.AppendLine($"  {role,-10} {placedCount}/{target} placed, +{satellites} satellite(s) " +
                            $"({used.Count} distinct of {entries.Count} in the pack's pool)");
         }
 
@@ -246,7 +271,7 @@ public static class PropPlacer
                 fb.size.x * fb.size.z - blueprint.playfieldSize.x * blueprint.playfieldSize.y);
             int target = Mathf.Clamp(Mathf.RoundToInt(apron / 180f * theme.outfieldDensity), 0, 80);
 
-            int placedCount = 0;
+            int placedCount = 0, satellites = 0;
             var used = new HashSet<GameObject>();
             for (int i = 0; i < target; i++)
             {
@@ -257,8 +282,6 @@ public static class PropPlacer
                         entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
                         entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
                         rng.Range(0f, 1f));
-                    float radius = entry.footprintRadius * scale;
-                    float height = entry.height * scale;
 
                     var pos = new Vector3(rng.Range(fb.min.x + 3f, fb.max.x - 3f), 0f,
                                           rng.Range(fb.min.z + 3f, fb.max.z - 3f));
@@ -266,38 +289,139 @@ public static class PropPlacer
                     // and their deliberate budgets.
                     if (Mathf.Abs(pos.x) < halfW + 2f && Mathf.Abs(pos.z) < halfD + 2f)
                         continue;
-                    // Full clearance suite anyway — cheap out here, and it keeps
-                    // the camera's view of pads and routes protected by the same
-                    // budget no matter where a prop stands.
-                    if (!ClearOf(pos, radius, height, false))
+
+                    // TERRAIN AFFINITY: props seek the relief instead of
+                    // ignoring it — candidates on hills always pass, bare flat
+                    // apron only sometimes, so rocks gather at shoulders and
+                    // crests the way they would in a real place. (Flat maps
+                    // have no field; uniform scatter as before.)
+                    if (field != null && field.Relief(pos.x, pos.z) < 0.4f &&
+                        rng.Range(0f, 1f) > 0.35f)
                         continue;
 
-                    var go = (GameObject)PrefabUtility.InstantiatePrefab(entry.prefab);
-                    go.transform.SetParent(dressing.transform, false);
-                    go.transform.position = pos;
-                    go.transform.rotation = Quaternion.Euler(0f, rng.Range(0f, 360f), 0f);
-                    go.transform.localScale = Vector3.one * scale;
-                    go.name = $"Prop_Outfield_{placedCount + 1}";
-
-                    var marker = go.AddComponent<PlacedProp>();
-                    marker.placedFootprintRadius = radius;
-                    marker.placedHeight = height;
-                    marker.role = "Outfield";
-
-                    var data = new Placed { pos = pos, radius = radius, height = height };
-                    placed.Add(data);
-                    placedObjects.Add((go, data));
-                    foreach (int idx in pendingHidden)
-                        routeHidden[idx] = true;
-                    hiddenMetres += pendingHidden.Count * RouteVisibility.SampleStep;
+                    float yaw = rng.Range(0f, 360f);
+                    var go = TryPlaceProp(entry, pos, yaw, scale,
+                        $"Prop_Outfield_{placedCount + 1}", requireApron: true, liteChecks: false);
+                    if (go == null)
+                        continue;
 
                     placedCount++;
                     used.Add(entry.prefab);
+                    satellites += PlaceSatellites(pos, entry.footprintRadius * scale, yaw,
+                                                  go.name, requireApron: true);
                     break;
                 }
             }
-            log.AppendLine($"  Outfield   {placedCount}/{target} placed over the {apron:0} m² apron " +
-                           $"({used.Count} distinct); terrain re-projects them onto the relief");
+            log.AppendLine($"  Outfield   {placedCount}/{target} placed, +{satellites} satellite(s) " +
+                           $"over the {apron:0} m² apron ({used.Count} distinct); terrain re-projects " +
+                           "them onto the relief");
+        }
+
+        // ------------------------------------------------------------- core
+        // The one placement path every lane shares — anchors, satellites and
+        // outfield alike: clearance suite, slope settle, instantiate, marker,
+        // bookkeeping, visibility-budget spend. Returns null when refused.
+        GameObject TryPlaceProp(EnvPack.Entry entry, Vector3 pos, float yaw, float scale,
+                                string name, bool requireApron, bool liteChecks)
+        {
+            float radius = entry.footprintRadius * scale;
+            float height = entry.height * scale;
+
+            if (requireApron && Mathf.Abs(pos.x) < halfW + 2f && Mathf.Abs(pos.z) < halfD + 2f)
+                return null;
+
+            if (liteChecks)
+            {
+                // Far-band silhouettes: outside every gate's jurisdiction —
+                // prop spacing only, and no visibility budget to spend.
+                pendingHidden.Clear();
+                if (!ClearOfProps(pos, radius))
+                    return null;
+            }
+            else if (!ClearOf(pos, radius, height, entry.allowInFold))
+            {
+                return null;
+            }
+
+            // SLOPE SETTLE (terrain maps): tilt toward the coming slope, capped
+            // by the theme, and sink slightly — nothing perches. The terrain
+            // stage lifts by +Height afterwards, so both survive the bake.
+            Quaternion rot = Quaternion.Euler(0f, yaw, 0f);
+            if (field != null && theme.slopeTiltMaxDegrees > 0f)
+            {
+                const float e = 0.75f;
+                float dhx = field.Height(pos.x + e, pos.z) - field.Height(pos.x - e, pos.z);
+                float dhz = field.Height(pos.x, pos.z + e) - field.Height(pos.x, pos.z - e);
+                var normal = new Vector3(-dhx, 2f * e, -dhz).normalized;
+                rot = Quaternion.RotateTowards(
+                    Quaternion.identity, Quaternion.FromToRotation(Vector3.up, normal),
+                    theme.slopeTiltMaxDegrees) * rot;
+            }
+            Vector3 placedPos = pos;
+            placedPos.y = -SinkIn * scale;
+
+            var go = (GameObject)PrefabUtility.InstantiatePrefab(entry.prefab);
+            go.transform.SetParent(dressing.transform, false);
+            go.transform.position = placedPos;
+            go.transform.rotation = rot;
+            go.transform.localScale = Vector3.one * scale;
+            go.name = name;
+
+            var marker = go.AddComponent<PlacedProp>();
+            marker.placedFootprintRadius = radius;
+            marker.placedHeight = height;
+            marker.role = entry.role.ToString();
+
+            var data = new Placed { pos = pos, radius = radius, height = height };
+            placed.Add(data);
+            placedObjects.Add((go, data));
+
+            // Spend the budget only on an accepted placement — a rejected
+            // candidate must not charge the map for route it never hid.
+            foreach (int idx in pendingHidden)
+                routeHidden[idx] = true;
+            hiddenMetres += pendingHidden.Count * RouteVisibility.SampleStep;
+            return go;
+        }
+
+        // A placed anchor may seed a cluster: a few smaller Clutter props
+        // scattered close around it with correlated rotation. Every satellite
+        // runs the FULL clearance suite, so clusters can never compromise what
+        // the gates protect — they only fill the space between.
+        int PlaceSatellites(Vector3 anchorPos, float anchorRadius, float anchorYaw,
+                            string anchorName, bool requireApron)
+        {
+            if (clutterPool == null || clutterPool.Count == 0 || theme.clusterMaxSatellites <= 0)
+                return 0;
+            if (rng.Range(0f, 1f) >= theme.clusterChance)
+                return 0;
+
+            int want = 1 + (int)(rng.NextU() % (uint)theme.clusterMaxSatellites);
+            int done = 0;
+            for (int s = 0; s < want; s++)
+            {
+                for (int attempt = 0; attempt < SatelliteAttempts; attempt++)
+                {
+                    EnvPack.Entry entry = clutterPool[(int)(rng.NextU() % (uint)clutterPool.Count)];
+                    float scale = Mathf.Lerp(
+                        entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
+                        entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
+                        rng.Range(0f, 1f)) * rng.Range(0.7f, 0.95f);
+
+                    float ang = rng.Range(0f, Mathf.PI * 2f);
+                    float dist = anchorRadius + entry.footprintRadius * scale + rng.Range(0.4f, 3.0f);
+                    Vector3 pos = anchorPos + new Vector3(Mathf.Cos(ang) * dist, 0f, Mathf.Sin(ang) * dist);
+                    float yaw = anchorYaw + rng.Range(-45f, 45f);
+
+                    if (TryPlaceProp(entry, pos, yaw, scale, $"{anchorName}_Sat{done + 1}",
+                                     requireApron, liteChecks: false) != null)
+                    {
+                        done++;
+                        break;
+                    }
+                }
+            }
+            return done;
         }
 
         bool ClearOf(Vector3 pos, float radius, float height, bool allowInFold)

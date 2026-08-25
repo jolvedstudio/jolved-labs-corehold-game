@@ -670,7 +670,8 @@ public static class GenerationPipeline
             return StageResult.Skip("no theme drawn — undressed beyond the silhouette band");
 
         string dressLog = PropPlacer.Dress(ctx.blueprint, ctx.theme, ctx.levelContainer,
-                                           ctx.routes, ctx.layout.corePos, out ctx.dressingStillBlocked);
+                                           ctx.routes, ctx.layout.corePos, ctx.layout.airSpawn,
+                                           out ctx.dressingStillBlocked);
         Debug.Log("[R28] Dressing:\n" + dressLog);
 
         int lines = 0;

@@ -99,6 +99,20 @@ namespace Corehold.Data
         [Tooltip("How many times denser than the base map the detail tiles.")]
         [Range(2f, 32f)] public float groundDetailScale = 9f;
 
+        [Header("Dressing composition")]
+
+        [Tooltip("Chance that a placed prop seeds a CLUSTER — a few smaller satellites dropped " +
+                 "around it with correlated rotation. Clumping is what reads as composed rather " +
+                 "than museum-spaced; 0 restores pure scatter.")]
+        [Range(0f, 1f)] public float clusterChance = 0.6f;
+
+        [Tooltip("Maximum satellites per cluster, drawn from the pack's Clutter entries.")]
+        [Range(0, 6)] public int clusterMaxSatellites = 4;
+
+        [Tooltip("On terrain maps, props tilt up to this many degrees toward the local slope and " +
+                 "settle slightly into the ground, so nothing perches. 0 keeps everything bolt upright.")]
+        [Range(0f, 20f)] public float slopeTiltMaxDegrees = 10f;
+
         [Header("Dressing density")]
 
         [Tooltip("Multiplier on LANDMARK placements inside the design box (1 ≈ 3 on the standard field). 0 disables the role for this theme.")]
