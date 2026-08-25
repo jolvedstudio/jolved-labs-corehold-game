@@ -129,6 +129,11 @@ namespace CoreholdEditor.Campaign
                 var st = _authoring.stages[i];
                 if (st.blueprint == null && string.IsNullOrEmpty(st.scenePath))
                     _issues.Add($"Step 3: Level {i + 1} '{st.title}' has neither a blueprint nor an existing scene.");
+                else if (st.blueprint == null && st.scenePath.Contains("/Scenes/Generated/"))
+                    _issues.Add($"Step 3: Level {i + 1} '{st.title}' references the git-ignored Scenes/Generated — " +
+                                "preflight will refuse it. Press its 'Adopt into campaign' button (copies the " +
+                                "scene + rules into the campaign's folders, byte-identical), or assign its " +
+                                "blueprint + seed override and regenerate.");
             }
 
             // 4 — generated scenes on disk
@@ -351,6 +356,24 @@ namespace CoreholdEditor.Campaign
                         if (manual)
                             EditorGUILayout.LabelField("manual stage — used as-is, nothing to generate",
                                                        EditorStyles.miniLabel);
+                        // A manual scene in the git-ignored Generated folders can
+                        // never ship — one click copies it (byte-identical) plus
+                        // its rules into the campaign's own folders.
+                        if (manual && s.scenePath.Contains("/Scenes/Generated/") &&
+                            GUILayout.Button("Adopt into campaign", GUILayout.Width(150)))
+                        {
+                            var alog = new StringBuilder();
+                            if (AdoptManualStage(i, alog))
+                            {
+                                bool wired = EmitManifest();
+                                RegisterCampaign();
+                                alog.AppendLine(wired
+                                    ? "Manifest + Build Settings refreshed."
+                                    : "Manifest refreshed — Welcome NOT wired (see console).");
+                            }
+                            ShowReport(alog.ToString());
+                            break;
+                        }
                         GUI.enabled = s.blueprint != null;
                         if (!manual && GUILayout.Button("Contact sheet (pick a seed by eye)"))
                         {
@@ -830,6 +853,129 @@ namespace CoreholdEditor.Campaign
         /// override when set, else the campaign's escalating programme.</summary>
         private WaveRecipe RecipeFor(CampaignAuthoring.AuthoredStage stage) =>
             stage.waveRecipe != null ? stage.waveRecipe : _authoring.waveRecipe;
+
+        /// <summary>
+        /// Adopt a MANUAL stage whose scene lives in the git-ignored generated
+        /// folders: copy the scene BYTE-IDENTICALLY into the campaign's scene
+        /// folder, copy its LevelDefinition and deep-clone its wave tables into
+        /// campaign data, rewire the COPY (never the source) to the copied
+        /// rules, and track everything on the stage. The stage stays manual —
+        /// it plays exactly the scene the user accepted, nothing regenerates —
+        /// but becomes campaign-owned: preflight's Generated-folder error, the
+        /// untracked-rules warning and the wave-locality check all clear, and
+        /// the original keeps working for single-map play.
+        /// </summary>
+        private bool AdoptManualStage(int index, StringBuilder log)
+        {
+            var stage = _authoring.stages[index];
+            string src = stage.scenePath;
+            log.AppendLine($"— Adopt Level {index + 1} '{stage.title}' —");
+            if (string.IsNullOrEmpty(src) || !System.IO.File.Exists(src))
+            {
+                log.AppendLine("  FAILED: the stage's scene is missing on disk.");
+                return false;
+            }
+
+            BuildCampaignScenes.EnsureFolder(_authoring.SceneFolder);
+            BuildCampaignScenes.EnsureFolder(_authoring.DataFolder);
+
+            string tag = $"L{index + 1:00}";
+            string sceneDest = $"{_authoring.SceneFolder}/{tag}_{System.IO.Path.GetFileName(src)}";
+            AssetDatabase.DeleteAsset(sceneDest);
+            if (!AssetDatabase.CopyAsset(src, sceneDest))
+            {
+                log.AppendLine($"  FAILED: could not copy the scene to {sceneDest}.");
+                return false;
+            }
+            log.AppendLine($"  scene copied → {sceneDest} (source untouched).");
+
+            // Open the COPY additively — same no-switch pattern as the manifest
+            // wiring — read its wired LevelDefinition, and rewire it to the
+            // campaign-owned copies.
+            var scene = EditorSceneManager.OpenScene(sceneDest, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+            bool removeCopy = false;
+            try
+            {
+                WaveManager wm = null;
+                foreach (var root in scene.GetRootGameObjects())
+                {
+                    wm = root.GetComponentInChildren<WaveManager>(true);
+                    if (wm != null)
+                        break;
+                }
+                var wmSo = wm != null ? new SerializedObject(wm) : null;
+                var def = wmSo != null ? wmSo.FindProperty("level").objectReferenceValue as LevelDefinition : null;
+                if (def == null)
+                {
+                    log.AppendLine("  FAILED: the scene has no WaveManager with a wired LevelDefinition — " +
+                                   "not a playable level. Copy removed; the stage still points at the original.");
+                    removeCopy = true;
+                    return false;
+                }
+
+                string defDest = $"{_authoring.DataFolder}/{tag}_{def.name}.asset";
+                AssetDatabase.DeleteAsset(defDest);
+                var defCopy = Object.Instantiate(def);
+                defCopy.name = def.name;
+                AssetDatabase.CreateAsset(defCopy, defDest);
+
+                string wavesFolder = $"{_authoring.DataFolder}/{tag}_Waves";
+                AssetDatabase.DeleteAsset(wavesFolder);
+                BuildCampaignScenes.EnsureFolder(wavesFolder);
+                var defSo = new SerializedObject(defCopy);
+                var wavesProp = defSo.FindProperty("waves");
+                int cloned = 0;
+                for (int w = 0; w < wavesProp.arraySize; w++)
+                {
+                    var element = wavesProp.GetArrayElementAtIndex(w);
+                    var shared = element.objectReferenceValue as WaveDefinition;
+                    if (shared == null)
+                        continue;
+                    var copy = Object.Instantiate(shared);
+                    copy.name = shared.name;
+                    AssetDatabase.CreateAsset(copy, $"{wavesFolder}/{shared.name}.asset");
+                    element.objectReferenceValue = copy;
+                    cloned++;
+                }
+                defSo.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(defCopy);
+
+                wmSo.FindProperty("level").objectReferenceValue = defCopy;
+                wmSo.ApplyModifiedPropertiesWithoutUndo();
+                EditorSceneManager.MarkSceneDirty(scene);
+                AssetDatabase.MakeEditable(sceneDest);
+                if (!EditorSceneManager.SaveScene(scene))
+                {
+                    log.AppendLine("  FAILED: could not save the rewired copy (locked by version control?). " +
+                                   "Copy removed; the stage still points at the original.");
+                    removeCopy = true;
+                    return false;
+                }
+
+                stage.scenePath = sceneDest;
+                stage.levelDefPath = defDest;
+                stage.wavesFolder = wavesFolder;
+                stage.wavesJsonPath = null;
+                // The generator stamps the seed into the filename — recover it
+                // so the stage records which seed this map came from.
+                string stem = System.IO.Path.GetFileNameWithoutExtension(src);
+                int sIdx = stem.LastIndexOf("_s", System.StringComparison.Ordinal);
+                if (sIdx >= 0 && int.TryParse(stem.Substring(sIdx + 2), out int seed))
+                    stage.acceptedSeed = seed;
+                EditorUtility.SetDirty(_authoring);
+                AssetDatabase.SaveAssets();
+
+                log.AppendLine($"  rules copied → {defDest}; {cloned} wave table(s) deep-cloned → {wavesFolder}.");
+                log.AppendLine("  stage is now campaign-owned — still manual, plays exactly the scene you accepted.");
+                return true;
+            }
+            finally
+            {
+                EditorSceneManager.CloseScene(scene, true);
+                if (removeCopy)
+                    AssetDatabase.DeleteAsset(sceneDest);
+            }
+        }
 
         private static string FirstFailure(List<GenerationPipeline.StageRun> results)
         {
