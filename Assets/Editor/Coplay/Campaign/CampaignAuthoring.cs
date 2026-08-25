@@ -55,6 +55,13 @@ namespace CoreholdEditor.Campaign
             [Tooltip("0 = derive from the master seed. Set from a contact-sheet pick to choose the map's shape by eye.")]
             public int seedOverride;
 
+            [Tooltip("Optional wave recipe FOR THIS STAGE ONLY, overriding the campaign's. Semantics " +
+                     "differ deliberately: the campaign recipe is a PROGRAMME (its escalationPerStage " +
+                     "compounds by stage position), while a stage override is BESPOKE — evaluated " +
+                     "exactly as authored, no positional escalation, so what you tuned is what plays. " +
+                     "Still seeded per stage and re-certified by the balance model. Null = campaign's.")]
+            public WaveRecipe waveRecipe;
+
             // ---- Generation bookkeeping (written by Generate) ----
             [Tooltip("The seed that actually passed the gates last generation (0 = never generated).")]
             public int acceptedSeed;

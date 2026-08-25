@@ -246,7 +246,9 @@ namespace CoreholdEditor.Campaign
                 new GUIContent("UI skin", "Optional. Bakes into every scene this builder generates — palette, fonts, sprites, proportions."),
                 _authoring.uiSkin, typeof(UISkin), false);
             _authoring.waveRecipe = (WaveRecipe)EditorGUILayout.ObjectField(
-                new GUIContent("Wave recipe", "Optional (Part C). SYNTHESIZES each stage's waves from a roster + curve instead of cloning the shipped tables; growth is re-solved and certified per stage."),
+                new GUIContent("Wave recipe", "Optional (Part C). SYNTHESIZES each stage's waves from a roster + curve " +
+                    "instead of cloning the shipped tables, escalating by stage position; growth is re-solved and " +
+                    "certified per stage. Any stage can override it with its own bespoke recipe in its box below."),
                 _authoring.waveRecipe, typeof(WaveRecipe), false);
             if (EditorGUI.EndChangeCheck())
                 EditorUtility.SetDirty(_authoring);
@@ -318,9 +320,17 @@ namespace CoreholdEditor.Campaign
 
                     s.briefing = EditorGUILayout.TextField("Briefing", s.briefing);
                     if (s.blueprint != null)
+                    {
                         s.seedOverride = EditorGUILayout.IntField(
                             new GUIContent("Seed override", "0 = derive from master seed. Use a contact-sheet pick to choose by eye."),
                             s.seedOverride);
+                        s.waveRecipe = (WaveRecipe)EditorGUILayout.ObjectField(
+                            new GUIContent("Wave recipe (override)",
+                                "Optional, THIS stage only. Empty = the campaign's recipe (step 2). A stage " +
+                                "override is BESPOKE: evaluated exactly as authored, no per-stage escalation — " +
+                                "the campaign recipe keeps its escalating programme. Re-certified either way."),
+                            s.waveRecipe, typeof(WaveRecipe), false);
+                    }
 
                     if (EditorGUI.EndChangeCheck())
                         EditorUtility.SetDirty(_authoring);
@@ -769,7 +779,7 @@ namespace CoreholdEditor.Campaign
             // will actually play, on the same open scene's real geometry, and
             // bake the result into the stage's LevelDefinition. This is what
             // keeps "model-certified" true under wave variability (Part C).
-            if (_authoring.waveRecipe != null && !string.IsNullOrEmpty(stage.wavesJsonPath))
+            if (RecipeFor(stage) != null && !string.IsNullOrEmpty(stage.wavesJsonPath))
             {
                 var routes = new List<Corehold.Core.PathRoute>(
                     Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None));
@@ -816,6 +826,11 @@ namespace CoreholdEditor.Campaign
             return true;
         }
 
+        /// <summary>The recipe THIS stage synthesizes with: its own bespoke
+        /// override when set, else the campaign's escalating programme.</summary>
+        private WaveRecipe RecipeFor(CampaignAuthoring.AuthoredStage stage) =>
+            stage.waveRecipe != null ? stage.waveRecipe : _authoring.waveRecipe;
+
         private static string FirstFailure(List<GenerationPipeline.StageRun> results)
         {
             if (results == null) return "startup";
@@ -858,14 +873,20 @@ namespace CoreholdEditor.Campaign
             var defSo = new SerializedObject(def);
             var wavesProp = defSo.FindProperty("waves");
 
-            if (_authoring.waveRecipe != null)
+            WaveRecipe recipe = RecipeFor(stage);
+            if (recipe != null)
             {
                 // Part C: SYNTHESIZE this stage's waves from the recipe — the
                 // variability lane. Deterministic from the stage's accepted
                 // seed; the JSON twin feeds the model re-solve that follows.
-                int stagePos = Mathf.Max(0, _authoring.stages.IndexOf(stage));
+                // The CAMPAIGN recipe is a programme: it escalates by stage
+                // position. A STAGE OVERRIDE is bespoke: evaluated at position
+                // 0, exactly as authored — what you tuned is what plays.
+                int stagePos = stage.waveRecipe != null
+                    ? 0
+                    : Mathf.Max(0, _authoring.stages.IndexOf(stage));
                 int groundRoutes = Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None).Length;
-                var synth = WaveSynthesizer.Synthesize(_authoring.waveRecipe, stagePos, seed,
+                var synth = WaveSynthesizer.Synthesize(recipe, stagePos, seed,
                                                        groundRoutes, wavesFolder);
                 log.Append(synth.transcript);
                 if (synth.waves == null || synth.waves.Length == 0)
@@ -882,7 +903,10 @@ namespace CoreholdEditor.Campaign
                 stage.levelDefPath = defDest;
                 stage.wavesFolder = wavesFolder;
                 stage.wavesJsonPath = synth.wavesJsonPath;
-                log.AppendLine($"  {synth.waves.Length} waves SYNTHESIZED from '{_authoring.waveRecipe.name}'.");
+                log.AppendLine($"  {synth.waves.Length} waves SYNTHESIZED from '{recipe.name}' " +
+                               (stage.waveRecipe != null
+                                   ? "(stage override — as authored, no positional escalation)."
+                                   : "(campaign programme)."));
                 return true;
             }
 
