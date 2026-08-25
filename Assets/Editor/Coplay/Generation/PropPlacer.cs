@@ -120,12 +120,27 @@ public static class PropPlacer
         var placedObjects = new List<(GameObject go, Placed data)>();
 
         // ---- in-field roles, biggest first so landmarks claim space ----------
-        PlaceRole(EnvPack.PropRole.Landmark, Mathf.RoundToInt(2f * areaScale) + 1, true);
-        PlaceRole(EnvPack.PropRole.MidField, Mathf.RoundToInt(7f * areaScale) + 1, true);
-        PlaceRole(EnvPack.PropRole.Clutter, Mathf.RoundToInt(14f * areaScale) + 3, true);
+        // Base counts are the [TUNE] floor; the THEME scales them — density is
+        // an art-direction property (a forest is dense, a salt flat is not),
+        // so the knob lives on the EnvPack, next to the props it multiplies.
+        PlaceRole(EnvPack.PropRole.Landmark,
+            Mathf.RoundToInt((2f * areaScale + 1f) * theme.landmarkDensity), true);
+        PlaceRole(EnvPack.PropRole.MidField,
+            Mathf.RoundToInt((7f * areaScale + 1f) * theme.midFieldDensity), true);
+        PlaceRole(EnvPack.PropRole.Clutter,
+            Mathf.RoundToInt((14f * areaScale + 3f) * theme.clutterDensity), true);
 
         // ---- silhouettes: the far band beyond the field's north edge ---------
-        PlaceRole(EnvPack.PropRole.Silhouette, Mathf.RoundToInt(7f * areaScale) + 1, false);
+        PlaceRole(EnvPack.PropRole.Silhouette,
+            Mathf.RoundToInt((7f * areaScale + 1f) * theme.silhouetteDensity), false);
+
+        // ---- outfield: the VISIBLE APRON beyond the design box ---------------
+        // The floor is frustum-fit (R11), far larger than the 130×75 design box
+        // — and nothing ever dressed it, which is most of why maps read empty.
+        // Scatter non-silhouette props across it (they pass the same clearance,
+        // camera-sight and route-visibility checks; the terrain stage then
+        // re-projects them onto the relief, so they climb the hills for free).
+        PlaceOutfield();
 
         void PlaceRole(EnvPack.PropRole role, int target, bool inField)
         {
@@ -198,6 +213,91 @@ public static class PropPlacer
             // be three prefabs on repeat, and that only shows up here.
             log.AppendLine($"  {role,-10} {placedCount}/{target} placed " +
                            $"({used.Count} distinct of {entries.Count} in the pack's pool)");
+        }
+
+        void PlaceOutfield()
+        {
+            if (theme.outfieldDensity <= 0f)
+                return;
+
+            var pool = theme.entries?.Where(e => e.prefab != null &&
+                    (e.role == EnvPack.PropRole.Landmark ||
+                     e.role == EnvPack.PropRole.MidField ||
+                     e.role == EnvPack.PropRole.Clutter))
+                .OrderBy(e => e.prefab.name, System.StringComparer.Ordinal).ToList();
+            if (pool == null || pool.Count == 0)
+            {
+                log.AppendLine("  Outfield    0 placed — no non-silhouette entries in the pack");
+                return;
+            }
+
+            GameObject floor = SceneQuery.FindGround();
+            var floorRenderers = floor != null ? floor.GetComponentsInChildren<Renderer>() : null;
+            if (floorRenderers == null || floorRenderers.Length == 0)
+            {
+                log.AppendLine("  Outfield    0 placed — no floor to measure the apron from");
+                return;
+            }
+            Bounds fb = floorRenderers[0].bounds;
+            for (int i = 1; i < floorRenderers.Length; i++)
+                fb.Encapsulate(floorRenderers[i].bounds);
+
+            float apron = Mathf.Max(0f,
+                fb.size.x * fb.size.z - blueprint.playfieldSize.x * blueprint.playfieldSize.y);
+            int target = Mathf.Clamp(Mathf.RoundToInt(apron / 180f * theme.outfieldDensity), 0, 80);
+
+            int placedCount = 0;
+            var used = new HashSet<GameObject>();
+            for (int i = 0; i < target; i++)
+            {
+                for (int attempt = 0; attempt < MaxAttemptsPerProp; attempt++)
+                {
+                    EnvPack.Entry entry = pool[(int)(rng.NextU() % (uint)pool.Count)];
+                    float scale = Mathf.Lerp(
+                        entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
+                        entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
+                        rng.Range(0f, 1f));
+                    float radius = entry.footprintRadius * scale;
+                    float height = entry.height * scale;
+
+                    var pos = new Vector3(rng.Range(fb.min.x + 3f, fb.max.x - 3f), 0f,
+                                          rng.Range(fb.min.z + 3f, fb.max.z - 3f));
+                    // Apron only: in-field space belongs to the in-field roles
+                    // and their deliberate budgets.
+                    if (Mathf.Abs(pos.x) < halfW + 2f && Mathf.Abs(pos.z) < halfD + 2f)
+                        continue;
+                    // Full clearance suite anyway — cheap out here, and it keeps
+                    // the camera's view of pads and routes protected by the same
+                    // budget no matter where a prop stands.
+                    if (!ClearOf(pos, radius, height, false))
+                        continue;
+
+                    var go = (GameObject)PrefabUtility.InstantiatePrefab(entry.prefab);
+                    go.transform.SetParent(dressing.transform, false);
+                    go.transform.position = pos;
+                    go.transform.rotation = Quaternion.Euler(0f, rng.Range(0f, 360f), 0f);
+                    go.transform.localScale = Vector3.one * scale;
+                    go.name = $"Prop_Outfield_{placedCount + 1}";
+
+                    var marker = go.AddComponent<PlacedProp>();
+                    marker.placedFootprintRadius = radius;
+                    marker.placedHeight = height;
+                    marker.role = "Outfield";
+
+                    var data = new Placed { pos = pos, radius = radius, height = height };
+                    placed.Add(data);
+                    placedObjects.Add((go, data));
+                    foreach (int idx in pendingHidden)
+                        routeHidden[idx] = true;
+                    hiddenMetres += pendingHidden.Count * RouteVisibility.SampleStep;
+
+                    placedCount++;
+                    used.Add(entry.prefab);
+                    break;
+                }
+            }
+            log.AppendLine($"  Outfield   {placedCount}/{target} placed over the {apron:0} m² apron " +
+                           $"({used.Count} distinct); terrain re-projects them onto the relief");
         }
 
         bool ClearOf(Vector3 pos, float radius, float height, bool allowInFold)
