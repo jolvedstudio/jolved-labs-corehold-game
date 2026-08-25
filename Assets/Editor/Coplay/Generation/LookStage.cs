@@ -128,6 +128,21 @@ public static class LookStage
             notes.Add($"base fog ρ{ctx.theme.fogDensity:0.####} (weather still layers over it)");
         }
 
+        // Per-theme skybox: RenderSettings IS the scene's Lighting-settings
+        // skybox, and it is per-scene state — setting it here and saving the
+        // scene gives each level its own sky with nothing global overridden.
+        // The WeatherApplier never touches the skybox, so it survives presets.
+        if (ctx.theme != null && ctx.theme.skyboxMaterial != null)
+        {
+            RenderSettings.skybox = ctx.theme.skyboxMaterial;
+            // The ambient probe derives from the sky — refresh it so ambient
+            // light matches the new horizon rather than the default's.
+            DynamicGI.UpdateEnvironment();
+            if (cam != null)
+                cam.clearFlags = CameraClearFlags.Skybox; // a solid-colour camera would hide the sky
+            notes.Add($"skybox '{ctx.theme.skyboxMaterial.name}' (+ambient refresh)");
+        }
+
         return GenerationPipeline.StageResult.Ok(string.Join(", ", notes));
     }
 

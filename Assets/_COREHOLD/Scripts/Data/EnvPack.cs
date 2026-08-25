@@ -156,6 +156,12 @@ namespace Corehold.Data
         [Tooltip("Optional full post-processing profile for this theme's maps, replacing the shared default (ACES + bloom + vignette + grade). Weather grades still layer over whichever profile is active.")]
         public UnityEngine.Rendering.VolumeProfile postProfile;
 
+        [Tooltip("Skybox material baked into every generated scene of this theme — becomes THAT " +
+                 "scene's Lighting-settings skybox (RenderSettings is per-scene, so no global is " +
+                 "overridden). The ambient probe refreshes off the new sky, and the camera is " +
+                 "switched to Skybox clearing. Empty = the scene keeps the project default sky.")]
+        public Material skyboxMaterial;
+
         /// <summary>
         /// Tiling to write for a ground of <paramref name="sizeMetres"/>, or
         /// <c>Vector2.zero</c> when this pack does not manage tiling.
