@@ -1,5 +1,6 @@
 using Corehold.Towers;
 using TMPro;
+using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -7,30 +8,55 @@ namespace Corehold.Systems
 {
     /// <summary>
     /// The turret cam (M-a, tier 1): a picture-in-picture panel showing the
-    /// selected turret's muzzle view, plus a short flyby over every Strike Wing
-    /// impact. Pure spectacle — no gameplay coupling — so it self-assembles at
-    /// runtime (camera, RenderTexture, its own small overlay canvas) and no
-    /// scene or builder needs to know it exists. Toggled from the tower panel;
-    /// remembers the choice per session.
+    /// selected turret from a CINEMACHINE rig, plus a short flyby over every
+    /// Strike Wing impact. Pure spectacle — no gameplay coupling — so it
+    /// self-assembles at runtime and no scene or builder needs to know it
+    /// exists. Toggled from the tower panel; remembers the choice per session.
     ///
-    /// Cost control: the second camera renders only while the panel is visible,
-    /// into a 512×288 target — a bounded fill-rate slice even on WebGL.
+    /// Rig: CinemachineCamera + OrbitalFollow (orbit centred a little ABOVE
+    /// the turret) + RotationComposer (aims at a gaze point — the current
+    /// target when engaging, ahead of the barrel otherwise) + Deoccluder
+    /// (pushes clear of terrain hills and props; the terrain stage bakes a
+    /// collider for exactly this). Idle turrets get a slow cinematic orbit;
+    /// an engaging turret's camera swings behind the gun.
+    ///
+    /// Cost control: renders only while the panel is visible, into a 1024×576
+    /// target — displayed at ~328 px wide, so the PiP is effectively
+    /// supersampled (sharper on low-res texture budgets) yet still a bounded
+    /// fill-rate slice.
     /// </summary>
     [DisallowMultipleComponent]
     public class TurretCamera : MonoBehaviour
     {
-        private const int RtWidth = 512, RtHeight = 288;
+        private const int RtWidth = 1024, RtHeight = 576;
+
+        /// <summary>[TUNE] Orbit shape: metres above the turret base the orbit
+        /// centres on, orbit radius, camera elevation in degrees, idle orbit
+        /// speed (deg/s) and how fast the camera swings behind an engaging gun.</summary>
+        private const float OrbitCentreUp = 1.4f;
+        private const float OrbitRadius = 6.5f;
+        private const float OrbitElevation = 24f;
+        private const float IdleOrbitSpeed = 9f;
+        private const float EngageSwingSpeed = 140f;
+
         private static TurretCamera _instance;
 
         private Camera _cam;
+        private CinemachineBrain _brain;
         private RenderTexture _rt;
         private GameObject _panel;
         private TMP_Text _label;
 
-        private TowerHardpoint _pad;      // followed turret, null = none
-        private TurretAim _aim;           // its head, for muzzle placement
+        private GameObject _vcamGo;
+        private CinemachineCamera _vcam;
+        private CinemachineOrbitalFollow _orbital;
+        private Transform _gaze;          // what the composer aims at
 
-        // Flyby state (overrides the follow while active).
+        private TowerHardpoint _pad;      // followed turret, null = none
+        private TurretAim _aim;           // its head, for the gaze direction
+        private TowerTargeting _targeting;
+
+        // Flyby state (overrides the rig while active).
         private Vector3 _flybyPoint;
         private float _flybyUntil = -1f;
 
@@ -80,6 +106,15 @@ namespace Corehold.Systems
             _instance.Detach();
         }
 
+        /// <summary>Hard off — used when manual turret control takes the screen:
+        /// two Cinemachine brains must never contest the same live rig.</summary>
+        internal static void Suppress()
+        {
+            if (_instance == null) return;
+            _instance._flybyUntil = -1f;
+            _instance.Detach();
+        }
+
         private void Awake()
         {
             if (_instance != null && _instance != this) { Destroy(gameObject); return; }
@@ -98,6 +133,7 @@ namespace Corehold.Systems
         {
             // Flybys play regardless of the toggle — they're the airstrike's
             // payoff shot, 2.2 s, then the cam returns to whatever it was doing.
+            if (ManualTurretControl.IsActive) return; // the player IS a camera right now
             BuildRig();
             _flybyPoint = point;
             _flybyUntil = Time.time + 2.2f;
@@ -110,18 +146,39 @@ namespace Corehold.Systems
             if (pad == null || !pad.IsOccupied) { Detach(); return; }
             BuildRig();
             _pad = pad;
-            _aim = pad.Occupant != null ? pad.Occupant.GetComponentInChildren<TurretAim>() : null;
+            var tower = pad.Occupant;
+            _aim = tower != null ? tower.GetComponentInChildren<TurretAim>() : null;
+            _targeting = tower != null ? tower.GetComponent<TowerTargeting>() : null;
+
+            _vcam.Follow = tower != null ? tower.transform : pad.transform;
+            _vcam.LookAt = _gaze;
+
+            // Seed the orbit behind wherever the gun currently points, so the
+            // first frame is already a sensible over-shoulder shot.
+            Transform head = HeadOf();
+            _orbital.HorizontalAxis.Value = head.eulerAngles.y + 180f;
+            _orbital.VerticalAxis.Value = OrbitElevation;
+
             SetVisible(true);
-            if (_label != null && pad.Occupant != null && pad.Occupant.Definition != null)
-                _label.text = $"CAM · {pad.Occupant.Definition.displayName.ToUpperInvariant()}";
+            if (_label != null && tower != null && tower.Definition != null)
+                _label.text = $"CAM · {tower.Definition.displayName.ToUpperInvariant()}";
         }
 
         private void Detach()
         {
             _pad = null;
             _aim = null;
+            _targeting = null;
             if (Time.time >= _flybyUntil)
                 SetVisible(false);
+        }
+
+        private Transform HeadOf()
+        {
+            return _aim != null
+                ? (_aim.PitchPivot != null ? _aim.PitchPivot
+                   : _aim.YawPivot != null ? _aim.YawPivot : _pad.transform)
+                : (_pad != null ? _pad.transform : transform);
         }
 
         private void LateUpdate()
@@ -130,7 +187,9 @@ namespace Corehold.Systems
 
             if (Time.time < _flybyUntil)
             {
-                // A slow arcing sweep down toward the strike point.
+                // Manual arcing sweep down toward the strike point — the brain
+                // is off for these 2.2 s so the raw camera can fly free.
+                if (_brain != null) _brain.enabled = false;
                 float k = 1f - (_flybyUntil - Time.time) / 2.2f;
                 Vector3 from = _flybyPoint + new Vector3(-14f, 16f, -10f);
                 Vector3 to = _flybyPoint + new Vector3(8f, 9f, 6f);
@@ -138,6 +197,7 @@ namespace Corehold.Systems
                 _cam.transform.LookAt(_flybyPoint + Vector3.up * 0.5f);
                 return;
             }
+            if (_brain != null && !_brain.enabled) _brain.enabled = true;
 
             if (_pad == null || !_pad.IsOccupied)
             {
@@ -146,15 +206,26 @@ namespace Corehold.Systems
                 return;
             }
 
-            Transform head = _aim != null
-                ? (_aim.PitchPivot != null ? _aim.PitchPivot
-                   : _aim.YawPivot != null ? _aim.YawPivot : _pad.transform)
-                : _pad.transform;
+            Transform head = HeadOf();
 
-            // Over-the-barrel: slightly up and behind the head, looking along it.
-            _cam.transform.position = head.position - head.forward * 1.1f + Vector3.up * 0.55f;
-            _cam.transform.rotation = Quaternion.LookRotation(
-                (head.forward + Vector3.down * 0.08f).normalized, Vector3.up);
+            // The gaze: the live target while engaging, else a point out along
+            // the barrel. The composer keeps it framed; the deoccluder keeps
+            // the line to it clear of hills and props.
+            var enemy = _targeting != null ? _targeting.CurrentTarget : null;
+            if (enemy != null && enemy.IsAlive)
+            {
+                _gaze.position = enemy.HitPoint;
+                // Swing behind the gun so the shot reads over-the-shoulder.
+                float gunYaw = head.eulerAngles.y;
+                _orbital.HorizontalAxis.Value = Mathf.MoveTowardsAngle(
+                    _orbital.HorizontalAxis.Value, gunYaw + 180f, EngageSwingSpeed * Time.deltaTime);
+            }
+            else
+            {
+                _gaze.position = head.position + head.forward * 14f + Vector3.up * 0.5f;
+                // Idle: a slow cinematic orbit around the turret.
+                _orbital.HorizontalAxis.Value += IdleOrbitSpeed * Time.deltaTime;
+            }
         }
 
         // ------------------------------------------------------------- assembly
@@ -163,6 +234,7 @@ namespace Corehold.Systems
         {
             if (_panel != null) _panel.SetActive(on);
             if (_cam != null) _cam.enabled = on;
+            if (_vcamGo != null) _vcamGo.SetActive(on);
         }
 
         private void BuildRig()
@@ -176,10 +248,38 @@ namespace Corehold.Systems
             camGo.transform.SetParent(transform, false);
             _cam = camGo.AddComponent<Camera>();
             _cam.targetTexture = _rt;
-            _cam.fieldOfView = 55f;
-            _cam.nearClipPlane = 0.1f;
+            _cam.fieldOfView = 50f;
+            _cam.nearClipPlane = 0.15f;
             _cam.farClipPlane = 300f;
             _cam.enabled = false;
+            _brain = camGo.AddComponent<CinemachineBrain>();
+
+            _gaze = new GameObject("TurretCamGaze").transform;
+            _gaze.SetParent(transform, false);
+
+            _vcamGo = new GameObject("TurretCamRig");
+            _vcamGo.transform.SetParent(transform, false);
+            _vcam = _vcamGo.AddComponent<CinemachineCamera>();
+            var lens = _vcam.Lens;
+            lens.FieldOfView = 50f;
+            lens.NearClipPlane = 0.15f;
+            lens.FarClipPlane = 300f;
+            _vcam.Lens = lens;
+
+            _orbital = _vcamGo.AddComponent<CinemachineOrbitalFollow>();
+            _orbital.TargetOffset = new Vector3(0f, OrbitCentreUp, 0f);
+            _orbital.Radius = OrbitRadius;
+            _orbital.HorizontalAxis.Wrap = true;
+            _orbital.VerticalAxis.Range = new Vector2(-10f, 70f);
+            _orbital.VerticalAxis.Value = OrbitElevation;
+
+            _vcamGo.AddComponent<CinemachineRotationComposer>();
+
+            var deocc = _vcamGo.AddComponent<CinemachineDeoccluder>();
+            int hardpoint = LayerMask.NameToLayer("Hardpoint");
+            deocc.CollideAgainst = hardpoint >= 0 ? ~(1 << hardpoint) : ~0;
+
+            _vcamGo.SetActive(false);
 
             // Own tiny overlay canvas: bottom-left, clear of the build bar's
             // centre span and the integrity panel above it.

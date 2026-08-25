@@ -182,7 +182,14 @@ public static class TerrainStage
             : 0.08f;
         var meshGo = new GameObject("TerrainRelief");
         meshGo.transform.SetParent(SceneContainers.Ensure("_Level"), false);
-        meshGo.AddComponent<MeshFilter>().sharedMesh = BuildMesh(field, bounds, uvPerMetre);
+        Mesh reliefMesh = BuildMesh(field, bounds, uvPerMetre);
+        meshGo.AddComponent<MeshFilter>().sharedMesh = reliefMesh;
+        // CAMERA OCCLUSION ONLY: the Cinemachine deoccluder on the turret-cam
+        // rigs needs the hills to exist physically or it cannot push the camera
+        // clear of them. Nothing gameplay-side raycasts the Default layer (taps
+        // are Hardpoint-masked, combat is pure math), so this collider changes
+        // no behaviour beyond the cameras.
+        meshGo.AddComponent<MeshCollider>().sharedMesh = reliefMesh;
         var mr = meshGo.AddComponent<MeshRenderer>();
 
         // M-d terrain shading: the mesh bakes valley/slope tint into vertex

@@ -41,9 +41,14 @@ namespace Corehold.UI
         private static readonly int ColorId = Shader.PropertyToID("_BaseColor");
         private static readonly int ColorIdLegacy = Shader.PropertyToID("_Color");
 
+        // The BACK stays dark deliberately — it is the contrast plate the fill
+        // reads against. The FILL colours are bright at both ends and lerp
+        // through amber (never a muddy dark midpoint), so the level is legible
+        // at any fraction on any ground.
         private static readonly Color BackColor = new Color(0.03f, 0.04f, 0.06f, 0.9f);
-        private static readonly Color FullColor = new Color(0.35f, 0.95f, 0.45f, 1f);
-        private static readonly Color LowColor = new Color(1f, 0.3f, 0.2f, 1f);
+        private static readonly Color FullColor = new Color(0.30f, 1f, 0.45f, 1f);
+        private static readonly Color MidColor = new Color(1f, 0.78f, 0.25f, 1f);
+        private static readonly Color LowColor = new Color(1f, 0.36f, 0.22f, 1f);
 
         /// <summary>Create and attach a health bar to <paramref name="owner"/>.</summary>
         public static WorldHealthBar Attach(GameObject owner, System.Func<float> fraction,
@@ -130,7 +135,12 @@ namespace Corehold.UI
             _fill.localScale = s;
             _fill.localPosition = new Vector3(-_width * (1f - frac) * 0.5f, 0f, -0.01f);
 
-            SetColor(_fillRenderer, Color.Lerp(LowColor, _fullColor, frac));
+            // Two-segment ramp keeps every intermediate colour BRIGHT: green→
+            // amber→red, instead of a straight lerp whose midpoint goes muddy.
+            Color fillColor = frac >= 0.5f
+                ? Color.Lerp(MidColor, _fullColor, (frac - 0.5f) * 2f)
+                : Color.Lerp(LowColor, MidColor, frac * 2f);
+            SetColor(_fillRenderer, fillColor);
         }
 
         /// <summary>
