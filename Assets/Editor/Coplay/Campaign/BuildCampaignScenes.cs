@@ -350,8 +350,7 @@ namespace CoreholdEditor.Campaign
                 return false;
             }
 
-            // Already loaded? (Active OR additive — the active-only check missed
-            // multi-scene setups and needlessly reopened the scene.)
+            // Already loaded? (Active OR additive — wire the loaded copy.)
             Scene target = default;
             bool wasLoaded = false;
             for (int i = 0; i < SceneManager.sceneCount; i++)
@@ -365,57 +364,65 @@ namespace CoreholdEditor.Campaign
                 }
             }
 
-            string restorePath = null;
+            // Not loaded → open ADDITIVELY beside whatever the user has open:
+            // no scene switch, no save prompt, no restore step — every quiet
+            // abort the old Single-mode roundtrip could hit is gone, and the
+            // user's editing context is untouched.
+            bool openedHere = false;
             if (!wasLoaded)
             {
-                if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                target = EditorSceneManager.OpenScene(welcomePath, OpenSceneMode.Additive);
+                openedHere = true;
+            }
+
+            try
+            {
+                // Find the component in THE TARGET SCENE's roots — a global find
+                // could grab a CampaignWelcome from some other loaded scene.
+                CampaignWelcome welcome = null;
+                foreach (GameObject root in target.GetRootGameObjects())
                 {
-                    Debug.LogWarning("[Campaign] Manifest NOT wired into the Welcome scene — cancelled at the " +
-                                     "save prompt. Run 'Emit manifest + wire Welcome' again.");
+                    welcome = root.GetComponentInChildren<CampaignWelcome>(true);
+                    if (welcome != null)
+                        break;
+                }
+                if (welcome == null)
+                {
+                    Debug.LogError($"[Campaign] '{welcomePath}' has no CampaignWelcome component — rebuild the menu scenes.");
                     return false;
                 }
-                var active = SceneManager.GetActiveScene();
-                if (!string.IsNullOrEmpty(active.path) && System.IO.File.Exists(active.path))
-                    restorePath = active.path;
-                target = EditorSceneManager.OpenScene(welcomePath, OpenSceneMode.Single);
-            }
 
-            // Find the component in THE TARGET SCENE's roots — a global find
-            // could grab a CampaignWelcome from some other loaded scene.
-            CampaignWelcome welcome = null;
-            foreach (GameObject root in target.GetRootGameObjects())
+                var so = new SerializedObject(welcome);
+                so.FindProperty("manifest").objectReferenceValue = manifest;
+                so.ApplyModifiedPropertiesWithoutUndo();
+                EditorSceneManager.MarkSceneDirty(target);
+
+                // Ask VCS to make the file writable, save, then PROVE the save:
+                // the manifest asset's GUID must appear in the scene file bytes.
+                AssetDatabase.MakeEditable(welcomePath);
+                bool saved = EditorSceneManager.SaveScene(target);
+                string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(manifest));
+                bool verified = saved && !string.IsNullOrEmpty(guid) &&
+                                System.IO.File.ReadAllText(welcomePath).Contains(guid);
+
+                if (verified)
+                    Debug.Log($"[Campaign] Manifest '{manifest.name}' wired into '{welcomePath}' " +
+                              $"({(wasLoaded ? "scene was open" : "opened additively")}; save verified on disk).");
+                else
+                    Debug.LogError($"[Campaign] Manifest wiring DID NOT PERSIST to '{welcomePath}' " +
+                                   $"(SaveScene {(saved ? "reported success" : "FAILED")}, " +
+                                   $"manifest guid {(string.IsNullOrEmpty(guid) ? "MISSING — is the .meta imported?" : guid)}). " +
+                                   "If the scene is under version control, check it out / make it writable, " +
+                                   "then 'Emit manifest + wire Welcome' again — an unwired Welcome boots to a dead menu.");
+                return verified;
+            }
+            finally
             {
-                welcome = root.GetComponentInChildren<CampaignWelcome>(true);
-                if (welcome != null)
-                    break;
+                // Close only what this call opened; a scene the user had open
+                // stays exactly as they had it (now saved if we wired it).
+                if (openedHere)
+                    EditorSceneManager.CloseScene(target, true);
             }
-            if (welcome == null)
-            {
-                Debug.LogError($"[Campaign] '{welcomePath}' has no CampaignWelcome component — rebuild the menu scenes.");
-                return false;
-            }
-
-            var so = new SerializedObject(welcome);
-            so.FindProperty("manifest").objectReferenceValue = manifest;
-            so.ApplyModifiedPropertiesWithoutUndo();
-            EditorSceneManager.MarkSceneDirty(target);
-
-            // Ask VCS to make the file writable, save, then PROVE the save: the
-            // manifest asset's GUID must appear in the scene file afterwards.
-            AssetDatabase.MakeEditable(welcomePath);
-            bool saved = EditorSceneManager.SaveScene(target);
-            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(manifest));
-            bool verified = saved && !string.IsNullOrEmpty(guid) &&
-                            System.IO.File.ReadAllText(welcomePath).Contains(guid);
-            if (!verified)
-                Debug.LogError($"[Campaign] Manifest wiring DID NOT PERSIST to '{welcomePath}' " +
-                               $"(SaveScene {(saved ? "reported success" : "FAILED")}). If the scene is under " +
-                               "version control, check it out / make it writable, then 'Emit manifest + wire " +
-                               "Welcome' again — an unwired Welcome boots to a dead menu.");
-
-            if (restorePath != null && restorePath != welcomePath)
-                EditorSceneManager.OpenScene(restorePath, OpenSceneMode.Single);
-            return verified;
         }
 
         // -------------------------------------------------------------- utils
