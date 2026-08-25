@@ -408,7 +408,7 @@ public static class TerrainStage
     /// seed (content-identical on every map): wrap-around value noise, two
     /// octaves, centred on 0.5 so the overlay-multiply is neutral on average.
     /// </summary>
-    private static Texture2D BuildDetailNoise()
+    internal static Texture2D BuildDetailNoise()
     {
         const int size = 128;
         const int cells = 16;   // lattice period — wrapping makes the tile seamless
