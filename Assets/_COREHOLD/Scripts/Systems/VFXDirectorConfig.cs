@@ -36,8 +36,15 @@ namespace Corehold.Systems
         public Entry[] effects = Array.Empty<Entry>();
 
         [Header("Hitscan tracer (Autocannon + Arc Node)")]
+        [Tooltip("Shared additive material for the tracer LineRenderer. When null the VFXDirector builds a URP additive material at runtime.")]
+        public Material tracerMaterial;
+
         [Tooltip("Tracer line width in metres.")]
         public float tracerWidth = 0.15f;
+
+        [Min(0f)]
+        [Tooltip("Brightness multiplier applied to every tracer's HDR colour. 1 = author-authored colour unchanged; higher pushes the colour further into HDR so it blooms more.")]
+        public float tracerGlow = 1f;
 
         [Tooltip("Copies of the tracer prewarmed into its pool.")]
         public int tracerPrewarm = 8;

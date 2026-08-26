@@ -110,6 +110,10 @@ namespace Corehold.Systems
         [Tooltip("Tracer line width in metres.")]
         [SerializeField] private float tracerWidth = 0.15f;   // shipped Game.unity value
 
+        [Tooltip("Brightness multiplier applied to EVERY tracer's HDR colour (enemy + tower). Values above 1 push the colour further into HDR so it blooms more intensely. 1 = author-authored colour unchanged.")]
+        [Min(0f)]
+        [SerializeField] private float tracerGlow = 1f;
+
         [Tooltip("Copies of the tracer prewarmed into its pool.")]
         [SerializeField] private int tracerPrewarm = 8;
 
@@ -478,7 +482,16 @@ namespace Corehold.Systems
             VfxTracer tracer = _tracerPool.Get();
             if (tracer == null)
                 return;
-            tracer.Play(_tracerPool, from, to, color, tracerWidth);
+
+            // Push the author-authored colour further into HDR so it blooms brighter.
+            // The RGB carries the glow (additive material), so we scale RGB only and
+            // leave alpha (the fade envelope) untouched. Applied to EVERY tracer, so
+            // enemy and tower bolts brighten together from one control.
+            Color glow = tracerGlow == 1f
+                ? color
+                : new Color(color.r * tracerGlow, color.g * tracerGlow, color.b * tracerGlow, color.a);
+
+            tracer.Play(_tracerPool, from, to, glow, tracerWidth);
         }
 
         // ================================================================================

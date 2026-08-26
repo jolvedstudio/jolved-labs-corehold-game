@@ -65,7 +65,9 @@ public static class VFXConfigIO
         }
 
         config.effects = entries;
+        config.tracerMaterial = ObjectOf(so, "tracerMaterial", config.tracerMaterial) as Material;
         config.tracerWidth = FloatOf(so, "tracerWidth", config.tracerWidth);
+        config.tracerGlow = FloatOf(so, "tracerGlow", config.tracerGlow);
         config.tracerPrewarm = IntOf(so, "tracerPrewarm", config.tracerPrewarm);
         config.defaultTracerColor = ColorOf(so, "defaultTracerColor", config.defaultTracerColor);
 
@@ -103,7 +105,9 @@ public static class VFXConfigIO
                 missing?.Add(entry.id.ToString());
         }
 
+        SetObject(so, "tracerMaterial", config.tracerMaterial);
         SetFloat(so, "tracerWidth", config.tracerWidth);
+        SetFloat(so, "tracerGlow", config.tracerGlow);
         SetInt(so, "tracerPrewarm", config.tracerPrewarm);
         SetColor(so, "defaultTracerColor", config.defaultTracerColor);
 
@@ -119,6 +123,8 @@ public static class VFXConfigIO
     { var p = so.FindProperty(f); return p != null ? p.intValue : fallback; }
     private static Color ColorOf(SerializedObject so, string f, Color fallback)
     { var p = so.FindProperty(f); return p != null ? p.colorValue : fallback; }
+    private static UnityEngine.Object ObjectOf(SerializedObject so, string f, UnityEngine.Object fallback)
+    { var p = so.FindProperty(f); return p != null ? p.objectReferenceValue : fallback; }
 
     private static void SetFloat(SerializedObject so, string f, float v)
     { var p = so.FindProperty(f); if (p != null) p.floatValue = v; }
@@ -126,4 +132,6 @@ public static class VFXConfigIO
     { var p = so.FindProperty(f); if (p != null) p.intValue = v; }
     private static void SetColor(SerializedObject so, string f, Color v)
     { var p = so.FindProperty(f); if (p != null) p.colorValue = v; }
+    private static void SetObject(SerializedObject so, string f, UnityEngine.Object v)
+    { var p = so.FindProperty(f); if (p != null) p.objectReferenceValue = v; }
 }

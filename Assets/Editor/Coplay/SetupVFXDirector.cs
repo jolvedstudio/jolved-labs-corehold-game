@@ -80,6 +80,7 @@ public static class SetupVFXDirector
     // Read out of the scene, not invented: thin (0.15 m, not 0.35) and an
     // intensely HDR cyan (not the warm orange the class defaulted to).
     private const float TracerWidth = 0.15f;
+    private const float TracerGlow = 1f;
     private const int TracerPrewarm = 8;
     private static readonly Color DefaultTracerColor = new Color(0f, 207.88327f, 705.2075f, 1f);
 
@@ -158,6 +159,7 @@ public static class SetupVFXDirector
         // owns PART of a component leaves the rest free to drift, so it now
         // writes the whole configuration.
         WriteFloat(so, "tracerWidth", TracerWidth);
+        WriteFloat(so, "tracerGlow", TracerGlow);
         WriteInt(so, "tracerPrewarm", TracerPrewarm);
         WriteColor(so, "defaultTracerColor", DefaultTracerColor);
 
@@ -211,6 +213,7 @@ public static class SetupVFXDirector
 
         config.effects = entries.ToArray();
         config.tracerWidth = TracerWidth;
+        config.tracerGlow = TracerGlow;
         config.tracerPrewarm = TracerPrewarm;
         config.defaultTracerColor = DefaultTracerColor;
         EditorUtility.SetDirty(config);
