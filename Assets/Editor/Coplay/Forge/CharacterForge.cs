@@ -123,13 +123,11 @@ namespace CoreholdEditor.Forge
 
                 Bounds bounds = RenderBounds(root);
 
-                // ---- muzzles: probe the hint names, else generate the fallback ----
-                var muzzles = new List<Transform>();
-                foreach (string marker in r.muzzleMarkerNames ?? new string[0])
-                {
-                    var t = FindDeep(root.transform, marker);
-                    if (t != null && !muzzles.Contains(t)) muzzles.Add(t);
-                }
+                // ---- muzzles: recursive keyword scan, else generate the fallback ----
+                // Substring + case-insensitive, ALL matches in hierarchy order:
+                // exact-name probing found one barrel on a twin-barrel rig and
+                // nothing at all on a kit that spells it "muzzle_02".
+                var muzzles = CollectDeep(root.transform, r.muzzleMarkerNames);
                 if (muzzles.Count == 0 && r.weaponDamage > 0f)
                 {
                     var m = new GameObject("Muzzle_Forge");
@@ -188,6 +186,43 @@ namespace CoreholdEditor.Forge
                         list.GetArrayElementAtIndex(i).objectReferenceValue = muzzles[i];
                     wSo.ApplyModifiedPropertiesWithoutUndo();
                     log.AppendLine($"Return fire: dmg {r.weaponDamage} @ {r.weaponRange} m, {r.weaponFireRate}/s.");
+
+                    // ---- turret rig: yaw / pitch pivots → EnemyAim (cosmetic) ----
+                    // Muzzles are excluded from pivot candidacy: "Barrel" would
+                    // otherwise adopt "Barrel_End", i.e. aim the marker instead
+                    // of the gun holding it.
+                    Transform yaw = FirstDeep(root.transform, r.yawPivotNames, muzzles);
+                    var pitchExclude = new List<Transform>(muzzles);
+                    if (yaw != null) pitchExclude.Add(yaw);
+                    Transform pitch = FirstDeep(root.transform, r.pitchPivotNames, pitchExclude);
+
+                    var existingAim = root.GetComponent<EnemyAim>();
+                    if (yaw == null && pitch == null)
+                    {
+                        // Re-forging a rig that no longer resolves pivots must not
+                        // leave a component pointing at nothing.
+                        if (existingAim != null)
+                            Object.DestroyImmediate(existingAim, true);
+                        log.AppendLine("No turret pivot matched — the unit fires straight ahead " +
+                                       $"(hints: yaw [{string.Join(", ", r.yawPivotNames ?? new string[0])}], " +
+                                       $"pitch [{string.Join(", ", r.pitchPivotNames ?? new string[0])}]).");
+                    }
+                    else
+                    {
+                        var aim = existingAim != null ? existingAim : root.AddComponent<EnemyAim>();
+                        var aSo = new SerializedObject(aim);
+                        aSo.FindProperty("yawPivot").objectReferenceValue = yaw;
+                        aSo.FindProperty("pitchPivot").objectReferenceValue = pitch;
+                        aSo.FindProperty("yawSpeed").floatValue = r.aimYawSpeed;
+                        aSo.FindProperty("pitchSpeed").floatValue = r.aimPitchSpeed;
+                        aSo.FindProperty("minPitch").floatValue = Mathf.Min(r.aimPitchLimits.x, r.aimPitchLimits.y);
+                        aSo.FindProperty("maxPitch").floatValue = Mathf.Max(r.aimPitchLimits.x, r.aimPitchLimits.y);
+                        aSo.ApplyModifiedPropertiesWithoutUndo();
+                        log.AppendLine($"EnemyAim wired: yaw '{(yaw != null ? yaw.name : "—")}', " +
+                                       $"pitch '{(pitch != null ? pitch.name : "—")}' " +
+                                       $"({r.aimYawSpeed:0}°/s, {r.aimPitchSpeed:0}°/s). Cosmetic only — " +
+                                       "it never gates firing.");
+                    }
                 }
 
                 // ---- animator (Walker with clips) — the Colossus controller shape ----
@@ -386,6 +421,63 @@ namespace CoreholdEditor.Forge
             {
                 var found = FindDeep(root.GetChild(i), name);
                 if (found != null) return found;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Every transform under <paramref name="root"/> whose name matches any
+        /// keyword — EXACT matches first, then substring (case-insensitive),
+        /// each group in hierarchy order so the result is deterministic for a
+        /// given prefab. Rig conventions differ per kit ("Barrel_End",
+        /// "muzzle_02", "TurretMuzzle"), and a twin-barrel unit needs BOTH
+        /// barrels, which is why this returns a list rather than a first hit.
+        /// </summary>
+        private static List<Transform> CollectDeep(Transform root, string[] keywords)
+        {
+            var exact = new List<Transform>();
+            var partial = new List<Transform>();
+            if (keywords == null || keywords.Length == 0)
+                return exact;
+
+            Walk(root);
+
+            foreach (Transform t in partial)
+                if (!exact.Contains(t))
+                    exact.Add(t);
+            return exact;
+
+            void Walk(Transform t)
+            {
+                foreach (string k in keywords)
+                {
+                    if (string.IsNullOrEmpty(k))
+                        continue;
+                    if (string.Equals(t.name, k, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!exact.Contains(t)) exact.Add(t);
+                        break;
+                    }
+                    if (t.name.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        if (!partial.Contains(t)) partial.Add(t);
+                        break;
+                    }
+                }
+                for (int i = 0; i < t.childCount; i++)
+                    Walk(t.GetChild(i));
+            }
+        }
+
+        /// <summary>First keyword match that is not already spoken for (a muzzle
+        /// marker must never be adopted as the pivot that aims it).</summary>
+        private static Transform FirstDeep(Transform root, string[] keywords, List<Transform> exclude)
+        {
+            foreach (Transform t in CollectDeep(root, keywords))
+            {
+                if (t == root) continue;                       // the hull is not a turret ring
+                if (exclude != null && exclude.Contains(t)) continue;
+                return t;
             }
             return null;
         }

@@ -46,8 +46,26 @@ namespace CoreholdEditor.Forge
         public int menuOrder;
 
         [Header("Rig hints (enemies)")]
-        [Tooltip("Child names probed (deep) for weapon muzzles, in order. No match → a forward marker is generated (the Colossus fallback).")]
+        [Tooltip("Names probed for weapon muzzles. The scan is RECURSIVE and matches on SUBSTRING, " +
+                 "case-insensitively — 'muzzle' finds Muzzle_L, muzzle_02, TurretMuzzle. Every match " +
+                 "is collected in hierarchy order, so a twin-barrel rig wires both. No match → a " +
+                 "forward marker is generated (the Colossus fallback).")]
         public string[] muzzleMarkerNames = { "Barrel_End", "Muzzle", "Barrel_End_1" };
+
+        [Tooltip("Names probed for the turret RING — the child that rotates about Y to face a target. " +
+                 "First match wins. Found → an EnemyAim is wired (cosmetic tracking only; it never " +
+                 "gates firing). Nothing found → no EnemyAim, and the unit fires straight ahead as before.")]
+        public string[] yawPivotNames = { "Turret", "Yaw", "Ring", "Head", "Tower" };
+
+        [Tooltip("Names probed for the ELEVATING gun (rotates about X). Optional — yaw alone is a " +
+                 "perfectly good turret. First match wins; a match equal to the yaw pivot is ignored.")]
+        public string[] pitchPivotNames = { "Gun", "Pitch", "Mantlet", "Barrel", "Elevation" };
+
+        [Tooltip("Turret slew in degrees/second, and elevation limits (negative = barrel up). " +
+                 "Cosmetic: a slow turret looks heavy, it does not shoot less.")]
+        public float aimYawSpeed = 90f;
+        public float aimPitchSpeed = 60f;
+        public Vector2 aimPitchLimits = new Vector2(-35f, 12f);
 
         [Tooltip("Walker: walk/locomotion clip. Both clips assigned → an Animator controller is built; " +
                  "neither → the unit ships animator-less (mover-driven, like the Shrike).")]
