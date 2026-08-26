@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.VFXDirectorConfig
   effects:
   - id: 0
-    prefab: {fileID: 7177991128484655659, guid: 59a35ab9f68edff40b6e5332bed330f5, type: 3}
+    prefab: {fileID: 6294508013172393196, guid: 043176b6a68be2b43b073aaaa4782c7d, type: 3}
     prewarm: 4
   - id: 1
     prefab: {fileID: 1141330259687333427, guid: 6718dc24203da53468af9ada8fef7d6d, type: 3}
@@ -58,6 +58,8 @@ MonoBehaviour:
   - id: 14
     prefab: {fileID: 2708598583397607911, guid: 6398d43fe79ea0140913dc5530c646af, type: 3}
     prewarm: 6
-  tracerWidth: 0.15
+  tracerMaterial: {fileID: 2100000, guid: 389fb66783f792745ac0553bd3178f91, type: 2}
+  tracerWidth: 0.16
+  tracerGlow: 3
   tracerPrewarm: 8
   defaultTracerColor: {r: 0, g: 207.88327, b: 705.2075, a: 1}

@@ -332,8 +332,7 @@ Transform:
   m_LocalPosition: {x: -0.20681617, y: -5.684342e-16, z: -0.33613384}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 3656973187554027895}
+  m_Children: []
   m_Father: {fileID: 4844213915620693136}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1080940654358248123
@@ -600,14 +599,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Enemies.EnemyWeapon
   weapons:
-  - range: 9
-    fireRate: 0.9
+  - range: 15
+    fireRate: 3
     damage: 7
     muzzle: {fileID: 0}
     muzzles:
     - {fileID: 2657640180187370981}
     - {fileID: 3902745234760197214}
-    tracerColor: {r: 22.688223, g: 685.8868, b: 0, a: 1}
+    tracerColor: {r: 9.613896, g: 290.63733, b: 0, a: 1}
   range: 9
   fireRate: 0.9
   damage: 7
@@ -626,7 +625,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
   yawPivot: {fileID: 3656973187554027895}
-  pitchPivot: {fileID: 0}
+  pitchPivot: {fileID: 3656973187554027895}
   yawsBody: 0
   yawSpeed: 200
   pitchSpeed: 140
@@ -1523,16 +1522,16 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 6208536553264004170}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.1357463, y: 0.000000022351742, z: -0, w: 0.9907437}
-  m_LocalPosition: {x: -0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalRotation: {x: -0.0380388, y: -0.038038794, z: 0.70608294, w: 0.70608294}
+  m_LocalPosition: {x: 1.6370767, y: 1.1055882, z: -0.6266708}
+  m_LocalScale: {x: -1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 4654021956076102587}
   - {fileID: 5604556725315874050}
   - {fileID: 5319551978764073756}
-  m_Father: {fileID: 2242436415567383726}
-  m_LocalEulerAnglesHint: {x: -15.604, y: 0, z: 0}
+  m_Father: {fileID: 8075177425042741327}
+  m_LocalEulerAnglesHint: {x: -6.167, y: 0, z: 0}
 --- !u!1 &6243433399691526415
 GameObject:
   m_ObjectHideFlags: 0
@@ -1859,6 +1858,7 @@ Transform:
   m_Children:
   - {fileID: 4436678110526076833}
   - {fileID: 3804315495045646478}
+  - {fileID: 3656973187554027895}
   m_Father: {fileID: 4093973656070231525}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &7585569377991843424

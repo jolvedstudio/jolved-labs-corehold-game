@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Wave_04
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WaveDefinition
   groups:
-  - enemy: {fileID: 11400000, guid: 17932bf9e35be0e459d8177a96e9c6df, type: 2}
+  - enemy: {fileID: 11400000, guid: ff3c8839af9e71947aadd195c0f9ab3d, type: 2}
     count: 8
     spawnGap: 1.9
     startOffset: 0
