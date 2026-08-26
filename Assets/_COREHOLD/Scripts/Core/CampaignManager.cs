@@ -261,9 +261,23 @@ namespace Corehold.Core
 
         /// <summary>Leave the campaign and return to the Welcome scene. Abandoning
         /// forfeits the run — the saved blob goes with it (plan v2 §A.7).</summary>
-        public void AbandonToWelcome()
+        /// <summary>
+        /// Give up the run: the save is CLEARED, so Welcome offers no CONTINUE.
+        /// This is the result screen's explicit ABANDON after a defeat.
+        /// </summary>
+        public void AbandonToWelcome() => ExitToWelcome(clearRun: true);
+
+        /// <summary>
+        /// Leave to Welcome KEEPING the save, so CONTINUE RUN still resumes from
+        /// the last completed stage. This is pause → Main Menu: a player stepping
+        /// out mid-level is navigating, not surrendering, and silently destroying
+        /// their campaign for it would be indefensible.
+        /// </summary>
+        public void LeaveToWelcome() => ExitToWelcome(clearRun: false);
+
+        private void ExitToWelcome(bool clearRun)
         {
-            if (HasActiveCampaign)
+            if (clearRun && HasActiveCampaign)
                 SaveData.ClearCampaignRun(Active.campaignId);
 
             var welcome = HasActiveCampaign ? Active.StageOfKind(CampaignStageKind.Welcome) : null;
