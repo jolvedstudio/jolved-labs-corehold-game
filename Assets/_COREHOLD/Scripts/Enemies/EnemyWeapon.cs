@@ -241,29 +241,5 @@ namespace Corehold.Enemies
                 return muzzle;
             }
         }
-
-        /// <summary>
-        /// The tower this enemy is currently engaging — the first mount's target,
-        /// falling back to any other mount that has one. Read by
-        /// <see cref="EnemyAim"/> to point the model at what it is shooting;
-        /// null when nothing is in range. Read-only: acquisition stays entirely
-        /// inside the firing loop, so an aim component can never influence
-        /// targeting or rate of fire.
-        /// </summary>
-        public Tower PrimaryTarget
-        {
-            get
-            {
-                if (_targets == null)
-                    return null;
-                for (int i = 0; i < _targets.Length; i++)
-                {
-                    Tower t = _targets[i];
-                    if (t != null && t.isActiveAndEnabled)
-                        return t;
-                }
-                return null;
-            }
-        }
     }
 }

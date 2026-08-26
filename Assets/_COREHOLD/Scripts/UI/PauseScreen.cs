@@ -85,19 +85,34 @@ namespace Corehold.UI
         {
             if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
 
-            // A title scene is a genuinely DIFFERENT scene, so a name is the only
-            // way to say which — unlike Retry, where the answer is always "this
-            // one". Unset (the single-scene build) reloads this level, which comes
-            // back up on its own title overlay.
-            if (string.IsNullOrEmpty(titleSceneName))
+            // Pausing set timeScale to 0; every exit below leaves this scene, so
+            // restore it here rather than trusting each destination to do it.
+            Time.timeScale = 1f;
+
+            // 1. IN A CAMPAIGN the Welcome scene IS the main menu, and it is the
+            //    only branch that used to be missing — the campaign flow hides
+            //    the title overlay (GameFlow.ExecuteCampaignStart), so the old
+            //    fallback reloaded the level and came back with no menu at all.
+            //    That is the "Main Menu goes nowhere" report. Leaving KEEPS the
+            //    save: stepping out mid-level is navigating, not surrendering.
+            var campaign = Corehold.Core.CampaignManager.Instance;
+            if (campaign != null && campaign.HasActiveCampaign)
             {
-                Corehold.Core.GameFlow.RestartCurrentLevel();
+                campaign.LeaveToWelcome();
                 return;
             }
 
-            Corehold.Enemies.Enemy.Live.Clear();
-            Time.timeScale = 1f;
-            SceneManager.LoadScene(titleSceneName, LoadSceneMode.Single);
+            // 2. An authored title scene, when the build has one.
+            if (!string.IsNullOrEmpty(titleSceneName))
+            {
+                Corehold.Enemies.Enemy.Live.Clear();
+                SceneManager.LoadScene(titleSceneName, LoadSceneMode.Single);
+                return;
+            }
+
+            // 3. Single-scene build: reload, which comes back on its own title
+            //    overlay (Retry ignores all of this — it always reloads).
+            Corehold.Core.GameFlow.RestartCurrentLevel();
         }
 
         private void ToggleMute()

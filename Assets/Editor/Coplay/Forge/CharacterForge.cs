@@ -187,41 +187,41 @@ namespace CoreholdEditor.Forge
                     wSo.ApplyModifiedPropertiesWithoutUndo();
                     log.AppendLine($"Return fire: dmg {r.weaponDamage} @ {r.weaponRange} m, {r.weaponFireRate}/s.");
 
-                    // ---- turret rig: yaw / pitch pivots → EnemyAim (cosmetic) ----
-                    // Muzzles are excluded from pivot candidacy: "Barrel" would
-                    // otherwise adopt "Barrel_End", i.e. aim the marker instead
-                    // of the gun holding it.
-                    Transform yaw = FirstDeep(root.transform, r.yawPivotNames, muzzles);
-                    var pitchExclude = new List<Transform>(muzzles);
-                    if (yaw != null) pitchExclude.Add(yaw);
-                    Transform pitch = FirstDeep(root.transform, r.pitchPivotNames, pitchExclude);
-
+                    // ---- turret rig → EnemyAim, pivots baked onto the prefab ----
+                    // EnemyAim owns pivot resolution (it walks the MUZZLE'S
+                    // ANCESTOR CHAIN, which is stricter than any name scan: a
+                    // pivot found that way provably moves the gun). The forge's
+                    // job is only to add it AFTER the muzzles are wired, bake,
+                    // and stamp the recipe's slew tuning. This runs after the
+                    // weapon block for that reason — BakePivots reads
+                    // EnemyWeapon.PrimaryMuzzle.
                     var existingAim = root.GetComponent<EnemyAim>();
-                    if (yaw == null && pitch == null)
+                    if (!r.bakeEnemyAim)
                     {
-                        // Re-forging a rig that no longer resolves pivots must not
-                        // leave a component pointing at nothing.
                         if (existingAim != null)
                             Object.DestroyImmediate(existingAim, true);
-                        log.AppendLine("No turret pivot matched — the unit fires straight ahead " +
-                                       $"(hints: yaw [{string.Join(", ", r.yawPivotNames ?? new string[0])}], " +
-                                       $"pitch [{string.Join(", ", r.pitchPivotNames ?? new string[0])}]).");
+                        log.AppendLine("EnemyAim skipped (bakeEnemyAim off) — the unit fires straight ahead.");
                     }
                     else
                     {
                         var aim = existingAim != null ? existingAim : root.AddComponent<EnemyAim>();
+                        aim.BakePivots();
+
                         var aSo = new SerializedObject(aim);
-                        aSo.FindProperty("yawPivot").objectReferenceValue = yaw;
-                        aSo.FindProperty("pitchPivot").objectReferenceValue = pitch;
                         aSo.FindProperty("yawSpeed").floatValue = r.aimYawSpeed;
                         aSo.FindProperty("pitchSpeed").floatValue = r.aimPitchSpeed;
                         aSo.FindProperty("minPitch").floatValue = Mathf.Min(r.aimPitchLimits.x, r.aimPitchLimits.y);
                         aSo.FindProperty("maxPitch").floatValue = Mathf.Max(r.aimPitchLimits.x, r.aimPitchLimits.y);
                         aSo.ApplyModifiedPropertiesWithoutUndo();
-                        log.AppendLine($"EnemyAim wired: yaw '{(yaw != null ? yaw.name : "—")}', " +
-                                       $"pitch '{(pitch != null ? pitch.name : "—")}' " +
-                                       $"({r.aimYawSpeed:0}°/s, {r.aimPitchSpeed:0}°/s). Cosmetic only — " +
-                                       "it never gates firing.");
+
+                        var readback = new SerializedObject(aim);
+                        var yawT = readback.FindProperty("yawPivot").objectReferenceValue as Transform;
+                        var pitchT = readback.FindProperty("pitchPivot").objectReferenceValue as Transform;
+                        bool bodyYaw = readback.FindProperty("yawsBody").boolValue;
+                        log.AppendLine($"EnemyAim baked: yaw '{(yawT != null ? yawT.name : "—")}'" +
+                                       (bodyYaw ? " (BODY yaw — no turret ring on this rig)" : "") +
+                                       $", pitch '{(pitchT != null ? pitchT.name : "—")}' " +
+                                       $"({r.aimYawSpeed:0}°/s, {r.aimPitchSpeed:0}°/s).");
                     }
                 }
 
@@ -469,18 +469,6 @@ namespace CoreholdEditor.Forge
             }
         }
 
-        /// <summary>First keyword match that is not already spoken for (a muzzle
-        /// marker must never be adopted as the pivot that aims it).</summary>
-        private static Transform FirstDeep(Transform root, string[] keywords, List<Transform> exclude)
-        {
-            foreach (Transform t in CollectDeep(root, keywords))
-            {
-                if (t == root) continue;                       // the hull is not a turret ring
-                if (exclude != null && exclude.Contains(t)) continue;
-                return t;
-            }
-            return null;
-        }
 
         private static Bounds RenderBounds(GameObject go)
         {

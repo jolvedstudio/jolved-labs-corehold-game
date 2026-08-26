@@ -426,12 +426,39 @@ namespace CoreholdEditor.Campaign
                 return null;
             }
 
-            Debug.Log($"[Ship] BUILD SUCCEEDED — {dir}\n" +
+            // ABSOLUTE path in the serve command: `dir` is relative to the
+            // PROJECT ROOT, and a copy-pasted relative path run from anywhere
+            // else (a home directory, say) makes python's http.server serve a
+            // folder that does not exist — it starts fine and 404s every
+            // request, which reads like a broken build rather than a wrong cwd.
+            string full = System.IO.Path.GetFullPath(dir).Replace('\\', '/').TrimEnd('/');
+            bool hasIndex = System.IO.File.Exists(System.IO.Path.Combine(dir, "index.html"));
+
+            Debug.Log($"[Ship] BUILD SUCCEEDED — {full}\n" +
                       $"  scenes {scenes.Length}, size {summary.totalSize / (1024f * 1024f):0.0} MB, " +
                       $"time {summary.totalTime:mm\\:ss}\n" +
-                      "  WebGL needs to be SERVED, not opened from disk: run\n" +
-                      $"    python3 -m http.server 8000 --directory \"{dir}\"\n" +
-                      "  then open http://localhost:8000");
+                      (hasIndex ? "" : "  WARNING: no index.html in the output — serving it will 404.\n") +
+                      "  WebGL needs to be SERVED, not opened from disk. From ANY directory:\n" +
+                      $"    python3 \"{System.IO.Path.GetFullPath("docs/serve_webgl.py").Replace('\\', '/')}\" \"{full}\"\n" +
+                      "  then open http://localhost:8000\n" +
+                      "\n" +
+                      "  Troubleshooting, in the order these actually bite:\n" +
+                      "   • \"Unable to parse Build/….br\" → you used `python3 -m http.server`. It\n" +
+                      "     never sends the Content-Encoding headers a compressed build needs.\n" +
+                      "     Use the script above.\n" +
+                      "   • Same error AFTER switching servers → the browser cached the bad\n" +
+                      "     response (the big .data file especially). Re-run with --port 8001,\n" +
+                      "     which is a different cache key, or hard-reload with DevTools →\n" +
+                      "     Network → Disable cache.\n" +
+                      "   • Fails only in Firefox → it refuses Brotli over plain HTTP whatever the\n" +
+                      "     headers say. Use Chrome/Edge, or tick Player Settings → WebGL →\n" +
+                      "     Publishing → Decompression Fallback and rebuild, which makes the build\n" +
+                      "     run on any server in any browser.\n" +
+                      "   • 404 on every request → the server is pointed at a folder that does not\n" +
+                      "     exist; check the path above is the one you passed.\n" +
+                      "\n" +
+                      "  Payload too big? Tools → COREHOLD → Debug → Audit Build Size reads this\n" +
+                      "  build's report and says where the bytes went.");
             return dir;
         }
     }
