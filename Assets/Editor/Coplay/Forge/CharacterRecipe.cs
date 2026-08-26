@@ -52,20 +52,19 @@ namespace CoreholdEditor.Forge
                  "forward marker is generated (the Colossus fallback).")]
         public string[] muzzleMarkerNames = { "Barrel_End", "Muzzle", "Barrel_End_1" };
 
-        [Tooltip("Names probed for the turret RING — the child that rotates about Y to face a target. " +
-                 "First match wins. Found → an EnemyAim is wired (cosmetic tracking only; it never " +
-                 "gates firing). Nothing found → no EnemyAim, and the unit fires straight ahead as before.")]
-        public string[] yawPivotNames = { "Turret", "Yaw", "Ring", "Head", "Tower" };
+        [Tooltip("Add an EnemyAim and bake its pivots (Corehold.Systems.EnemyAim). It resolves the " +
+                 "turret ring and gun pivot from the MUZZLE'S ANCESTOR CHAIN — which is stricter " +
+                 "than a name scan, since a pivot found that way provably moves the gun — and falls " +
+                 "back to yawing the body on humanoid rigs. Off for units that should never turn.")]
+        public bool bakeEnemyAim = true;
 
-        [Tooltip("Names probed for the ELEVATING gun (rotates about X). Optional — yaw alone is a " +
-                 "perfectly good turret. First match wins; a match equal to the yaw pivot is ignored.")]
-        public string[] pitchPivotNames = { "Gun", "Pitch", "Mantlet", "Barrel", "Elevation" };
+        [Tooltip("Turret slew in degrees/second, written onto the baked EnemyAim. A slow turret " +
+                 "looks heavy; it does not shoot less.")]
+        public float aimYawSpeed = 200f;
+        public float aimPitchSpeed = 140f;
 
-        [Tooltip("Turret slew in degrees/second, and elevation limits (negative = barrel up). " +
-                 "Cosmetic: a slow turret looks heavy, it does not shoot less.")]
-        public float aimYawSpeed = 90f;
-        public float aimPitchSpeed = 60f;
-        public Vector2 aimPitchLimits = new Vector2(-35f, 12f);
+        [Tooltip("Elevation clamp in degrees, local X (negative = barrel up).")]
+        public Vector2 aimPitchLimits = new Vector2(-60f, 30f);
 
         [Tooltip("Walker: walk/locomotion clip. Both clips assigned → an Animator controller is built; " +
                  "neither → the unit ships animator-less (mover-driven, like the Shrike).")]
