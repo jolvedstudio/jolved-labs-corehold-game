@@ -18,6 +18,10 @@ namespace Corehold.Towers
         private float _current;
         private bool _dead;
 
+        // Resolved lazily, and ONLY while a debug immortality rule is active —
+        // the shipped path never touches it.
+        private Tower _tower;
+
         /// <summary>Current health.</summary>
         public float CurrentHealth => _current;
 
@@ -60,6 +64,18 @@ namespace Corehold.Towers
         {
             if (_dead || amount <= 0f)
                 return;
+
+            // Debug immortality by tower TYPE (testing aid). The shot was still
+            // fired, aimed and landed — only the health subtraction is skipped,
+            // so enemy behaviour and DPS-on-target stay exactly as they are in a
+            // real run. One bool test when no rule is active.
+            if (TowerImmortality.Any)
+            {
+                if (_tower == null)
+                    _tower = GetComponent<Tower>();
+                if (_tower != null && TowerImmortality.IsImmortal(_tower.Definition))
+                    return;
+            }
 
             _current -= amount;
             if (_current < 0f)

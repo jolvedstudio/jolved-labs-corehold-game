@@ -23,6 +23,7 @@ namespace Corehold.Systems
     ///   WAVES      ]  next wave      [  previous wave (index only)   0  jump to wave 9
     ///   ECONOMY    M  +1000 salvage  B  build on every free pad      U  upgrade all turrets
     ///   CORE       I  invulnerable   J  damage core by 1
+    ///   TURRETS    G  immortal type  ⇧G cycle which type (or ALL)
     ///   ENEMIES    K  kill all       S  stun all 3 s                 L  slow all 50%/3 s
     ///   RUN        V  force VICTORY  X  force DEFEAT                 1/2/3 difficulty
     ///   CAMPAIGN   C  status dump    ⇧C wipe this campaign's saves
@@ -46,6 +47,12 @@ namespace Corehold.Systems
         private static readonly float[] SpeedLadder = { 0.25f, 0.5f, 1f, 2f, 4f };
         private int _speedIndex = 2;
         private bool _paused;
+
+        /// <summary>Which tower type G acts on. 0 = ALL TYPES, 1..N index the
+        /// runtime roster — so one key covers per-type and blanket immortality,
+        /// and several types can be immortal at once (the case that matters:
+        /// "hold the front line, let the support die").</summary>
+        private int _immortalCursor;
 
         private void Update()
         {
@@ -74,6 +81,11 @@ namespace Corehold.Systems
                 ToggleCoreInvulnerability();
             if (kb.jKey.wasPressedThisFrame)
                 DamageCore();
+            if (kb.gKey.wasPressedThisFrame)
+            {
+                if (shift) CycleImmortalCursor();
+                else ToggleImmortalAtCursor();
+            }
             if (kb.kKey.wasPressedThisFrame)
                 KillAllEnemies();
             if (kb.sKey.wasPressedThisFrame)
@@ -234,6 +246,67 @@ namespace Corehold.Systems
                 gm.CoreInvulnerable = !gm.CoreInvulnerable;
                 Debug.Log($"[DebugConsole] Core invulnerable: {gm.CoreInvulnerable}.");
             }
+        }
+
+        // ----- Turret immortality by type (G / shift+G) -----
+
+        /// <summary>The runtime roster, in build-menu order (the UITheme is the
+        /// runtime mirror of the editor's RosterRegistry, which this cannot
+        /// reach). Empty on a scene whose UI has not been built.</summary>
+        private static Corehold.Data.TowerDefinition[] Roster()
+        {
+            var theme = UITheme.Instance;
+            return theme != null && theme.turrets != null
+                ? theme.turrets
+                : new Corehold.Data.TowerDefinition[0];
+        }
+
+        private Corehold.Data.TowerDefinition CursorDefinition()
+        {
+            var roster = Roster();
+            if (_immortalCursor <= 0 || roster.Length == 0)
+                return null;   // 0 = ALL TYPES
+            return roster[Mathf.Clamp(_immortalCursor - 1, 0, roster.Length - 1)];
+        }
+
+        private string CursorLabel()
+        {
+            var def = CursorDefinition();
+            if (def == null)
+                return "ALL TYPES";
+            return string.IsNullOrEmpty(def.displayName) ? def.id : def.displayName;
+        }
+
+        private void CycleImmortalCursor()
+        {
+            int slots = Roster().Length + 1;   // +1 for the ALL TYPES slot
+            _immortalCursor = (_immortalCursor + 1) % Mathf.Max(1, slots);
+            Debug.Log($"[DebugConsole] Immortality cursor → {CursorLabel()} (G toggles it).");
+        }
+
+        private void ToggleImmortalAtCursor()
+        {
+            var roster = Roster();
+            if (roster.Length == 0)
+            {
+                Debug.LogWarning("[DebugConsole] No turret roster in this scene (UITheme.turrets is empty) — " +
+                                 "run Tools → COREHOLD → Scene Setup → Build Real UI.");
+                return;
+            }
+
+            var def = CursorDefinition();
+            if (def == null)
+            {
+                // ALL TYPES: on unless everything is already on.
+                bool on = !TowerImmortality.Any;
+                TowerImmortality.SetAll(roster, on);
+                Debug.Log($"[DebugConsole] Turret immortality: ALL TYPES {(on ? "ON" : "OFF")}.");
+                return;
+            }
+
+            bool state = TowerImmortality.Toggle(def);
+            Debug.Log($"[DebugConsole] Turret immortality: {CursorLabel()} {(state ? "ON (live ones healed)" : "OFF")}. " +
+                      $"Immortal now: {TowerImmortality.Describe()}.");
         }
 
         /// <summary>One point of core damage — the close-call feedback, the damage
@@ -503,6 +576,24 @@ namespace Corehold.Systems
 
         private void OnGUI()
         {
+            // ALWAYS visible, overlay or not: turret immortality changes what
+            // survives a wave, so it must never be possible to judge a fight
+            // while quietly cheating. Deliberately loud, deliberately unmissable.
+            if (TowerImmortality.Any)
+            {
+                var warn = new GUIStyle(GUI.skin.box)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = 12,
+                    padding = new RectOffset(8, 8, 4, 4)
+                };
+                warn.normal.textColor = new Color(1f, 0.45f, 0.35f);
+                string list = TowerImmortality.Describe();
+                if (list.Length > 44) list = list.Substring(0, 41) + "…";
+                GUI.Box(new Rect(Screen.width - 360f, 10f, 350f, 24f),
+                        $"⚠ IMMORTAL TURRETS — {list}", warn);
+            }
+
             if (_overlay == Overlay.Off)
                 return;
 
@@ -516,7 +607,7 @@ namespace Corehold.Systems
 
             if (_overlay == Overlay.Keys)
             {
-                GUI.Box(new Rect(10, 10, 430, 250), KeyMapText(), style);
+                GUI.Box(new Rect(10, 10, 460, 268), KeyMapText(), style);
                 return;
             }
 
@@ -550,10 +641,12 @@ namespace Corehold.Systems
                 $"{(night != null && night.IsNight ? "   night" : "")}\n" +
                 $"Time         : {speed}\n" +
                 $"Frame time   : {_frameMs:0.0} ms ({(_frameMs > 0f ? (1000f / _frameMs) : 0f):0} fps)\n" +
-                $"Draw calls   : {(drawCalls >= 0 ? drawCalls.ToString() : "n/a")}" +
+                $"Draw calls   : {(drawCalls >= 0 ? drawCalls.ToString() : "n/a")}\n" +
+                $"Immortal     : {TowerImmortality.Describe()}\n" +
+                $"  G target   : {CursorLabel()}" +
                 CampaignOverlayLines();
 
-            GUI.Box(new Rect(10, 10, 300, 215), text, style);
+            GUI.Box(new Rect(10, 10, 320, 250), text, style);
         }
 
         /// <summary>Campaign block — only when one is running, so single-map play
@@ -577,6 +670,7 @@ namespace Corehold.Systems
                 "WAVES     ]  next wave     [  prev index    0  jump to w9\n" +
                 "ECONOMY   M  +1000 salv    B  build all pads U  upgrade all\n" +
                 "CORE      I  invuln        J  damage core 1\n" +
+                "TURRETS   G  immortal type shift+G  pick type (or ALL TYPES)\n" +
                 "ENEMIES   K  kill all      S  stun all       L  slow all\n" +
                 "RUN       V  force WIN     X  force LOSS     1/2/3 difficulty\n" +
                 "CAMPAIGN  C  status dump   shift+C  wipe this campaign's saves\n" +
