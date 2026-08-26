@@ -441,13 +441,24 @@ namespace CoreholdEditor.Campaign
                       "  WebGL needs to be SERVED, not opened from disk. From ANY directory:\n" +
                       $"    python3 \"{System.IO.Path.GetFullPath("docs/serve_webgl.py").Replace('\\', '/')}\" \"{full}\"\n" +
                       "  then open http://localhost:8000\n" +
-                      "  Use THAT script, not `python3 -m http.server`: a compressed build needs\n" +
-                      "  Content-Encoding headers the stock server never sends, and Unity fails with\n" +
-                      "  \"Unable to parse Build/….framework.js.br\". Firefox additionally refuses\n" +
-                      "  Brotli over plain HTTP — use Chrome/Edge locally, or build with Gzip, or\n" +
-                      "  tick Player Settings → WebGL → Publishing → Decompression Fallback.\n" +
-                      "  (404 on every request = the server is pointed at a folder that does not " +
-                      "exist; check the path above is the one you passed.)");
+                      "\n" +
+                      "  Troubleshooting, in the order these actually bite:\n" +
+                      "   • \"Unable to parse Build/….br\" → you used `python3 -m http.server`. It\n" +
+                      "     never sends the Content-Encoding headers a compressed build needs.\n" +
+                      "     Use the script above.\n" +
+                      "   • Same error AFTER switching servers → the browser cached the bad\n" +
+                      "     response (the big .data file especially). Re-run with --port 8001,\n" +
+                      "     which is a different cache key, or hard-reload with DevTools →\n" +
+                      "     Network → Disable cache.\n" +
+                      "   • Fails only in Firefox → it refuses Brotli over plain HTTP whatever the\n" +
+                      "     headers say. Use Chrome/Edge, or tick Player Settings → WebGL →\n" +
+                      "     Publishing → Decompression Fallback and rebuild, which makes the build\n" +
+                      "     run on any server in any browser.\n" +
+                      "   • 404 on every request → the server is pointed at a folder that does not\n" +
+                      "     exist; check the path above is the one you passed.\n" +
+                      "\n" +
+                      "  Payload too big? Tools → COREHOLD → Debug → Audit Build Size reads this\n" +
+                      "  build's report and says where the bytes went.");
             return dir;
         }
     }
