@@ -39,7 +39,21 @@ namespace Corehold.Systems
         /// <summary>Reactivate a free item, or grow the pool if none are free.</summary>
         public T Get()
         {
-            T item = _free.Count > 0 ? _free.Pop() : CreateNew();
+            // Skip any free items whose GameObjects were destroyed out from under the
+            // pool (e.g. a scene reload / play-session restart with domain-reload
+            // disabled, where this static-owned pool outlives its instances). Unity's
+            // overloaded null check (item == null) catches destroyed objects.
+            T item = null;
+            while (_free.Count > 0)
+            {
+                item = _free.Pop();
+                if (item != null)
+                    break;
+                item = null;
+            }
+            if (item == null)
+                item = CreateNew();
+
             item.gameObject.SetActive(true);
             return item;
         }

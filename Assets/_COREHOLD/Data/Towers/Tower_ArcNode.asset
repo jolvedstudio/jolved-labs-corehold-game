@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
   id: arc_node
   displayName: Arc Node
+  menuOrder: 0
   icon: {fileID: 21300000, guid: 38f2f6ca387e57344841915c8c237b1b, type: 3}
   description: Plasma gun. Hitscan chain, 30% damage falloff per jump. Energy.
   damageType: 1
@@ -44,7 +45,7 @@ MonoBehaviour:
     projectilePrefab: {fileID: 0}
     projectileSpeed: 0
     weaponVisualIndex: 0
-    muzzleVfx: {fileID: 7177991128484655659, guid: 59a35ab9f68edff40b6e5332bed330f5, type: 3}
+    muzzleVfx: {fileID: 718690339124133421, guid: c154daaf377c39b4d89906ec77082bee, type: 3}
     fireSfx: {fileID: 8300000, guid: b8138f25b128a274d89948a0183dddab, type: 3}
     auraRadius: 0
     auraFireRateBonus: 0

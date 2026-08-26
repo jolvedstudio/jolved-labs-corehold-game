@@ -77,6 +77,7 @@ GameObject:
   - component: {fileID: 842044550142817697}
   - component: {fileID: 6027179540638203647}
   - component: {fileID: 7557859167387367019}
+  - component: {fileID: 4721427101813328706}
   m_Layer: 0
   m_Name: Breaker
   m_TagString: Untagged
@@ -180,6 +181,8 @@ MonoBehaviour:
   moveSpeed: 5
   turnRate: 360
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 1.15
   route: {fileID: 0}
   definition: {fileID: 0}
@@ -209,6 +212,26 @@ MonoBehaviour:
   damage: 22
   muzzle: {fileID: 5743171289591816855}
   tracerColor: {r: 1944.3613, g: 137.57271, b: 322.8236, a: 1}
+--- !u!114 &4721427101813328706
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1098567759258226309}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 5984314645874125487}
+  pitchPivot: {fileID: 4362812783843491312}
+  yawsBody: 0
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &1173280407698828357
 GameObject:
   m_ObjectHideFlags: 0

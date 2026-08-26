@@ -324,8 +324,10 @@ namespace Corehold.Towers
                 // Plain hitscan: apply damage directly, draw tracer + impact spark.
                 ApplyDamage(target, effectiveDamage);
                 DrawTracer(origin, target.HitPoint, trace);
+                // Counter-readable impact (R22): the spark's look encodes whether this
+                // turret's damage type countered the target's armour (GDD §7.1 pillar).
                 if (VFXDirector.Instance != null)
-                    VFXDirector.Instance.PlayImpact(target.HitPoint);
+                    VFXDirector.Instance.PlayImpactEffective(target.HitPoint, Multiplier(target), target.ArmourType);
                 if (AudioDirector.Instance != null)
                     AudioDirector.Instance.PlayImpact();
             }
@@ -374,7 +376,7 @@ namespace Corehold.Towers
             {
                 DrawTracer(fromPoint, current.HitPoint, chainColor);
                 if (VFXDirector.Instance != null)
-                    VFXDirector.Instance.PlayImpact(current.HitPoint);
+                    VFXDirector.Instance.PlayImpactEffective(current.HitPoint, Multiplier(current), current.ArmourType);
 
                 float dealt = ApplyDamage(current, damageThisHit);
                 _chainHits.Add(current);
@@ -431,7 +433,7 @@ namespace Corehold.Towers
 
                 ApplyDamage(e, damage);
                 if (VFXDirector.Instance != null)
-                    VFXDirector.Instance.PlayImpact(e.HitPoint);
+                    VFXDirector.Instance.PlayImpactEffective(e.HitPoint, Multiplier(e), e.ArmourType);
             }
 
             DrawTracer(origin, end, trace);
@@ -487,6 +489,19 @@ namespace Corehold.Towers
         /// veterancy (R21) — attribution lives at the damage site, so Enemy never
         /// has to know what a Tower is.
         /// </summary>
+        /// <summary>
+        /// The damage-vs-armour multiplier this turret's damage type deals to the
+        /// given enemy (GDD §7.1). Used to pick the counter-readable impact VFX so
+        /// the effect matches the damage actually applied. Returns 1 when no table
+        /// is wired (effects then read as neutral).
+        /// </summary>
+        private float Multiplier(Enemy enemy)
+        {
+            if (Projectile.SharedDamageTable == null || definition == null || enemy == null)
+                return 1f;
+            return Projectile.SharedDamageTable.Multiplier(definition.damageType, enemy.ArmourType);
+        }
+
         private float ApplyDamage(Enemy enemy, float baseDamage)
         {
             float mult = Projectile.SharedDamageTable != null

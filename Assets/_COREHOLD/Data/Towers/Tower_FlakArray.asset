@@ -14,11 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
   id: flakarray
   displayName: Flak Array
-  icon: {fileID: 21300000, guid: 6d1e08ece6767914c871eb2620a7111d, type: 3}
+  icon: {fileID: 21300000, guid: ef9b458053ca08c4681a8ffce52534c4, type: 3}
   description: Air only. Shreds Wasps and Shrikes; blind to everything on the ground.
   damageType: 0
   canTargetAir: 1
-  targetAirOnly: 1
+  targetAirOnly: 0
   basePrefab: {fileID: 2870932331256219019, guid: 74a10149925559a41bd11d990ff5bf9b, type: 3}
   tiers:
   - cost: 130

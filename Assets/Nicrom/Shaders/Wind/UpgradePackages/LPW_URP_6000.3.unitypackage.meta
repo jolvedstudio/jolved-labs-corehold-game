@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: bdb5493d6528b434aafa0f63fe648cc3
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 182586
+  packageName: Low Poly Wind
+  packageVersion: 1.4.0
+  assetPath: Assets/Nicrom/Shaders/Wind/UpgradePackages/LPW_URP_6000.3.unitypackage
+  uploadId: 859548

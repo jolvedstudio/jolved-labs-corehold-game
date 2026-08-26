@@ -23,9 +23,11 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 2d4ff21ee8363af4e82245adb8d17c73, type: 2}
   - {fileID: 11400000, guid: 64c6d32ddb2681f4e8b7e6205b6465c8, type: 2}
   - {fileID: 11400000, guid: 192f2a2fbd3886f47acee41d590c8ccb, type: 2}
-  startingSalvage: 300
-  coreIntegrity: 20
+  startingSalvage: 500
+  coreIntegrity: 30
   hpGrowthPerWave: 0.18
   chainBonusPerLiveEnemy: 8
   chainBonusCap: 80
   maxLiveEnemies: 14
+  chainLockFieldLoad: 0
+  spreadGroundGroupsAcrossSpawners: 0

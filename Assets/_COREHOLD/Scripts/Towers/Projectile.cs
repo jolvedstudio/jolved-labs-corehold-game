@@ -323,9 +323,19 @@ namespace Corehold.Towers
             if (VFXDirector.Instance != null)
             {
                 if (_tier.splashRadius > 0f)
+                {
                     VFXDirector.Instance.PlayExplosion(center, _tier.splashRadius);
+                }
                 else
-                    VFXDirector.Instance.PlayImpact(center);
+                {
+                    // Counter-readable impact (R22): a single-target projectile's
+                    // strike encodes whether it countered the nearest target's armour.
+                    Enemy hit = NearestEnemy(center, 1.0f);
+                    if (hit != null)
+                        VFXDirector.Instance.PlayImpactEffective(center, Multiplier(hit.ArmourType), hit.ArmourType);
+                    else
+                        VFXDirector.Instance.PlayImpact(center);
+                }
             }
 
             // Detonation SFX (GDD §10): splash weapons play the explosion sound, a
@@ -377,6 +387,16 @@ namespace Corehold.Towers
         /// A hit that flips the enemy from alive to dead credits the owning tower's
         /// veterancy (R21) — every splash kill counts, not just the primary target.
         /// </summary>
+        /// <summary>
+        /// The damage-vs-armour multiplier this projectile's damage type deals to a
+        /// given armour type (GDD §7.1). Used to pick the counter-readable impact VFX
+        /// for single-target projectiles. Returns 1 when no table is wired.
+        /// </summary>
+        private float Multiplier(ArmourType armour)
+        {
+            return SharedDamageTable != null ? SharedDamageTable.Multiplier(_damageType, armour) : 1f;
+        }
+
         private void ApplyDamage(Enemy e, float baseDamage)
         {
             float mult = SharedDamageTable != null

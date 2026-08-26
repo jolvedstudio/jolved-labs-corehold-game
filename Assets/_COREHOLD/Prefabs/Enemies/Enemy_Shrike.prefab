@@ -76,6 +76,7 @@ GameObject:
   - component: {fileID: 4096096486737273476}
   - component: {fileID: 4032816113727782206}
   - component: {fileID: 4827051712858613716}
+  - component: {fileID: 7709270839587513510}
   m_Layer: 0
   m_Name: Enemy_Shrike
   m_TagString: Untagged
@@ -144,6 +145,8 @@ MonoBehaviour:
   moveSpeed: 4.5
   turnRate: 220
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 1.1
   route: {fileID: 0}
   definition: {fileID: 11400000, guid: ff3c8839af9e71947aadd195c0f9ab3d, type: 2}
@@ -181,7 +184,7 @@ MonoBehaviour:
   - range: 20
     fireRate: 1.2
     damage: 9
-    muzzle: {fileID: 2998656098477187627}
+    muzzle: {fileID: 0}
     muzzles:
     - {fileID: 2998656098477187627}
     - {fileID: 2998656098477187605}
@@ -211,6 +214,26 @@ MonoBehaviour:
   metresPerLoop: 1.2
   uvAxis: {x: 0, y: 1}
   fallbackSpeed: 4.5
+--- !u!114 &7709270839587513510
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3930312948029493255}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 4129204831425103906}
+  pitchPivot: {fileID: 7107752552417313754}
+  yawsBody: 0
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &4595965607350699181
 GameObject:
   m_ObjectHideFlags: 0
