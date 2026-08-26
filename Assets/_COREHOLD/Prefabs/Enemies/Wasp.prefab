@@ -267,6 +267,7 @@ GameObject:
   - component: {fileID: 6611205540452995393}
   - component: {fileID: 795745316087497397}
   - component: {fileID: 2798064920286256028}
+  - component: {fileID: 4993605315876277992}
   m_Layer: 0
   m_Name: Wasp
   m_TagString: Untagged
@@ -370,6 +371,8 @@ MonoBehaviour:
   moveSpeed: 5
   turnRate: 360
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 0.55
   route: {fileID: 0}
   definition: {fileID: 11400000, guid: 4c6008c65aacdf54da499676a421088d, type: 2}
@@ -400,6 +403,26 @@ MonoBehaviour:
   damage: 5
   muzzle: {fileID: 0}
   tracerColor: {r: 4, g: 1.2, b: 0.3, a: 1}
+--- !u!114 &4993605315876277992
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 962232795528168992}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 7719244727814086461}
+  pitchPivot: {fileID: 2767053145552784879}
+  yawsBody: 0
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &1218975589061994667
 GameObject:
   m_ObjectHideFlags: 0

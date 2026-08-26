@@ -20,6 +20,8 @@ MonoBehaviour:
   overrideGroundTint: 1
   groundTint: {r: 0.88, g: 0.92, b: 1, a: 1}
   precipitation: 1
+  ambientLoop: {fileID: 0}
+  ambientVolume: 0.4
   precipitationPrefab: {fileID: 6077168872989578693, guid: f514474ff8e94554d8477de1f2f601b0, type: 3}
   precipitationRate: 260
   fallSpeed: 18

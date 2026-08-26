@@ -851,6 +851,7 @@ GameObject:
   - component: {fileID: 6607116234805939617}
   - component: {fileID: 5827556002361825132}
   - component: {fileID: 2851456340475336505}
+  - component: {fileID: 7091857566665623182}
   m_Layer: 0
   m_Name: Colossus_C
   m_TagString: Untagged
@@ -952,6 +953,8 @@ MonoBehaviour:
   moveSpeed: 2.6
   turnRate: 180
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 2.2
   route: {fileID: 0}
   definition: {fileID: 11400000, guid: b7a7058d79484f54e8cce2ac2801d856, type: 2}
@@ -989,16 +992,35 @@ MonoBehaviour:
   - range: 34
     fireRate: 0.9
     damage: 34
-    muzzle: {fileID: 691159473664512915}
+    muzzle: {fileID: 6746054626791595911}
     muzzles:
-    - {fileID: 691159473664512915}
     - {fileID: 3350532880334215562}
-    tracerColor: {r: 1.2, g: 2, b: 0.4, a: 2}
+    tracerColor: {r: 61.653458, g: 102.75576, b: 20.551153, a: 2}
   range: 12
   fireRate: 0.8
   damage: 10
   muzzle: {fileID: 0}
   tracerColor: {r: 4, g: 1.2, b: 0.3, a: 1}
+--- !u!114 &7091857566665623182
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3244346257169291824}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 7365798674061963069}
+  pitchPivot: {fileID: 0}
+  yawsBody: 1
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &3880917963459821456
 GameObject:
   m_ObjectHideFlags: 0
@@ -2075,8 +2097,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 6757590327772970179}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: -0, z: 0, w: 0.7071068}
-  m_LocalPosition: {x: -0, y: 0.041667324, z: 0}
+  m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: -0, y: 0.041666664, z: 0}
   m_LocalScale: {x: 3.5, y: 3.5, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2742,6 +2764,11 @@ PrefabInstance:
 --- !u!4 &6746054626791595909 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 400000, guid: ff49a20eb1ebabe4aafaedd18dbc0c5e, type: 3}
+  m_PrefabInstance: {fileID: 6746054626791720197}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &6746054626791595911 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 400002, guid: ff49a20eb1ebabe4aafaedd18dbc0c5e, type: 3}
   m_PrefabInstance: {fileID: 6746054626791720197}
   m_PrefabAsset: {fileID: 0}
 --- !u!23 &6746054626793889125 stripped

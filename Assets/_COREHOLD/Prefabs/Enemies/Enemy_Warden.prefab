@@ -675,6 +675,7 @@ GameObject:
   - component: {fileID: 8524209160328268481}
   - component: {fileID: 6242556776534061614}
   - component: {fileID: 4992090467868087551}
+  - component: {fileID: 1333284205530160848}
   m_Layer: 0
   m_Name: Enemy_Warden
   m_TagString: Untagged
@@ -760,6 +761,8 @@ MonoBehaviour:
   moveSpeed: 3.4
   turnRate: 200
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 1.2
   route: {fileID: 0}
   definition: {fileID: 11400000, guid: 080b9383b936f554f8250d004150a27a, type: 2}
@@ -797,9 +800,10 @@ MonoBehaviour:
   - range: 18
     fireRate: 0.8
     damage: 10
-    muzzle: {fileID: 957998940285292623}
+    muzzle: {fileID: 0}
     muzzles:
-    - {fileID: 957998940285292623}
+    - {fileID: 8670524175724805542}
+    - {fileID: 1902775870752173988}
     tracerColor: {r: 4, g: 1.2, b: 0.3, a: 1}
   range: 12
   fireRate: 0.8
@@ -820,6 +824,26 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Enemies.WardenAura
   radius: 8
   damageReduction: 0.25
+--- !u!114 &1333284205530160848
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6038296617166805341}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 1698768651770281124}
+  pitchPivot: {fileID: 0}
+  yawsBody: 0
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &6869123171337624955
 GameObject:
   m_ObjectHideFlags: 0
@@ -1115,6 +1139,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 2437acb094dddc241926a0b2a983e6b5, type: 3}
+--- !u!4 &1902775870752173988 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 400002, guid: 2437acb094dddc241926a0b2a983e6b5, type: 3}
+  m_PrefabInstance: {fileID: 1902775870751782182}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &1902775870752173990 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 400000, guid: 2437acb094dddc241926a0b2a983e6b5, type: 3}
@@ -1226,5 +1255,10 @@ PrefabInstance:
 --- !u!4 &8670524175724805540 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 400000, guid: 649076397fd15474b85a71f478b321b2, type: 3}
+  m_PrefabInstance: {fileID: 8670524175724930852}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &8670524175724805542 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 400002, guid: 649076397fd15474b85a71f478b321b2, type: 3}
   m_PrefabInstance: {fileID: 8670524175724930852}
   m_PrefabAsset: {fileID: 0}

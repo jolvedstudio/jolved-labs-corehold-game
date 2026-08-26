@@ -171,9 +171,14 @@ namespace Corehold.Enemies
 
         /// <summary>
         /// World-space point turrets aim at and measure range to (GDD §7.2, §12.5).
-        /// Uses the assigned <see cref="hitPoint"/> transform, or this transform if unset.
+        /// Uses the assigned <see cref="hitPoint"/> transform when authored; otherwise
+        /// falls back to the body's GEOMETRIC CENTRE (centre mass) rather than the
+        /// transform root, which sits at the feet — so turrets aim at the middle of
+        /// the unit, not the ground beneath it (GDD §12.5 "empty at centre mass").
         /// </summary>
-        public Vector3 HitPoint => hitPoint != null ? hitPoint.position : transform.position;
+        public Vector3 HitPoint => hitPoint != null
+            ? hitPoint.position
+            : Corehold.Systems.GeometricCenter.Of(gameObject);
 
         /// <summary>The transform used as the aim/range target, or this transform if unset.</summary>
         public Transform HitPointTransform => hitPoint != null ? hitPoint : transform;

@@ -27,7 +27,7 @@ MonoBehaviour:
   deathSound: {fileID: 8300000, guid: c27036221e6b287498c43036f7767c3e, type: 3}
   deathVolume: 0.8
   deathPitchSpread: 0.06
-  isAir: 1
+  isAir: 0
   flightAltitude: 4
   animatorClipSpeedRef: 9
   hasSecondPhase: 0

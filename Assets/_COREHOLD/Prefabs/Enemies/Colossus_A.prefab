@@ -582,7 +582,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0.7071068, y: -0, z: -0, w: 0.7071068}
   m_LocalPosition: {x: 0, y: 0.035714284, z: 0}
-  m_LocalScale: {x: 4, y: 4, z: 1}
+  m_LocalScale: {x: 3.5, y: 3.5, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1827109588741244475}
@@ -2873,6 +2873,7 @@ GameObject:
   - component: {fileID: 7752963463088289895}
   - component: {fileID: 7734913877386884320}
   - component: {fileID: 479642066186842584}
+  - component: {fileID: 3223771020937426225}
   m_Layer: 0
   m_Name: Colossus_A
   m_TagString: Untagged
@@ -2976,6 +2977,8 @@ MonoBehaviour:
   moveSpeed: 3
   turnRate: 180
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 2.2
   route: {fileID: 0}
   definition: {fileID: 11400000, guid: 3b63d6d6386832841b60e95507c0fb3c, type: 2}
@@ -3023,6 +3026,26 @@ MonoBehaviour:
   damage: 10
   muzzle: {fileID: 0}
   tracerColor: {r: 4, g: 1.2, b: 0.3, a: 1}
+--- !u!114 &3223771020937426225
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7883962962865109268}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 1827109588741244475}
+  pitchPivot: {fileID: 3399046474414851681}
+  yawsBody: 1
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &7938057862527747031
 GameObject:
   m_ObjectHideFlags: 0

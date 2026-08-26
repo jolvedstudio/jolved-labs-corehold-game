@@ -4000,6 +4000,7 @@ GameObject:
   - component: {fileID: 4939312739327285912}
   - component: {fileID: 2621103836088235607}
   - component: {fileID: 1525776073589204914}
+  - component: {fileID: 3350245018247720982}
   m_Layer: 0
   m_Name: Strider
   m_TagString: Untagged
@@ -4103,6 +4104,8 @@ MonoBehaviour:
   moveSpeed: 5
   turnRate: 360
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 1
   route: {fileID: 0}
   definition: {fileID: 0}
@@ -4141,6 +4144,26 @@ MonoBehaviour:
   damage: 9
   muzzle: {fileID: 0}
   tracerColor: {r: 4, g: 1.2, b: 0.3, a: 1}
+--- !u!114 &3350245018247720982
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8751444216850120230}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 5232611094938219124}
+  pitchPivot: {fileID: 0}
+  yawsBody: 0
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &8846124923159923107
 GameObject:
   m_ObjectHideFlags: 0

@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: warden
   displayName: Warden
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 3fc942e295cbad743a068a31bcfb79fa, type: 3}
   prefab: {fileID: 6038296617166805341, guid: 84760921ef79b2448824d0b928603d2b, type: 3}
   baseHealth: 520
   armourType: 1

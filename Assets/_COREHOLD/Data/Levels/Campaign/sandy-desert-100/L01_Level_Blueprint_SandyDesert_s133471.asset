@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 47b5924ac4185b14c9bd268b50bcc92c, type: 3}
+  m_Name: L01_Level_Blueprint_SandyDesert_s133471
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.LevelDefinition
+  waves:
+  - {fileID: 11400000, guid: dc4793e1eeb14cb42bca30eafe327758, type: 2}
+  - {fileID: 11400000, guid: 0b2fdeb16f199f84bab1f9a5d225ec7e, type: 2}
+  - {fileID: 11400000, guid: 5285b23bbf79c8b41ac91ea3e855f9ac, type: 2}
+  - {fileID: 11400000, guid: fda23c05c3e57f2479fa7906d617f377, type: 2}
+  - {fileID: 11400000, guid: 366e3e00fde8abb408f8dca3c60ca938, type: 2}
+  - {fileID: 11400000, guid: cab052339ae29d5499d341638daa6320, type: 2}
+  - {fileID: 11400000, guid: 4bcddeaa021ef7c44b2fee81661d2004, type: 2}
+  - {fileID: 11400000, guid: 032eb6e7a9e925249b066d49278e8722, type: 2}
+  - {fileID: 11400000, guid: ad5b17462a4aeb64ab4eb8b1e12ac015, type: 2}
+  - {fileID: 11400000, guid: dc83679cf80de65469fb60cde7585b6a, type: 2}
+  startingSalvage: 500
+  coreIntegrity: 30
+  hpGrowthPerWave: 0.07537686
+  chainBonusPerLiveEnemy: 8
+  chainBonusCap: 80
+  maxLiveEnemies: 21
+  chainLockFieldLoad: 0
+  spreadGroundGroupsAcrossSpawners: 1

@@ -8,7 +8,7 @@ using UnityEngine.SceneManagement;
 /// <summary>
 /// Editor setup for the COREHOLD VFXDirector (GDD §11). Creates (or updates) a
 /// VFXDirector GameObject in the Game scene and assigns the Cartoon FX Remaster
-/// prefabs (twelve slots as of R19) to its serialized effect slots. Run once;
+/// prefabs (fifteen slots as of R22) to its serialized effect slots. Run once;
 /// safe to re-run — and MUST be re-run on scenes built before a slot was added,
 /// because a scene's serialized array keeps its old length until this rewrites it.
 /// </summary>
@@ -55,6 +55,25 @@ public static class SetupVFXDirector
             CfxrRoot + "Electric/CFXR3 Hit Electric B (Air).prefab",
             CfxrRoot + "Electric/CFXR3 Hit Electric C (Air).prefab",
         }, 2),
+        // Counter-readability impacts (R22 — GDD §7.1 "visible counter" pillar).
+        // Strong = a bright red hit burst (super-effective reads as a heavy strike);
+        // Weak = a small yellow/misc spark that reads as a deflection;
+        // ShieldHit = the glowing blue HDR impact that reads as an energy shield ripple.
+        (VFXDirector.Effect.ImpactStrong, new[]
+        {
+            CfxrRoot + "Impacts/CFXR Hit A (Red).prefab",
+            CfxrRoot + "Impacts/CFXR Hit D 3D (Yellow).prefab",
+        }, 8),
+        (VFXDirector.Effect.ImpactWeak, new[]
+        {
+            CfxrRoot + "Misc/CFXR3 Hit Misc A.prefab",
+            CfxrRoot + "Impacts/CFXR Hit D 3D (Yellow).prefab",
+        }, 8),
+        (VFXDirector.Effect.ShieldHit, new[]
+        {
+            CfxrRoot + "Impacts/CFXR Impact Glowing HDR (Blue).prefab",
+            CfxrRoot + "Electric/CFXR3 Hit Electric C (Air).prefab",
+        }, 6),
     };
 
     // ---- Tracer configuration, as tuned in the shipped Game.unity ----------
@@ -84,6 +103,30 @@ public static class SetupVFXDirector
         }
 
         var missing = new List<string>();
+
+        // DATA-FIRST: if the shared VFXDirectorConfig asset exists (written by the
+        // testbed's "Apply" button when a human tunes the effects), it is the source
+        // of truth — the generator and every scene setup use it, so a change made
+        // once in the testbed flows into every future level. The hard-coded Map
+        // below is only the FALLBACK for a project that has not created the asset yet
+        // (and the seed the "Create/Refresh VFX Config from code map" tool writes).
+        var config = VFXConfigIO.Load();
+        if (config != null && config.effects != null && config.effects.Length > 0)
+        {
+            VFXConfigIO.ApplyToDirector(director, config, missing);
+            EditorSceneManager.MarkSceneDirty(scene);
+            if (!GenerationDriven.Active)
+                EditorSceneManager.SaveScene(scene);
+
+            if (missing.Count > 0)
+                Debug.LogError("[COREHOLD] VFXDirector setup (from config asset): missing prefabs:\n- " +
+                               string.Join("\n- ", missing));
+            else
+                Debug.Log($"[COREHOLD] VFXDirector setup complete from {VFXConfigIO.ConfigPath}: " +
+                          $"{config.effects.Length} effect prefabs assigned.");
+            return;
+        }
+
         var so = new SerializedObject(director);
         SerializedProperty effects = so.FindProperty("effects");
         effects.arraySize = Map.Length;
@@ -129,8 +172,56 @@ public static class SetupVFXDirector
         if (missing.Count > 0)
             Debug.LogError("[COREHOLD] VFXDirector setup: missing prefabs:\n- " + string.Join("\n- ", missing));
         else
-            Debug.Log($"[COREHOLD] VFXDirector setup complete: {Map.Length} effect prefabs assigned, " +
+            Debug.Log($"[COREHOLD] VFXDirector setup complete (code map): {Map.Length} effect prefabs assigned, " +
                       $"tracer width {TracerWidth} colour {DefaultTracerColor}.");
+    }
+
+    /// <summary>
+    /// Seed the shared <see cref="VFXDirectorConfig"/> asset from the hard-coded
+    /// <see cref="Map"/> above. Gives the data-first path a starting asset without a
+    /// human first tuning a scene; after this, edits flow through the testbed Apply
+    /// button. Safe to re-run — overwrites the asset from the code map.
+    /// </summary>
+    [MenuItem("Tools/COREHOLD/Scene Setup/Create or Refresh VFX Config from code map", false, 43)]
+    public static void CreateOrRefreshConfigFromCodeMap()
+    {
+        var config = VFXConfigIO.LoadOrCreate();
+        var entries = new List<VFXDirectorConfig.Entry>(Map.Length);
+        var missing = new List<string>();
+
+        foreach (var entry in Map)
+        {
+            GameObject prefab = null;
+            foreach (string path in entry.paths)
+            {
+                prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (prefab != null)
+                    break;
+            }
+            if (prefab == null)
+                missing.Add(entry.id.ToString());
+
+            entries.Add(new VFXDirectorConfig.Entry
+            {
+                id = entry.id,
+                prefab = prefab,
+                prewarm = entry.prewarm,
+            });
+        }
+
+        config.effects = entries.ToArray();
+        config.tracerWidth = TracerWidth;
+        config.tracerPrewarm = TracerPrewarm;
+        config.defaultTracerColor = DefaultTracerColor;
+        EditorUtility.SetDirty(config);
+        AssetDatabase.SaveAssets();
+
+        if (missing.Count > 0)
+            Debug.LogWarning($"[COREHOLD] VFX config seeded with {missing.Count} missing prefab(s): " +
+                             string.Join(", ", missing));
+        else
+            Debug.Log($"[COREHOLD] VFX config seeded from code map at {VFXConfigIO.ConfigPath} " +
+                      $"({config.effects.Length} slots).");
     }
 
     // ------------------------------------------------------------------ helpers

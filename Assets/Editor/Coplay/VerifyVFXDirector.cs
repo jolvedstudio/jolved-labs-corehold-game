@@ -133,6 +133,11 @@ public static class VerifyVFXDirector
                 d.Play(VFXDirector.Effect.MuzzleKinetic, RandomPoint());
                 d.DrawTracer(RandomPoint(), RandomPoint());
                 d.Play(VFXDirector.Effect.ImpactSpark, RandomPoint());
+                // Counter-readable impacts (R22) fire on the same path as the neutral
+                // spark, so they must be exercised here to prove they don't leak.
+                if (tick % 2 == 0) d.Play(VFXDirector.Effect.ImpactStrong, RandomPoint());
+                if (tick % 2 == 1) d.Play(VFXDirector.Effect.ImpactWeak, RandomPoint());
+                if (tick % 3 == 0) d.Play(VFXDirector.Effect.ShieldHit, RandomPoint());
                 if (tick % 3 == 0) d.Play(VFXDirector.Effect.MuzzleEnergy, RandomPoint());
                 if (tick % 4 == 0) d.Play(VFXDirector.Effect.MuzzleExplosive, RandomPoint());
                 if (tick % 5 == 0) d.Play(VFXDirector.Effect.ExplosionSmall, RandomPoint());

@@ -164,7 +164,20 @@ MonoBehaviour:
     height: 1.0169564
     scaleRange: {x: 1, y: 1}
     allowInFold: 0
-  weatherPool: []
+  - prefab: {fileID: 6764515366743756750, guid: 3df16326f3ce77e44ad0155792edee5c, type: 3}
+    role: 4
+    footprintRadius: 7.160754
+    height: 11.016656
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  - prefab: {fileID: 7671183549982553149, guid: a227ef4c3091e3c49a379c503c6a5cdc, type: 3}
+    role: 4
+    footprintRadius: 8.09609
+    height: 3.67147
+    scaleRange: {x: 1, y: 1}
+    allowInFold: 0
+  weatherPool:
+  - {fileID: 11400000, guid: 9e5546b1578d3bc4cb54b5f4d0433cfa, type: 2}
   groundPrefab: {fileID: 3517325972507211172, guid: 288b1c41a60e73448bd72eb35950e54d, type: 3}
-  groundMaterial: {fileID: 0}
-  groundTilingPerMetre: 0
+  groundMaterial: {fileID: 2100000, guid: c3a40f39d4fe7c2459eb35ea2af5b3bb, type: 2}
+  groundTilingPerMetre: 5

@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 37f37b7ad653e7c4485cbfba727a4e5a, type: 3}
+  m_Name: CampaignAuthoring_main
+  m_EditorClassIdentifier: Assembly-CSharp-Editor::CoreholdEditor.Campaign.CampaignAuthoring
+  campaignId: ca-test-10
+  displayName: COREHOLD-ca-test-10
+  masterSeed: 1
+  progression:
+    economyCarry: 0
+    salvageKeepFraction: 0
+    carryIntegrity: 0
+    integrityHealPerLevel: 0
+    baseSalvagePerLevel: 0
+  welcomeScenePath: Assets/_COREHOLD/Scenes/Campaign/Campaign_Welcome.unity
+  closingScenePath: Assets/_COREHOLD/Scenes/Campaign/Campaign_Closing.unity
+  stages:
+  - title: Level 1
+    briefing: 
+    blueprint: {fileID: 11400000, guid: fbfdabee93351f948a2812c8c62fd853, type: 2}
+    seedOverride: 0
+    acceptedSeed: 1582790013
+    scenePath: Assets/_COREHOLD/Scenes/Campaign/ca-test-10/L01_RockyDesert_s1582790013.unity
+    levelDefPath: Assets/_COREHOLD/Data/Levels/Campaign/ca-test-10/L01_Level_RockyDesert_s1582790013.asset
+    wavesFolder: Assets/_COREHOLD/Data/Levels/Campaign/ca-test-10/L01_Waves
+  - title: Operation 2
+    briefing: 
+    blueprint: {fileID: 11400000, guid: 9ef28adc064e1404a800d21a97ab4211, type: 2}
+    seedOverride: 0
+    acceptedSeed: 1566012394
+    scenePath: Assets/_COREHOLD/Scenes/Campaign/ca-test-10/L02_Blueprint_RefineryDelta_s1566012394.unity
+    levelDefPath: Assets/_COREHOLD/Data/Levels/Campaign/ca-test-10/L02_Level_Blueprint_RefineryDelta_s1566012394.asset
+    wavesFolder: Assets/_COREHOLD/Data/Levels/Campaign/ca-test-10/L02_Waves

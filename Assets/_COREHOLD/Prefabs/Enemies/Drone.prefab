@@ -338,6 +338,7 @@ GameObject:
   - component: {fileID: 5432912495469180238}
   - component: {fileID: 5663844508066127153}
   - component: {fileID: 4143108553547450339}
+  - component: {fileID: 2170287289398391661}
   m_Layer: 0
   m_Name: Drone
   m_TagString: Untagged
@@ -427,6 +428,8 @@ MonoBehaviour:
   moveSpeed: 8
   turnRate: 360
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 0.4
   route: {fileID: 0}
   definition: {fileID: 0}
@@ -456,6 +459,26 @@ MonoBehaviour:
   damage: 6
   muzzle: {fileID: 7224136194808924988}
   tracerColor: {r: 220.26178, g: 66.07854, b: 16.519634, a: 1}
+--- !u!114 &2170287289398391661
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1474290544001657429}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 6105419655977243536}
+  pitchPivot: {fileID: 8535323416197091089}
+  yawsBody: 1
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &2611830489666356843
 GameObject:
   m_ObjectHideFlags: 0

@@ -42,6 +42,24 @@ Defined by the `VFXDirector.Effect` enum, authored on the component's `effects[]
 | `EnemyDeath` | Burst when an enemy dies |
 | `CoreHit` | Flash on the Core when a leak lands |
 | `BuildPuff` | Puff when a turret is placed |
+| `ImpactStrong` | Amplified impact for a super-effective (countered) hit — R22 |
+| `ImpactWeak` | Muted deflection spark for a resisted hit — R22 |
+| `ShieldHit` | Energy ripple when a shot barely scratches a Shielded enemy — R22 |
+
+> Note: the enum also carries `Stun`, `Slow` and `StrikeWingBurst` (status/ability
+> effects, R18/R19). Fifteen slots total; `SetupVFXDirector` wires them all.
+
+### 2.1a Counter-readability impacts (R22)
+The game's core pillar is the **visible counter system** (GDD §7.1). Impacts encode
+it: `VFXDirector.PlayImpactEffective(pos, multiplier, armour)` picks the effect from
+the damage-vs-armour multiplier so the player can *see* whether their pick countered
+the target — a bright burst when super-effective (`multiplier >= StrongHitThreshold`,
+1.25), a muted deflection when resisted (`<= WeakHitThreshold`, 0.75), and an energy
+ripple specifically when a resisted shot lands on a **Shielded** enemy. It falls back
+to the neutral `ImpactSpark` otherwise, so it is always safe to call.
+
+Call sites route the actual multiplier in: `TowerWeapon` (hitscan, chain, pierce) and
+`Projectile` (single-target). Splash detonations keep the sized explosion.
 
 Prefabs are **Cartoon FX Remaster** (JMO Assets). At spawn each pooled copy is forced to
 `ClearBehavior.None` and watched by a `PooledEffect` that returns it to its pool when the
@@ -74,8 +92,9 @@ VFXDirector.Instance.DrawTracer(Vector3 from, Vector3 to, Color color);
 
 ### 2.5 Setup / verify VFX
 1. `Tools/COREHOLD/Setup VFX Director` — creates/updates `VFXDirector` and assigns all nine CFXR prefabs + prewarm counts (mapping in `Assets/Editor/Coplay/SetupVFXDirector.cs`).
-2. `Tools/COREHOLD/Verify VFX Director (Play)` — play-mode pool-stability check.
-3. To swap a look, change the prefab path in `SetupVFXDirector.cs` and re-run, or drop a new prefab directly onto the matching `effects[]` slot in the Inspector.
+2. `Tools/COREHOLD/Validate/Verify VFX Director (Play)` — play-mode pool-stability check (all fifteen effects + tracers).
+3. `Tools/COREHOLD/Validate/Combat VFX Testbed (Play)` — visual counter-readability check: fires each damage type at one station per armour type, driving the real `PlayImpactEffective` path so a human/scene-capture can confirm STRONG / WEAK / SHIELD reads.
+4. To swap a look, change the prefab path in `SetupVFXDirector.cs` and re-run, or drop a new prefab directly onto the matching `effects[]` slot in the Inspector.
 
 ### 2.6 Add a new effect
 1. Add a value to the `VFXDirector.Effect` enum.
@@ -145,7 +164,7 @@ reads as one louder burst.
 | Event | VFX | SFX |
 |---|---|---|
 | Turret fires | `PlayMuzzle` + `DrawTracer` (or projectile) | `PlayFire` |
-| Shot hits unit | `PlayImpact` | `PlayImpact` |
+| Shot hits unit | `PlayImpactEffective` (counter-readable; falls back to `PlayImpact`) | `PlayImpact` |
 | Splash detonation | `PlayExplosion(radius)` | `PlayExplosion` |
 | Enemy fires | `DrawTracer` + `PlayImpact` | `PlayEnemyFire(def)` |
 | Enemy dies | `PlayEnemyDeath` + `PlayExplosion` | `PlayEnemyDeath(def)` → per-enemy or shared |

@@ -143,7 +143,10 @@ namespace Corehold.Enemies
             // no change to fire rate or damage.
             Transform muzzleXf = w.ResolveMuzzle(_shotCounts[i]);
             Vector3 origin = muzzleXf != null ? muzzleXf.position : transform.position + Vector3.up;
-            Vector3 targetPoint = target.transform.position + Vector3.up * 1.2f;
+            // Aim at the tower's GEOMETRIC CENTRE (centre mass), not its root at the
+            // feet — so the tracer runs level from the barrel into the body instead of
+            // angling down at the ground.
+            Vector3 targetPoint = Corehold.Systems.GeometricCenter.Of(target.gameObject);
 
             if ((targetPoint - origin).sqrMagnitude > w.range * w.range)
                 return;
@@ -219,5 +222,24 @@ namespace Corehold.Enemies
 
         /// <summary>Number of weapons this enemy carries.</summary>
         public int WeaponCount => weapons != null ? weapons.Length : 0;
+
+        /// <summary>
+        /// The primary muzzle transform (first weapon, first barrel), or null if none
+        /// is authored. Used by <see cref="EnemyAim"/> to anchor its pivot search on
+        /// the actual firing point.
+        /// </summary>
+        public Transform PrimaryMuzzle
+        {
+            get
+            {
+                MigrateLegacy();
+                if (weapons != null && weapons.Length > 0)
+                {
+                    var m = weapons[0].ResolveMuzzle(0);
+                    if (m != null) return m;
+                }
+                return muzzle;
+            }
+        }
     }
 }

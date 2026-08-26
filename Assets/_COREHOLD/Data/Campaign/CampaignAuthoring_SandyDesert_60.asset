@@ -1,0 +1,55 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 37f37b7ad653e7c4485cbfba727a4e5a, type: 3}
+  m_Name: CampaignAuthoring_SandyDesert_60
+  m_EditorClassIdentifier: Assembly-CSharp-Editor::CoreholdEditor.Campaign.CampaignAuthoring
+  campaignId: main
+  displayName: COREHOLD
+  masterSeed: 1
+  progression:
+    economyCarry: 0
+    salvageKeepFraction: 0
+    carryIntegrity: 0
+    integrityHealPerLevel: 0
+    baseSalvagePerLevel: 0
+  uiSkin: {fileID: 0}
+  waveRecipe: {fileID: 0}
+  welcomeScenePath: Assets/_COREHOLD/Scenes/Campaign/main/Campaign_Welcome.unity
+  closingScenePath: Assets/_COREHOLD/Scenes/Campaign/main/Campaign_Closing.unity
+  stages:
+  - title: Operation 1
+    briefing: 
+    blueprint: {fileID: 0}
+    seedOverride: 0
+    waveRecipe: {fileID: 0}
+    acceptedSeed: 0
+    scenePath: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s650198.unity
+    levelDefPath: 
+    wavesFolder: 
+  - title: Operation 2
+    briefing: 
+    blueprint: {fileID: 0}
+    seedOverride: 0
+    waveRecipe: {fileID: 0}
+    acceptedSeed: 0
+    scenePath: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s133471.unity
+    levelDefPath: 
+    wavesFolder: 
+  - title: Operation 3
+    briefing: 
+    blueprint: {fileID: 0}
+    seedOverride: 0
+    waveRecipe: {fileID: 0}
+    acceptedSeed: 0
+    scenePath: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s341610.unity
+    levelDefPath: 
+    wavesFolder: 

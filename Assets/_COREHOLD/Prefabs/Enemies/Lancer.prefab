@@ -823,6 +823,7 @@ GameObject:
   - component: {fileID: 2404241414041728408}
   - component: {fileID: 814670691239427204}
   - component: {fileID: 1429117528656621916}
+  - component: {fileID: 685082273473842570}
   m_Layer: 0
   m_Name: Lancer
   m_TagString: Untagged
@@ -926,6 +927,8 @@ MonoBehaviour:
   moveSpeed: 5
   turnRate: 360
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 0.65
   route: {fileID: 0}
   definition: {fileID: 0}
@@ -955,6 +958,26 @@ MonoBehaviour:
   damage: 14
   muzzle: {fileID: 0}
   tracerColor: {r: 4, g: 1.2, b: 0.3, a: 1}
+--- !u!114 &685082273473842570
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4436083416655608189}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 2767739724427693374}
+  pitchPivot: {fileID: 1129036124408910362}
+  yawsBody: 0
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &4525040762102532586
 GameObject:
   m_ObjectHideFlags: 0

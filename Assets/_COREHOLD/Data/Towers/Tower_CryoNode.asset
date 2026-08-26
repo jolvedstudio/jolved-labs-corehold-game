@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
   id: cryonode
   displayName: Cryo Node
-  icon: {fileID: 21300000, guid: 3f043e4b800863b45b170d03cedf63ee, type: 3}
+  icon: {fileID: 21300000, guid: e5d3e9699da462649b3a6870aa962932, type: 3}
   description: "No damage. Chills every enemy in its field \u2014 they crawl, your
     turrets feast."
   damageType: 1

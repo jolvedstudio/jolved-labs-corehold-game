@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1d71cffd425782949af4ea7165cc1198, type: 3}
+  m_Name: Skin_Casual
+  m_EditorClassIdentifier: Assembly-CSharp-Editor::CoreholdEditor.Campaign.UISkin
+  accent: {r: 0.2, g: 0.85, b: 1, a: 1}
+  warm: {r: 1, g: 0.6, b: 0.1, a: 1}
+  danger: {r: 1, g: 0.3, b: 0.3, a: 1}
+  background: {r: 0.043, g: 0.062, b: 0.086, a: 1}
+  panelColor: {r: 0.075, g: 0.11, b: 0.15, a: 1}
+  textDim: {r: 0.62, g: 0.72, b: 0.78, a: 1}
+  font: {fileID: 11400000, guid: dc36b3fdc14f47ebb36fd484a67e268a, type: 2}
+  panel: {fileID: 21300000, guid: 8ec1caaf7a46929409d8bf723db12d79, type: 3}
+  popup: {fileID: 21300000, guid: 63305e5f2f6bcb74592a29087d86b779, type: 3}
+  buttonNormal: {fileID: 21300000, guid: c3c633b6cffbb8c49ac9f27d15603d58, type: 3}
+  buttonPressed: {fileID: 21300000, guid: ec74f286214ba3245ad7bfbe7b9e9880, type: 3}
+  buttonDisabled: {fileID: 21300000, guid: aef507a8e45cf6c4285d9d5f35692c46, type: 3}
+  barBackground: {fileID: 21300000, guid: 370f7df7dfece964bbedc7cf69bb0ebc, type: 3}
+  barFill: {fileID: 21300000, guid: d5eb69869ef383748b49042504ead373, type: 3}
+  pauseIcon: {fileID: 21300000, guid: 90114467d9067d74ca7a43d82763e3e4, type: 3}
+  starFull: {fileID: 21300000, guid: 9847f837e8377dd4b806034ab236cc01, type: 3}
+  starEmpty: {fileID: 21300000, guid: e73de600231d9b64b87a5a4e3bea8743, type: 3}
+  audience: Kids

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 2bf34163eedc99149a80e556472f54fa
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 182586
+  packageName: Low Poly Wind
+  packageVersion: 1.4.0
+  assetPath: Assets/Nicrom/Shaders/Wind/UpgradePackages/LPW_HDRP_Core.unitypackage
+  uploadId: 859548

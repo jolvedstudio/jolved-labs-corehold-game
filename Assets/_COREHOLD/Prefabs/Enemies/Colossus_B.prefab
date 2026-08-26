@@ -575,6 +575,7 @@ GameObject:
   - component: {fileID: 6524669983442673519}
   - component: {fileID: 166271761185108605}
   - component: {fileID: 1544538382561055452}
+  - component: {fileID: 1343402827607294458}
   m_Layer: 0
   m_Name: Colossus_B
   m_TagString: Untagged
@@ -679,6 +680,8 @@ MonoBehaviour:
   moveSpeed: 3.4
   turnRate: 180
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 2.2
   route: {fileID: 0}
   definition: {fileID: 11400000, guid: 28001cf5bafe7bf41bb4949adf896f06, type: 2}
@@ -720,12 +723,32 @@ MonoBehaviour:
     muzzles:
     - {fileID: 3898495341248032429}
     - {fileID: 277300042641213368}
-    tracerColor: {r: 0.4, g: 1.4, b: 2, a: 2}
+    tracerColor: {r: 58.127453, g: 203.44609, b: 290.63727, a: 2}
   range: 12
   fireRate: 0.8
   damage: 10
   muzzle: {fileID: 0}
   tracerColor: {r: 4, g: 1.2, b: 0.3, a: 1}
+--- !u!114 &1343402827607294458
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1733323383697513668}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 7757847373288814004}
+  pitchPivot: {fileID: 0}
+  yawsBody: 1
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &1807762986530372342
 GameObject:
   m_ObjectHideFlags: 0
@@ -1136,7 +1159,7 @@ Transform:
   m_GameObject: {fileID: 4383645917706634022}
   serializedVersion: 2
   m_LocalRotation: {x: -0.3535534, y: 0.3535534, z: -0.61237246, w: 0.61237246}
-  m_LocalPosition: {x: 1.1558788, y: -7.489831e-11, z: 0.37405765}
+  m_LocalPosition: {x: 2.131, y: 0.49, z: 0.838}
   m_LocalScale: {x: 1, y: -1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2067,8 +2090,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8634994113556029065}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.7071068, y: 0, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 0, y: 0.050000727, z: 0}
+  m_LocalRotation: {x: 0.7071068, y: -0, z: -0, w: 0.7071068}
+  m_LocalPosition: {x: 0, y: 0.041666664, z: 0}
   m_LocalScale: {x: 3.5, y: 3.5, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

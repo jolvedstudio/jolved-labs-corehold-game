@@ -60,7 +60,13 @@ namespace Corehold.Systems
             /// <summary>Chill glow pulsed (~1/s) over a slowed unit (R18).</summary>
             Slow,
             /// <summary>Strike Wing EM burst at the telegraphed point (R19).</summary>
-            StrikeWingBurst
+            StrikeWingBurst,
+            /// <summary>Amplified impact burst for a super-effective (countered) hit (R22 — counter readability).</summary>
+            ImpactStrong,
+            /// <summary>Muted deflection spark for a resisted (mismatched) hit (R22 — counter readability).</summary>
+            ImpactWeak,
+            /// <summary>Energy ripple when a shot strikes a Shielded enemy (R22 — counter readability).</summary>
+            ShieldHit
         }
 
         [System.Serializable]
@@ -92,6 +98,9 @@ namespace Corehold.Systems
             new EffectEntry { id = Effect.Stun,             prewarm = 6 },
             new EffectEntry { id = Effect.Slow,             prewarm = 6 },
             new EffectEntry { id = Effect.StrikeWingBurst,  prewarm = 2 },
+            new EffectEntry { id = Effect.ImpactStrong,     prewarm = 8 },
+            new EffectEntry { id = Effect.ImpactWeak,       prewarm = 8 },
+            new EffectEntry { id = Effect.ShieldHit,        prewarm = 6 },
         };
 
         [Header("Hitscan tracer (GDD §11) — Autocannon + Arc Node only")]
@@ -361,6 +370,38 @@ namespace Corehold.Systems
         {
             if (CameraShake.Instance != null)
                 CameraShake.Instance.KickImpact(position);
+            return Play(Effect.ImpactSpark, position);
+        }
+
+        /// <summary>Damage multiplier at or above which a hit reads as super-effective (R22).</summary>
+        public const float StrongHitThreshold = 1.25f;
+
+        /// <summary>Damage multiplier at or below which a hit reads as resisted (R22).</summary>
+        public const float WeakHitThreshold = 0.75f;
+
+        /// <summary>
+        /// Impact spark whose look encodes the counter system (GDD §7.1 — the game's
+        /// core "visible counter" pillar). The damage-vs-armour <paramref name="multiplier"/>
+        /// selects the effect so the player can SEE whether their pick countered the
+        /// target: a big bright burst when super-effective, a muted deflection when
+        /// resisted, and — for a Shielded target specifically — an energy ripple.
+        /// Falls back to the neutral <see cref="Effect.ImpactSpark"/> otherwise, so it
+        /// is always safe to call. Carries the same R5 screen kick as <see cref="PlayImpact"/>.
+        /// </summary>
+        public CFXR_Effect PlayImpactEffective(Vector3 position, float multiplier, ArmourType armour)
+        {
+            if (CameraShake.Instance != null)
+                CameraShake.Instance.KickImpact(position);
+
+            // A shot that barely scratches a Shielded enemy reads as an energy
+            // deflection off the shield rather than a generic weak spark.
+            if (armour == ArmourType.Shielded && multiplier <= WeakHitThreshold)
+                return Play(Effect.ShieldHit, position);
+
+            if (multiplier >= StrongHitThreshold)
+                return Play(Effect.ImpactStrong, position);
+            if (multiplier <= WeakHitThreshold)
+                return Play(Effect.ImpactWeak, position);
             return Play(Effect.ImpactSpark, position);
         }
 

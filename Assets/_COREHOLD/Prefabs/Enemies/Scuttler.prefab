@@ -78,6 +78,7 @@ GameObject:
   - component: {fileID: 3916192491106600568}
   - component: {fileID: 8122109264180714549}
   - component: {fileID: 642219183473552195}
+  - component: {fileID: 9065561802980970942}
   m_Layer: 0
   m_Name: Scuttler
   m_TagString: Untagged
@@ -181,6 +182,8 @@ MonoBehaviour:
   moveSpeed: 5
   turnRate: 360
   minDesiredSpeed: 0.4
+  gradeSpeedFactor: 0.6
+  maxLeanDegrees: 10
   bodyRadius: 0.6
   route: {fileID: 0}
   definition: {fileID: 0}
@@ -210,6 +213,26 @@ MonoBehaviour:
   damage: 6
   muzzle: {fileID: 2381102936961235426}
   tracerColor: {r: 0, g: 44.684185, b: 772.8302, a: 1}
+--- !u!114 &9065561802980970942
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 543174937331609184}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99188e237adfe234591bc884226fa162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.EnemyAim
+  yawPivot: {fileID: 541289010055793194}
+  pitchPivot: {fileID: 1381615746011498492}
+  yawsBody: 0
+  yawSpeed: 200
+  pitchSpeed: 140
+  minPitch: -60
+  maxPitch: 30
+  reacquireInterval: 0.3
 --- !u!1 &706688633243579068
 GameObject:
   m_ObjectHideFlags: 0
