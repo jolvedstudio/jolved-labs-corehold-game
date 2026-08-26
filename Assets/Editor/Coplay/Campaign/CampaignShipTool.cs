@@ -439,8 +439,13 @@ namespace CoreholdEditor.Campaign
                       $"time {summary.totalTime:mm\\:ss}\n" +
                       (hasIndex ? "" : "  WARNING: no index.html in the output — serving it will 404.\n") +
                       "  WebGL needs to be SERVED, not opened from disk. From ANY directory:\n" +
-                      $"    python3 -m http.server 8000 --directory \"{full}\"\n" +
+                      $"    python3 \"{System.IO.Path.GetFullPath("docs/serve_webgl.py").Replace('\\', '/')}\" \"{full}\"\n" +
                       "  then open http://localhost:8000\n" +
+                      "  Use THAT script, not `python3 -m http.server`: a compressed build needs\n" +
+                      "  Content-Encoding headers the stock server never sends, and Unity fails with\n" +
+                      "  \"Unable to parse Build/….framework.js.br\". Firefox additionally refuses\n" +
+                      "  Brotli over plain HTTP — use Chrome/Edge locally, or build with Gzip, or\n" +
+                      "  tick Player Settings → WebGL → Publishing → Decompression Fallback.\n" +
                       "  (404 on every request = the server is pointed at a folder that does not " +
                       "exist; check the path above is the one you passed.)");
             return dir;
