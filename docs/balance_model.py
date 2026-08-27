@@ -287,6 +287,123 @@ def r22_veterancy_mult(wave_number: int) -> float:
     return 1.0 + min(VETERANCY_CAP,
                      VETERANCY_PER_WAVE * max(0, wave_number - (VETERANCY_FROM_WAVE - 1)))
 
+# ---- Tower loss (return fire) -----------------------------------------------
+#
+# Every live enemy prefab carries an EnemyWeapon: enemies shoot the nearest
+# turret in range while they walk, and a turret at 0 HP explodes, frees its
+# pad, and refunds NOTHING (TowerHealth.Die -> Tower.Sell deregisters only).
+# Nothing repairs a turret mid-run — not even an upgrade — so damage
+# accumulates for the whole level. Until this term, the model ignored all of
+# it, which was its one anti-conservative asymmetry: every other term rounds
+# against the defender, this one silently credited towers with 100% uptime.
+#
+# The term, per wave, per built pad:
+#   • Incoming fire is sampled along each armed group's own path. Each sample's
+#     fire goes to the NEAREST built pad within that enemy's weapon range —
+#     the live EnemyWeapon.FindNearestTower rule — for the seconds the enemy
+#     spends on that sample (Roller phase / enrage speeds honoured; air groups
+#     sample the corridor with 3D slant range at altitude).
+#   • Units fire only while ALIVE, and delivery vs return fire is coupled: a
+#     full-uptime delivery pass measures how m-fold the towers out-deliver
+#     each group, the group's fire is discounted to ~1/m of its walk (floored
+#     at TOWER_LOSS_SURVIVAL_FLOOR — enemies out-range most turret rings and
+#     get approach shots in even when they die on entry), and a second
+#     delivery pass books what the standing towers actually land.
+#   • A pad that soaks less than its remaining HP keeps 100% uptime and CARRIES
+#     the damage to the next wave. A pad that soaks its remaining HP dies
+#     partway: its deliverable damage this wave scales by remaining/incoming
+#     (the fraction of the wave it stood), and the NEXT build phase must re-buy
+#     it from tier 1 at full price — upgrades and position in the greedy queue
+#     are lost, exactly as in play.
+#
+# Enemy gun stats ride the ENEMIES rows as gdps (sum of mount damage x
+# fireRate) / grange (longest mount); rows without them are unarmed. Tower HP
+# rides TOWERS as hp — the runtime TowerHealth default of 220 everywhere,
+# because no tower prefab authors an override today. `--tower-loss-off`
+# reproduces the pre-term report byte-for-byte.
+TOWER_HP_DEFAULT = 220.0
+
+# Alive-fraction floor for out-delivered groups: even a group shredded on
+# entry fires on approach (Scuttler guns reach 20 m; live T2/T3 turret rings
+# are 13-14 m), so return fire never discounts to zero. [TUNE]
+TOWER_LOSS_SURVIVAL_FLOOR = 0.15
+
+# Full-model evaluations the counts-only tuner may spend (suggest_fix). Each
+# is one complete run (~0.2 s); the chunked cuts converge in a handful per
+# flagged wave, so this cap is a runaway stop, not a working budget.
+MAX_FIX_RUNS = 60
+
+# Run-scoped switch (CLI-mutated), --r22-off pattern.
+TOWER_LOSS = {"on": True}
+
+
+def _nearest_pad_in_range(geom: Geometry, built: dict, x: float, z: float,
+                          reach: float):
+    """Name of the nearest BUILT pad within reach of (x, z), or None."""
+    best = None
+    best_d = reach
+    for pad in built:
+        px, pz = geom.pads[pad][0], geom.pads[pad][1]
+        d = math.hypot(px - x, pz - z)
+        if d <= best_d:
+            best_d = d
+            best = pad
+    return best
+
+
+def tower_incoming(geom: Geometry, built: dict, groups: list,
+                   survival: list):
+    """Return fire soaked per pad over one wave. Returns (incoming, by_group):
+    pad name -> damage, and the same damage re-summed per group index (the
+    advice lines name the top shooter from it). `survival` is the per-group
+    alive fraction (parallel to groups)."""
+    by_group = [0.0] * len(groups)
+    if not TOWER_LOSS["on"] or not built:
+        return {}, by_group
+    incoming: dict = {}
+    for gi, g in enumerate(groups):
+        enemy = g["enemy"]
+        gdps = enemy.get("gdps", 0.0) * survival[gi]
+        grange = enemy.get("grange", 0.0)
+        if gdps <= 0.0 or grange <= 0.0:
+            continue
+        # Seconds ONE unit of this group fires at each pad, walking its path.
+        per_enemy: dict = {}
+        if enemy["air"]:
+            reach_sq = grange * grange - enemy["altitude"] * enemy["altitude"]
+            if reach_sq <= 0.0:
+                continue
+            reach = math.sqrt(reach_sq)
+            ax, az = geom.air_spawn
+            bx, bz = geom.air_target
+            length = math.hypot(bx - ax, bz - az)
+            n = max(2, int(length / COVERAGE_SAMPLE_STEP_M))
+            dt = (length / n) / (enemy["speed"] * g["air_speed_mult"])
+            for i in range(n):
+                t = (i + 0.5) / n
+                pad = _nearest_pad_in_range(geom, built,
+                                            ax + (bx - ax) * t, az + (bz - az) * t, reach)
+                if pad is not None:
+                    per_enemy[pad] = per_enemy.get(pad, 0.0) + dt
+        else:
+            route = g["route"]
+            n = max(2, int(route.polyline_length / COVERAGE_SAMPLE_STEP_M))
+            step = route.polyline_length / n
+            for i in range(n):
+                s = (i + 0.5) * step
+                x, z = route.sample(s)
+                pad = _nearest_pad_in_range(geom, built, x, z, grange)
+                if pad is not None:
+                    # Time on this sample: step / speed, scaled to spline time
+                    # like every other ground duration (R10).
+                    dt = step / enemy_speed_at(enemy, s, route.polyline_length) * route.scale
+                    per_enemy[pad] = per_enemy.get(pad, 0.0) + dt
+        for pad, seconds in per_enemy.items():
+            dmg = g["count"] * gdps * seconds
+            incoming[pad] = incoming.get(pad, 0.0) + dmg
+            by_group[gi] += dmg
+    return incoming, by_group
+
 # ---- Generator overrides (roadmap R30) --------------------------------------
 #
 # The generator parameterizes the model per generated map: its own geometry
@@ -323,50 +440,77 @@ DAMAGE_MULT = [
 ]
 
 # ---- Enemies (Enemy_*.asset; armour 0=Unarmoured 1=Plated 2=Shielded) -------
+#
+# gdps / grange are the enemy's RETURN FIRE (tower-loss term): the sum of the
+# prefab's EnemyWeapon mount damage x fireRate, and the longest mount range,
+# measured from Assets/_COREHOLD/Prefabs/Enemies/*.prefab. Rows without them
+# are unarmed. NOTE these rows are hand-copies and the live assets HAVE
+# drifted since (Shrike is now a plated 4.5 m/s ground unit, the Wasp is
+# grounded, the wave assets themselves were re-authored) — every REAL
+# certification therefore passes `--waves` with an `enemies` override block
+# exported from the actual assets, and this embedded table remains only the
+# frozen reference map for the bare regression run.
 ENEMIES = {
-    "scuttler": dict(hp=45,   armour=0, speed=7.5,  bounty=8,   leak=1, air=False),
-    "strider":  dict(hp=110,  armour=1, speed=5.0,  bounty=12,  leak=1, air=False),
-    "drone":    dict(hp=60,   armour=0, speed=8.0,  bounty=12,  leak=2, air=True, altitude=4.0),
-    "wasp":     dict(hp=70,   armour=0, speed=9.0,  bounty=14,  leak=2, air=True, altitude=4.0),
-    "lancer":   dict(hp=190,  armour=2, speed=4.6,  bounty=18,  leak=2, air=False),
+    "scuttler": dict(hp=45,   armour=0, speed=7.5,  bounty=8,   leak=1, air=False,
+                     gdps=6.0,  grange=20.0),
+    "strider":  dict(hp=110,  armour=1, speed=5.0,  bounty=12,  leak=1, air=False,
+                     gdps=5.4,  grange=12.0),   # twin 4.5 dmg @ 0.6/s
+    "drone":    dict(hp=60,   armour=0, speed=8.0,  bounty=12,  leak=2, air=True, altitude=4.0,
+                     gdps=5.4,  grange=20.0),
+    "wasp":     dict(hp=70,   armour=0, speed=9.0,  bounty=14,  leak=2, air=False,
+                     gdps=4.0,  grange=13.0),   # asset says GROUND now (isAir 0)
+    "lancer":   dict(hp=190,  armour=2, speed=4.6,  bounty=18,  leak=2, air=False,
+                     gdps=7.0,  grange=14.0),
     "roller":   dict(hp=150,  armour=0, speed=11.0, bounty=20,  leak=2, air=False,
-                     phase_at=0.6, phase_speed=4.6),
-    "breaker":  dict(hp=420,  armour=1, speed=3.75, bounty=35,  leak=3, air=False),
+                     phase_at=0.6, phase_speed=4.6, gdps=21.0, grange=15.0),
+    "breaker":  dict(hp=420,  armour=1, speed=3.75, bounty=35,  leak=3, air=False,
+                     gdps=19.8, grange=25.0),
+    # The original boss row, kept for the frozen wave-10 below. No asset holds
+    # id "colossus" any more — the live roster split it into _b/_c; guns are
+    # the orphaned Colossus_A prefab's (28 dmg @ 1.2/s, 30 m).
     "colossus": dict(hp=2800, armour=2, speed=3.0,  bounty=250, leak=20, air=False,
-                     enrage_mult=1.4),
-    # Roster expansion — no shipped wave uses these yet; rows exist so future
-    # tables can. The Warden's ally damage-reduction bubble is deliberately
-    # UNMODELED until a wave fields one (the model stays conservative; when
-    # that happens, add a per-group protection factor next to the mutators).
-    "shrike":   dict(hp=55,   armour=0, speed=12.0, bounty=16,  leak=2, air=True, altitude=5.0),
-    "warden":   dict(hp=520,  armour=1, speed=3.4,  bounty=45,  leak=3, air=False),
+                     enrage_mult=1.4, gdps=33.6, grange=30.0),
+    # Live roster (asset-true 2026-08-27). The Warden's ally damage-reduction
+    # bubble is deliberately UNMODELED (the model stays conservative; when it
+    # matters, add a per-group protection factor next to the mutators).
+    "shrike":     dict(hp=55,   armour=1, speed=4.5, bounty=16,  leak=2, air=False,
+                       gdps=10.8, grange=20.0),
+    "warden":     dict(hp=520,  armour=1, speed=3.4, bounty=45,  leak=3, air=False,
+                       gdps=8.0,  grange=18.0),
+    "colossus_b": dict(hp=2400, armour=2, speed=3.4, bounty=220, leak=18, air=False,
+                       enrage_mult=1.4, gdps=35.2, grange=26.0),
+    "colossus_c": dict(hp=3200, armour=2, speed=2.6, bounty=280, leak=24, air=False,
+                       enrage_mult=1.4, gdps=30.6, grange=34.0),
 }
 
 # ---- Towers (Tower_*.asset): damage type 0=Kinetic 1=Energy 2=Explosive.
 #      Tier dicts mirror TowerTier: authored weapons array (or legacy fields
-#      when empty), tier-level range/minRange, aura fields for the relay. -----
+#      when empty), tier-level range/minRange, aura fields for the relay.
+#      hp: what return fire must chew through (tower-loss term) — the runtime
+#      TowerHealth default of 220, added by Tower.Build; no tower prefab
+#      authors an override and nothing scales it per tier. ---------------------
 TOWERS = {
-    "autocannon": dict(type=0, air=True, tiers=[
+    "autocannon": dict(type=0, air=True, hp=220.0, tiers=[
         dict(cost=100, range=20.0, min_range=0.0, dps=10 * 2.0,   chain=0, falloff=0.0, splash=0.0),
         dict(cost=130, range=13.0, min_range=0.0, dps=15 * 2.8,   chain=0, falloff=0.0, splash=0.0),
         dict(cost=200, range=14.0, min_range=0.0, dps=25 * 3.6,   chain=0, falloff=0.0, splash=0.0),
     ]),
-    "missile_battery": dict(type=2, air=True, tiers=[
+    "missile_battery": dict(type=2, air=True, hp=220.0, tiers=[
         dict(cost=150, range=13.0, min_range=0.0, dps=45 * 0.6,   chain=0, falloff=0.0, splash=2.5),
         dict(cost=180, range=14.0, min_range=0.0, dps=80 * 0.7,   chain=0, falloff=0.0, splash=3.0),
         dict(cost=270, range=15.0, min_range=0.0, dps=140 * 0.8,  chain=0, falloff=0.0, splash=3.5),
     ]),
-    "arc_node": dict(type=1, air=True, tiers=[
+    "arc_node": dict(type=1, air=True, hp=220.0, tiers=[
         dict(cost=120, range=20.0, min_range=0.0, dps=14 * 1.5,   chain=2, falloff=0.7, splash=0.0),
         dict(cost=140, range=12.0, min_range=0.0, dps=22 * 1.8,   chain=3, falloff=0.7, splash=0.0),
         dict(cost=200, range=14.0, min_range=0.0, dps=34 * 2.2,   chain=4, falloff=0.7, splash=0.0),
     ]),
-    "siege_mortar": dict(type=2, air=False, tiers=[
+    "siege_mortar": dict(type=2, air=False, hp=220.0, tiers=[
         dict(cost=200, range=20.0, min_range=6.0, dps=90 * 0.35,  chain=0, falloff=0.0, splash=4.0),
         dict(cost=240, range=22.0, min_range=6.0, dps=160 * 0.4,  chain=0, falloff=0.0, splash=4.5),
         dict(cost=300, range=24.0, min_range=6.0, dps=260 * 0.45, chain=0, falloff=0.0, splash=5.0),
     ]),
-    "scan_relay": dict(type=0, air=True, tiers=[
+    "scan_relay": dict(type=0, air=True, hp=220.0, tiers=[
         dict(cost=90,  range=20.0, min_range=0.0, dps=5 * 1.0,    chain=2, falloff=0.7, splash=0.0,
              aura_radius=10.0, aura_fire=0.15, aura_range=0.10, aura_dmg=0.0),
         dict(cost=110, range=12.0, min_range=0.0, dps=0.0,        chain=0, falloff=0.0, splash=0.0,
@@ -376,9 +520,18 @@ TOWERS = {
     ]),
 }
 
-# ---- Waves (Wave_01..10.asset). spawner: 0=west ground, 1=north ground,
-#      2=air. clear = authored clearBonus (all non-zero in the live assets;
-#      WaveManager falls back to 60 + 18*wave when zero). ---------------------
+# ---- Waves (frozen reference table). spawner: 0=west ground, 1=north ground,
+#      2=air. clear = authored clearBonus (WaveManager falls back to
+#      60 + 18*wave when zero).
+#
+#      This is the Wave_01..10 table AS FIRST EXTRACTED — the regression
+#      baseline the bare run reports. The live Wave_*.asset files have been
+#      re-authored since (wave 1 fields Breakers, wave 8 fields Colossus B
+#      packs, ...) and are NOT mirrored here on purpose: hand-mirroring is the
+#      drift this file suffered once already. Certification of any real level
+#      passes `--waves` with waves + enemies exported from the actual assets
+#      (WaveTableExporter), so edits to the assets move the verdict
+#      immediately; this literal only keeps the bare run stable. -------------
 WAVES = [
     dict(clear=78,  groups=[("scuttler", 5, 2.6, 0.0, 0)]),
     dict(clear=96,  groups=[("scuttler", 8, 2.2, 0.0, 0)]),
@@ -576,7 +729,8 @@ def traverse_time(enemy: dict, route: Route) -> float:
 class TowerInstance:
     pad: str
     tower_id: str
-    tier: int = 0  # index into tiers (0 = tier 1)
+    tier: int = 0        # index into tiers (0 = tier 1)
+    hp_lost: float = 0.0  # return fire soaked so far — nothing repairs it
 
 
 _value_cache: dict = {}
@@ -721,13 +875,22 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
         groups.append(dict(id=enemy_id, enemy=enemy, count=count, gap=gap,
                            offset=offset, route=route, traverse=traverse,
                            eff_hp=eff_hp, delivered=0.0, exp_s=0.0,
+                           lane=None if enemy["air"] else spawner,
                            air_speed_mult=storm if enemy["air"] else 1.0))
         wave_duration = max(wave_duration, offset + max(0, count - 1) * gap + traverse)
 
     # Deliverable damage, pad by pad. Each pad has a continuous-fire budget of
     # the wave duration; when the raw exposures across groups exceed it they
     # are scaled down proportionally (a pad shoots one thing at a time).
+    #
+    # Delivery and return fire are COUPLED — a wave the towers shred barely
+    # gets a shot off, a wave that lingers chews the towers down — so this
+    # runs in two passes: pass 1 at full uptime measures how fast each group
+    # dies, that discounts the group's return fire, the discounted fire sets
+    # each pad's uptime, and pass 2 books what the standing fraction lands.
+    # The geometry work (coverage intervals) is cached from pass 1.
     vet = r22_veterancy_mult(wave_number)
+    plan = []   # (inst, tower, tier, dps, exposures[], scale)
     for inst in built.values():
         tower = TOWERS[inst.tower_id]
         tier = tower["tiers"][inst.tier]
@@ -767,24 +930,67 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
 
         total_exposure = sum(exposures)
         scale = 1.0 if total_exposure <= wave_duration else wave_duration / total_exposure
+        plan.append((inst, tower, tier, dps, exposures, scale))
 
-        for g, exposure in zip(groups, exposures):
-            if exposure <= 0.0:
+    def deliver(pad_uptime_map):
+        for g in groups:
+            g["delivered"] = 0.0
+            g["exp_s"] = 0.0
+        for inst, tower, tier, dps, exposures, scale in plan:
+            up = pad_uptime_map.get(inst.pad, 1.0) if pad_uptime_map else 1.0
+            for g, exposure in zip(groups, exposures):
+                if exposure <= 0.0:
+                    continue
+                enemy = g["enemy"]
+                mult = DAMAGE_MULT[tower["type"]][enemy["armour"]]
+                per_enemy_hp = g["eff_hp"] / g["count"]
+                focus = FOCUS_HEAVY if per_enemy_hp >= HEAVY_HP else FOCUS_SWARM
+                factor = 1.0
+                if tier["chain"] >= 2:
+                    potential = sum(tier["falloff"] ** k for k in range(tier["chain"]))
+                    uptime = (CHAIN_UPTIME_PACK if g["count"] >= SPLASH_PACK_MIN
+                              else CHAIN_UPTIME_SPARSE)
+                    factor *= 1.0 + (potential - 1.0) * uptime
+                if tier["splash"] > 0.0 and g["count"] >= SPLASH_PACK_MIN:
+                    factor *= 1.0 + SPLASH_PACK_BONUS_PER_M * tier["splash"]
+                g["delivered"] += dps * mult * factor * exposure * scale * focus * up
+                g["exp_s"] += exposure * scale * up
+
+    deliver(None)   # pass 1: full uptime — how the wave WOULD be shredded
+
+    # Tower loss (return fire): units fire only while ALIVE, so a group's
+    # return fire is discounted by its expected alive fraction — a group the
+    # towers out-deliver m-fold lives ~1/m of its walk, floored because
+    # enemies out-range most turret rings and fire on approach before any
+    # tower answers. A pad that soaks less than its remaining HP keeps 100%
+    # uptime and CARRIES the damage (nothing repairs); a pad that soaks it
+    # all dies partway and delivers only remaining/incoming of its plan.
+    pad_uptime = {}
+    pad_damage = {}
+    towers_lost = []
+    group_soak = [0.0] * len(groups)
+    if TOWER_LOSS["on"] and built:
+        survival = [1.0 if g["eff_hp"] <= 0.0 or g["delivered"] <= g["eff_hp"]
+                    else max(TOWER_LOSS_SURVIVAL_FLOOR, g["eff_hp"] / g["delivered"])
+                    for g in groups]
+        incoming, group_soak = tower_incoming(geom, built, groups, survival)
+        for pad, inst in built.items():
+            soak = incoming.get(pad, 0.0)
+            if soak <= 0.0:
+                pad_uptime[pad] = 1.0
                 continue
-            enemy = g["enemy"]
-            mult = DAMAGE_MULT[tower["type"]][enemy["armour"]]
-            per_enemy_hp = g["eff_hp"] / g["count"]
-            focus = FOCUS_HEAVY if per_enemy_hp >= HEAVY_HP else FOCUS_SWARM
-            factor = 1.0
-            if tier["chain"] >= 2:
-                potential = sum(tier["falloff"] ** k for k in range(tier["chain"]))
-                uptime = (CHAIN_UPTIME_PACK if g["count"] >= SPLASH_PACK_MIN
-                          else CHAIN_UPTIME_SPARSE)
-                factor *= 1.0 + (potential - 1.0) * uptime
-            if tier["splash"] > 0.0 and g["count"] >= SPLASH_PACK_MIN:
-                factor *= 1.0 + SPLASH_PACK_BONUS_PER_M * tier["splash"]
-            g["delivered"] += dps * mult * factor * exposure * scale * focus
-            g["exp_s"] += exposure * scale
+            remaining = max(0.0, TOWERS[inst.tower_id].get("hp", TOWER_HP_DEFAULT)
+                            - inst.hp_lost)
+            if soak < remaining:
+                pad_uptime[pad] = 1.0
+                pad_damage[pad] = soak
+            else:
+                pad_uptime[pad] = remaining / soak if soak > 0.0 else 0.0
+                towers_lost.append(pad)
+        # Pass 2 only when something actually went down — otherwise pass 1
+        # already IS the answer, bit for bit.
+        if towers_lost:
+            deliver(pad_uptime)
 
     # Strike Wing (R19/R22): each use buys extra enemy-seconds of engagement,
     # credited to the WORST group at that group's OBSERVED delivery rate —
@@ -824,7 +1030,14 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
     return dict(margin=margin, required=required, deliverable=deliverable,
                 worst_group=worst["id"], worst_margin=worst_margin,
                 peak_live=peak, duration=wave_duration,
-                strike_uses=strike_uses)
+                strike_uses=strike_uses, towers_lost=towers_lost,
+                _pad_damage=pad_damage,
+                # Light per-group summary for the advice/tune machinery —
+                # stripped from rows before any JSON dump (see main).
+                _group_stats=[dict(id=g["id"], count=g["count"], eff_hp=g["eff_hp"],
+                                   delivered=g["delivered"], air=g["enemy"]["air"],
+                                   lane=g["lane"]) for g in groups],
+                _group_soak=group_soak)
 
 
 def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
@@ -840,6 +1053,86 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
             bounties *= MUTATOR_OC_BOUNTY
     clear = wave["clear"] if wave["clear"] > 0 else 60 + 18 * wave_number
     return round(bounties * eco) + round(clear * eco)
+
+
+# =============================================================================
+#  Advice & counts-only tune (the gate's actionable half)
+# =============================================================================
+
+def advise_wave(wave_number: int, flags: list, result: dict) -> list:
+    """
+    First-order fix suggestions for a flagged wave — starting points, not
+    solutions: every edit shifts exposure and economy second-order, so the
+    loop is always edit → re-run. These lines ride the JSON rows into both
+    editor tools' messaging panes; the numbers exist only here, per R1.
+    """
+    if not flags:
+        return []
+    stats = result["_group_stats"]
+    soak = result["_group_soak"]
+    margin = result["margin"]
+    required = result["required"]
+    deliverable = result["deliverable"]
+    advice = []
+
+    def cut_or_hp(g, excess):
+        """'cut Z N→M or lower its baseHealth ~P%' for removing `excess` eff HP."""
+        per = g["eff_hp"] / g["count"]
+        k = math.ceil(excess / per)
+        if k < g["count"]:
+            pct = min(90, math.ceil(excess / g["eff_hp"] * 100))
+            base = ENEMIES[g["id"]]["hp"]
+            return (f"cut {g['id']} {g['count']}→{g['count'] - k}, or lower its "
+                    f"baseHealth ~{pct}% ({base:g}→{base * (100 - pct) / 100:.0f})")
+        return (f"even removing the whole {g['count']}×{g['id']} group (−{g['eff_hp']:.0f} "
+                "eff HP) does not close it — remove it, re-run, and fix what remains")
+
+    starved = [g for g in stats
+               if g["eff_hp"] > 0 and g["delivered"] / g["eff_hp"] < GROUP_MIN]
+    if any(f.startswith("GROUP-STARVED") for f in flags):
+        for g in starved:
+            q = g["delivered"] / g["eff_hp"]
+            where = ("the air corridor — anti-air coverage does not reach enough of it"
+                     if g["air"] else
+                     f"spawner {g['lane']}'s lane — its route is under-covered")
+            need = max(0.0, g["eff_hp"] - g["delivered"] / GROUP_MIN)
+            k = math.ceil(need / (g["eff_hp"] / g["count"]))
+            advice.append(f"{g['count']}×{g['id']} only gets {q:.2f}× of its HP shot: coverage "
+                          f"problem on {where}. Re-pad/reseed for coverage, or cut "
+                          f"{g['id']} {g['count']}→{max(0, g['count'] - k)}")
+
+    if "LOW" in flags:
+        excess = required - deliverable
+        covered = [g for g in stats
+                   if g["eff_hp"] > 0 and g["delivered"] / g["eff_hp"] >= GROUP_MIN] or \
+                  [g for g in stats if g["eff_hp"] > 0]
+        if covered:
+            g = max(covered, key=lambda s: s["eff_hp"])
+            advice.append(f"margin {margin:.2f} < {BAND_MIN:.2f} — shortfall "
+                          f"{excess:.0f} eff HP: " + cut_or_hp(g, excess))
+        if wave_number == 1:
+            advice.append("wave 1 meets the opening bank (~2 turrets built) — it has to "
+                          "stay light; heavies belong from wave 3 on")
+
+    if result.get("towers_lost") and TOWER_LOSS["on"] and soak and max(soak) > 0:
+        gi = max(range(len(soak)), key=lambda i: soak[i])
+        g = stats[gi]
+        advice.append(f"return fire killed {','.join(result['towers_lost'])} — "
+                      f"{soak[gi]:.0f} of the pad damage is from {g['id']}: lower its "
+                      "weapon damage/fireRate on the prefab, field fewer, or raise TowerHealth")
+
+    if "HIGH-CLOSE" in flags or "HIGH-MID" in flags:
+        cap = BAND_CLOSE_MAX if wave_number == CLOSE_WAVE else BAND_MID_MAX
+        room = deliverable / cap - required
+        pool = [g for g in stats if g["eff_hp"] > 0]
+        if pool and room > 0:
+            g = max(pool, key=lambda s: s["eff_hp"])
+            per = g["eff_hp"] / g["count"]
+            k = max(1, int(room / per))
+            advice.append(f"margin {margin:.2f} above the {cap:.2f} cap — room for "
+                          f"~{room:.0f} eff HP: add ~{k}×{g['id']}, or raise its baseHealth")
+
+    return advice
 
 
 # =============================================================================
@@ -921,6 +1214,14 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
         # Strike Wing cost (R22): a use is salvage the build phase never sees.
         income -= STRIKE_COST * result["strike_uses"]
 
+        # Tower loss: bank the soak on survivors, remove the dead. The next
+        # build phase re-buys a dead pad from tier 1 ("unbuilt pads first"),
+        # which is exactly the salvage the player loses in play.
+        for pad, dmg in result.pop("_pad_damage").items():
+            built[pad].hp_lost += dmg
+        for pad in result["towers_lost"]:
+            built.pop(pad, None)
+
         # NOTE: flags is the GATE verdict (exit code + in_band in --json) —
         # informational markers like Strike Wing usage must never enter it.
         flags = []
@@ -933,11 +1234,145 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
         if result["worst_margin"] < GROUP_MIN:
             flags.append(f"GROUP-STARVED({result['worst_group']})")
 
+        result["advice"] = advise_wave(wave_number, flags, result)
+
         rows.append(dict(wave=wave_number, salvage_before=salvage,
                          income=income, flags=flags, **result))
         salvage += income
 
     return geom, rows, build_log
+
+
+def suggest_fix(difficulty: str, measured_lengths=None, polyline=False,
+                geometry: Geometry = None):
+    """
+    Counts-only tune toward the band — the gate's actionable half, computed
+    HERE because only the model can iterate its own verdict (R1: one brain).
+    Greedy and deterministic: while any wave sits under band, trim the guilty
+    group of the worst one by the same chunk arithmetic the advice prints,
+    re-running the full model each step so build economy, coverage, return
+    fire and the following waves all react; then feed the over-cap waves the
+    same way. Counts are the only knob touched — gaps, offsets, mutators and
+    enemy stats are design, counts are load.
+
+    Returns (changes, in_band, note): changes as dicts
+    {wave, group, enemy, prev, next} against the CURRENT tables (next 0 =
+    drop the group). WAVES is restored before returning — the tune is a
+    suggestion, never a silent rewrite of this run's own verdict.
+    """
+    original = [dict(w, groups=list(w["groups"])) for w in WAVES]
+    runs = 0
+    note = ""
+
+    def evaluate():
+        nonlocal runs
+        runs += 1
+        _, rows, _ = run_model(difficulty, measured_lengths, polyline, geometry)
+        return rows
+
+    def set_count(wi, gi, count):
+        eid, _, gap, off, sp = WAVES[wi]["groups"][gi]
+        WAVES[wi]["groups"][gi] = (eid, count, gap, off, sp)
+
+    try:
+        rows = evaluate()
+
+        # Phase 1 — cuts, until nothing is under band. Converges: every step
+        # removes load from the worst cuttable wave, and a wave whose only
+        # remaining move would empty it entirely is frozen instead — an empty
+        # wave is not a fix, it is dead air with a free clear bonus.
+        uncuttable: set = set()
+        while runs < MAX_FIX_RUNS:
+            under = [r for r in rows
+                     if r["wave"] not in uncuttable
+                     and any(f == "LOW" or f.startswith("GROUP-STARVED")
+                             for f in r["flags"])]
+            if not under:
+                break
+            r = min(under, key=lambda x: x["margin"])
+            wi = r["wave"] - 1
+            stats = r["_group_stats"]
+            starved = [i for i, g in enumerate(stats)
+                       if g["count"] > 0 and g["eff_hp"] > 0
+                       and g["delivered"] / g["eff_hp"] < GROUP_MIN]
+            live = [i for i, g in enumerate(stats) if g["count"] > 0 and g["eff_hp"] > 0]
+            if starved:
+                gi = max(starved, key=lambda i: stats[i]["eff_hp"])
+                g = stats[gi]
+                need = max(0.0, g["eff_hp"] - g["delivered"] / GROUP_MIN)
+            else:
+                if not live:
+                    uncuttable.add(r["wave"])
+                    continue
+                gi = max(live, key=lambda i: stats[i]["eff_hp"])
+                g = stats[gi]
+                need = r["required"] - r["deliverable"]
+            per = g["eff_hp"] / g["count"]
+            k = max(1, min(g["count"], math.ceil(need / per)))
+            if len(live) == 1 and live[0] == gi:
+                k = min(k, g["count"] - 1)   # never empty the whole wave
+                if k <= 0:
+                    uncuttable.add(r["wave"])   # one unit left and still failing:
+                    continue                    # counts can't fix this wave
+            set_count(wi, gi, g["count"] - k)
+            rows = evaluate()
+
+        # Phase 2 — adds for over-cap waves. Adding load also ADDS delivery
+        # (longer engagement windows, more income), so the cap cannot be chased
+        # arithmetically: each wave gets two conservative attempts, capped at
+        # +100% of the group per step; an attempt that breaks any wave under
+        # band is reverted and the wave is left to the ADVICE lines. A harder-
+        # but-still-over result is kept — strictly closer to the cap.
+        attempts: dict = {}
+        while runs < MAX_FIX_RUNS:
+            over = [r for r in rows
+                    if attempts.get(r["wave"], 0) < 2 and r["required"] > 0
+                    and ("HIGH-CLOSE" in r["flags"] or "HIGH-MID" in r["flags"])]
+            if not over:
+                break
+            r = max(over, key=lambda x: x["margin"])
+            wave_no = r["wave"]
+            attempts[wave_no] = attempts.get(wave_no, 0) + 1
+            wi = wave_no - 1
+            stats = r["_group_stats"]
+            cap = BAND_CLOSE_MAX if wave_no == CLOSE_WAVE else BAND_MID_MAX
+            live = [i for i, g in enumerate(stats) if g["count"] > 0 and g["eff_hp"] > 0]
+            if not live:
+                attempts[wave_no] = 99
+                continue
+            gi = max(live, key=lambda i: stats[i]["eff_hp"])
+            g = stats[gi]
+            per = g["eff_hp"] / g["count"]
+            k = max(1, min(g["count"],
+                           int(0.5 * (r["deliverable"] / cap - r["required"]) / per)))
+            before = g["count"]
+            set_count(wi, gi, before + k)
+            new_rows = evaluate()
+            if any(f == "LOW" or f.startswith("GROUP-STARVED")
+                   for row in new_rows for f in row["flags"]):
+                set_count(wi, gi, before)   # the add broke a wave — take it back
+                rows = evaluate()
+                attempts[wave_no] = 99
+            else:
+                rows = new_rows
+
+        in_band = not any(row["flags"] for row in rows)
+        if not in_band and not note:
+            remaining = ", ".join(f"wave {row['wave']} [{','.join(row['flags'])}]"
+                                  for row in rows if row["flags"])
+            note = (f"still flagged after tuning: {remaining} — needs a non-count fix "
+                    "(coverage, stats, geometry, or re-authoring the wave); see ADVICE")
+
+        changes = []
+        for wi, w in enumerate(original):
+            for gi, (eid, prev, _, _, _) in enumerate(w["groups"]):
+                cur = WAVES[wi]["groups"][gi][1]
+                if cur != prev:
+                    changes.append(dict(wave=wi + 1, group=gi, enemy=eid,
+                                        prev=prev, next=cur))
+        return changes, in_band, note
+    finally:
+        WAVES[:] = original
 
 
 def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
@@ -960,10 +1395,14 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     for r, changes in zip(rows, build_log):
         worst = f"{r['worst_group']}={r['worst_margin']:.2f}"
         flags = ",".join(r["flags"]) if r["flags"] else "-"
-        # Strike Wing usage is informational — shown in the flags cell but
-        # never stored in r["flags"], which is the gate verdict.
+        # Strike Wing usage and tower losses are informational — shown in the
+        # flags cell but never stored in r["flags"], which is the gate verdict.
+        # (A lost tower already punishes the margin through its downtime and
+        # the rebuild spend; flagging it too would double-judge one event.)
+        if r.get("towers_lost"):
+            flags = f"LOST({','.join(r['towers_lost'])})" + ("," + flags if flags != "-" else "")
         if r.get("strike_uses"):
-            flags = f"SW×{r['strike_uses']}" + ("," + flags if r["flags"] else "")
+            flags = f"SW×{r['strike_uses']}" + ("," + flags if flags != "-" else "")
         builds = (" | " + ", ".join(changes)) if changes else ""
         w(f"{r['wave']:>2} {r['required']:>10.0f} {r['deliverable']:>11.0f} "
           f"{r['margin']:>6.2f} {worst:>16} {r['peak_live']:>4} "
@@ -973,6 +1412,14 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     if flagged:
         w("FLAGGED WAVES: " + ", ".join(
             f"wave {r['wave']} [{','.join(r['flags'])}]" for r in flagged))
+        advised = [r for r in flagged if r.get("advice")]
+        if advised:
+            w("")
+            w("ADVICE (first-order starting points — every edit shifts exposure "
+              "and economy, so the loop is: apply one, re-run):")
+            for r in advised:
+                for a in r["advice"]:
+                    w(f"  wave {r['wave']}: {a}")
     else:
         w("All waves in band — baseline healthy (opens ~1.5, mid 1.2-1.5, "
           "closes 1.0-1.2 on the boss; Appendix A's accepted shape).")
@@ -987,6 +1434,14 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     w("Income assumes full clears, no chain bonuses. Builds happen between "
       "waves; upgrades are coverage-aware (live T1 rings are LARGER than "
       "T2/T3 — see the model header).")
+    if TOWER_LOSS["on"]:
+        w("Tower loss ON: enemies return fire (per-row gdps/grange) at the "
+          "nearest built pad while walking, discounted to each group's alive "
+          "fraction (out-delivered m-fold -> ~1/m of the walk, floor %.2f); "
+          "%d-HP turrets carry damage across waves (nothing repairs), die at 0 "
+          "(LOST(pad) markers) and cost a fresh tier-1 rebuild. "
+          "--tower-loss-off reproduces the pre-term report." % (
+              TOWER_LOSS_SURVIVAL_FLOOR, int(TOWER_HP_DEFAULT)))
     if R22["on"]:
         w("R22 terms ON: streak income +%.0f%%/+%.0f%% (dense>=%d), veterancy "
           "+%.0f%%/wave from w%d cap +%.0f%%, Strike Wing %s (+%.1f enemy-s to "
@@ -1134,18 +1589,55 @@ def main(argv=None) -> int:
                          "(no difficulty economy multiplier — the caller already settled it); "
                          "omit for the tunable default")
     ap.add_argument("--waves", metavar="PATH",
-                    help="replace the shipped wave tables with synthesized ones (Part C): a JSON "
-                         "list of waves, each {clear, mutators?, groups:[{enemy,count,gap,offset,"
-                         "spawner}]}. Enemy ids must exist in ENEMIES (the forge prints the row "
-                         "to add). Omit for the shipped tables")
+                    help="replace the embedded wave tables with THIS LEVEL'S (live certification): "
+                         "either a JSON list of waves, each {clear, mutators?, groups:[{enemy,count,"
+                         "gap,offset,spawner}]}, or an object {enemies:{id:{hp,armour,speed,bounty,"
+                         "leak,air,...}}, waves:[...]} whose enemies block overrides/extends the "
+                         "embedded rows with the stats the assets actually carry (what "
+                         "WaveTableExporter writes). Omit for the frozen reference tables")
+    ap.add_argument("--tower-loss-off", action="store_true",
+                    help="disable the return-fire tower-loss term — reproduces the pre-term "
+                         "report byte-for-byte")
     args = ap.parse_args(argv)
 
     if args.waves:
         try:
             with open(args.waves, encoding="utf-8") as f:
                 data = json.load(f)
+            # Object form carries the level's OWN enemy stats; list form is the
+            # legacy waves-only file and leans on the embedded rows.
+            enemy_rows = {}
+            wave_list = data
+            if isinstance(data, dict):
+                enemy_rows = data.get("enemies", {})
+                wave_list = data["waves"]
+            for eid, row in enemy_rows.items():
+                parsed_row = dict(hp=float(row["hp"]), armour=int(row["armour"]),
+                                  speed=float(row["speed"]), bounty=int(row["bounty"]),
+                                  leak=int(row["leak"]), air=bool(row["air"]))
+                if parsed_row["hp"] <= 0 or parsed_row["speed"] <= 0:
+                    raise ValueError(f"enemy '{eid}': hp and speed must be positive")
+                if not 0 <= parsed_row["armour"] <= 2:
+                    raise ValueError(f"enemy '{eid}': armour must be 0..2")
+                if parsed_row["air"]:
+                    parsed_row["altitude"] = float(row["altitude"])
+                    if parsed_row["altitude"] <= 0:
+                        raise ValueError(f"enemy '{eid}': air unit with no altitude "
+                                         "— fix flightAltitude on the definition")
+                if float(row.get("phase_speed", 0)) > 0:
+                    parsed_row["phase_at"] = float(row.get("phase_at", 0))
+                    parsed_row["phase_speed"] = float(row["phase_speed"])
+                if float(row.get("enrage_mult", 0)) > 0:
+                    parsed_row["enrage_mult"] = float(row["enrage_mult"])
+                if float(row.get("gdps", 0)) > 0 and float(row.get("grange", 0)) > 0:
+                    parsed_row["gdps"] = float(row["gdps"])
+                    parsed_row["grange"] = float(row["grange"])
+                # Wholesale replace — the exporter writes complete rows, so a
+                # stat edit on the asset lands here whole, never half-merged.
+                ENEMIES[eid] = parsed_row
+
             parsed = []
-            for w in data:
+            for w in wave_list:
                 groups = [(g["enemy"], int(g["count"]), float(g["gap"]),
                            float(g["offset"]), int(g["spawner"])) for g in w["groups"]]
                 d = dict(clear=int(w.get("clear", 0)), groups=groups)
@@ -1162,12 +1654,13 @@ def main(argv=None) -> int:
 
         unknown = {g[0] for w in parsed for g in w["groups"]} - set(ENEMIES)
         if unknown:
-            print(f"--waves references enemies missing from ENEMIES: {', '.join(sorted(unknown))} "
-                  "— add their rows first (the Character Forge transcript prints them).",
+            print(f"--waves references enemies missing from ENEMIES and from the file's own "
+                  f"enemies block: {', '.join(sorted(unknown))} — export with WaveTableExporter "
+                  "(it writes every referenced row) or add the rows.",
                   file=sys.stderr)
             return 2
 
-        # In place, so every module-level reference sees the synthesized tables.
+        # In place, so every module-level reference sees the level's tables.
         WAVES[:] = parsed
 
     if args.hp_growth is not None:
@@ -1179,6 +1672,7 @@ def main(argv=None) -> int:
         ACTIVE["starting_salvage"] = args.starting_salvage
 
     R22["on"] = not args.r22_off
+    TOWER_LOSS["on"] = not args.tower_loss_off
     R22["strike_uses"] = args.strike_uses
     for spec in args.mutate:
         try:
@@ -1209,6 +1703,25 @@ def main(argv=None) -> int:
     if solved is not None:
         report += f"\n\nSOLVED hpGrowthPerWave = {solved:.4f} (close-wave margin targeted at 1.10)"
 
+    # Flagged run → also compute the counts-only tune, so the gate message can
+    # OFFER the fix, not just the diagnosis. Evaluated at this run's final
+    # growth (the solver leaves ACTIVE at the solved value).
+    fix_changes, fix_in_band, fix_note = None, False, ""
+    if any(r["flags"] for r in rows):
+        fix_changes, fix_in_band, fix_note = suggest_fix(
+            args.difficulty, args.measured_lengths, args.polyline, geometry)
+        lines = [f"  wave {c['wave']}: {c['enemy']} {c['prev']}→{c['next']}" +
+                 (" (drop the group)" if c["next"] == 0 else "")
+                 for c in fix_changes]
+        report += "\n\nCOUNTS-ONLY TUNE " + (
+            "that passes the gate:" if fix_in_band else "(best effort — did NOT converge):")
+        report += "\n" + ("\n".join(lines) if lines
+                          else "  (no counts-only change helps — see ADVICE)")
+        if fix_note:
+            report += f"\n  {fix_note}"
+        report += ("\n  Counts only — gaps, offsets, mutators and enemy stats untouched. "
+                   "Campaign Builder step 6 can apply this to campaign-owned stages.")
+
     if args.measured_lengths:
         _, base_rows, _ = run_model(args.difficulty, polyline=True)
         report += "\n\n" + format_delta_table(
@@ -1233,7 +1746,12 @@ def main(argv=None) -> int:
                            solved_hp_growth=solved if solved is not None else -1.0,
                            max_live=ACTIVE["max_live"],
                            in_band=not any(r["flags"] for r in rows),
-                           rows=[{k: v for k, v in r.items()} for r in rows]),
+                           suggested_changes=fix_changes or [],
+                           suggested_in_band=fix_in_band,
+                           suggested_note=fix_note,
+                           # _-prefixed keys are working state, not output.
+                           rows=[{k: v for k, v in r.items()
+                                  if not k.startswith("_")} for r in rows]),
                       f, indent=1)
 
     return 1 if any(r["flags"] for r in rows) else 0

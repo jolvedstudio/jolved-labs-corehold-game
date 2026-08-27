@@ -837,9 +837,26 @@ public static class GenerationPipeline
         Vector3 airSpawn = ctx.layout.airSpawn;
         Vector3 coreXZ = ctx.coreTarget.position;
 
+        // Live certification: the model runs against the wave and enemy assets
+        // THIS definition actually references, not the model's embedded hand
+        // copies — so an edited wave (a boss in wave 1, a tripled HP stat)
+        // moves the verdict on the very next generation.
+        string wavesJson = WaveTableExporter.Export(clone, out string waveError);
+        if (wavesJson == null)
+            return StageResult.Fail($"live wave export failed: {waveError}");
+
         int derivedMaxLive = BalanceModelRunner.DeriveMaxLive(ctx.routes, b.airCorridor);
-        ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
-            solveGrowth: true, hpGrowth: 0f, maxLive: derivedMaxLive, out string error);
+        string error;
+        try
+        {
+            ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
+                solveGrowth: true, hpGrowth: 0f, maxLive: derivedMaxLive, out error,
+                wavesJsonPath: wavesJson);
+        }
+        finally
+        {
+            try { System.IO.File.Delete(wavesJson); } catch { /* temp file */ }
+        }
         if (ctx.model == null)
             return StageResult.Fail(error);
         if (!ctx.model.solved || ctx.model.solved_hp_growth <= 0f)
@@ -857,7 +874,8 @@ public static class GenerationPipeline
         EditorUtility.SetDirty(clone);
         AssetDatabase.SaveAssets();
 
-        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; SOLVED hpGrowthPerWave = " +
+        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; certified against the " +
+                              "LIVE wave/enemy assets (not the model's embedded copies); SOLVED hpGrowthPerWave = " +
                               $"{ctx.model.solved_hp_growth:0.####} (close targeted mid-band), " +
                               (clone.spreadGroundGroupsAcrossSpawners
                                   ? $"ground groups dealt across {ctx.routes.Count} approaches (R33 regenerates tables), "
@@ -880,11 +898,22 @@ public static class GenerationPipeline
             var flagged = new List<string>();
             foreach (var row in ctx.model.rows)
                 if (row.flags != null && row.flags.Length > 0)
+                {
                     flagged.Add($"wave {row.wave}: margin {row.margin:0.00} [{string.Join(",", row.flags)}]" +
                                 (string.IsNullOrEmpty(row.worst_group) ? "" : $" worst={row.worst_group}"));
-            return StageResult.Fail("margins out of band at the solved/verified growth — this geometry " +
-                                    "cannot be balanced by growth alone; reseed (R29):\n  • " +
-                                    string.Join("\n  • ", flagged));
+                    // The model's own fix suggestions — which knob, which enemy,
+                    // how much. This pipeline discards the scene, so the fixes
+                    // land on the blueprint's wave/enemy assets (or the campaign
+                    // stage's, where the Builder can apply the tune directly).
+                    if (row.advice != null)
+                        foreach (string a in row.advice)
+                            flagged.Add($"    fix → {a}");
+                }
+            string tune = BalanceModelRunner.DescribeSuggestedTune(ctx.model);
+            return StageResult.Fail("margins out of band at the solved/verified growth. Reseed (R29) for a " +
+                                    "coverage problem, or apply the fixes below to the wave/enemy assets this " +
+                                    "level references:\n  • " + string.Join("\n  • ", flagged) +
+                                    (tune.Length > 0 ? "\n" + tune : ""));
         }
 
         float open = ctx.model.rows[0].margin;

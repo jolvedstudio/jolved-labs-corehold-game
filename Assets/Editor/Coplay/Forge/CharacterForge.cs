@@ -541,10 +541,12 @@ namespace CoreholdEditor.Forge
         }
 
         /// <summary>
-        /// The balance model's ENEMIES table is hand-maintained BY DESIGN, and
-        /// Gate 3 simulates the .py's own roster — a forged enemy is invisible
-        /// to the gates until its row exists. Write the exact row so adding it
-        /// is a paste, not a derivation.
+        /// Certification reads this unit's stats straight off its assets
+        /// (WaveTableExporter exports every referenced enemy into the model's
+        /// --waves run), so a forged enemy needs NO hand-added model row to be
+        /// used in waves. The row is still printed for one narrower purpose:
+        /// the model's bare regression run only knows its embedded table, so
+        /// paste it there if this unit should exist in that frozen reference.
         /// </summary>
         private static void AppendModelRow(CharacterRecipe r, EnemyDefinition def, StringBuilder log)
         {
@@ -556,8 +558,9 @@ namespace CoreholdEditor.Forge
             string air = def.isAir
                 ? string.Format(inv, ", air=True, altitude={0:0.0#}", Mathf.Max(0.1f, def.flightAltitude))
                 : ", air=False";
-            log.AppendLine("\nBalance model — paste into docs/balance_model.py ENEMIES before using this unit in waves " +
-                           "(without it, wave synthesis refuses the roster and --waves exits with the missing id):");
+            log.AppendLine("\nBalance model — waves that field this unit certify from its assets automatically " +
+                           "(live export). OPTIONAL: to also list it in the bare run's frozen reference table, " +
+                           "paste into docs/balance_model.py ENEMIES:");
             log.AppendLine(string.Format(inv,
                 "    \"{0}\": dict(hp={1:0.#}, armour={2}, speed={3:0.##}, bounty={4}, leak={5}{6}),",
                 def.id, def.baseHealth, (int)def.armourType, def.moveSpeed, def.bounty, def.leakDamage, air));
