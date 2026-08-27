@@ -1123,11 +1123,17 @@ def advise_wave(wave_number: int, flags: list, result: dict,
         """'cut Z N→M or lower its baseHealth ~P%' for removing `excess` eff HP."""
         per = g["eff_hp"] / g["count"]
         k = math.ceil(excess / per)
+        base = ENEMIES[g["id"]]["hp"]
+        pct = min(90, math.ceil(excess / g["eff_hp"] * 100))
+        hp_alt = f"lower its baseHealth ~{pct}% ({base:g}→{base * (100 - pct) / 100:.0f})"
         if k < g["count"]:
-            pct = min(90, math.ceil(excess / g["eff_hp"] * 100))
-            base = ENEMIES[g["id"]]["hp"]
-            return (f"cut {g['id']} {g['count']}→{g['count'] - k}, or lower its "
-                    f"baseHealth ~{pct}% ({base:g}→{base * (100 - pct) / 100:.0f})")
+            return f"cut {g['id']} {g['count']}→{g['count'] - k}, or {hp_alt}"
+        if excess <= g["eff_hp"]:
+            # No partial cut suffices, but the group as a whole covers it — and
+            # the HP knob is the gentler alternative (a tiny shortfall against a
+            # single unit lands here: say "-6% hp", never "removal fails").
+            return (f"remove the {g['count']}×{g['id']} group (−{g['eff_hp']:.0f} eff HP "
+                    f"covers the {excess:.0f} shortfall), or {hp_alt}")
         return (f"even removing the whole {g['count']}×{g['id']} group (−{g['eff_hp']:.0f} "
                 "eff HP) does not close it — remove it, re-run, and fix what remains")
 
@@ -1183,9 +1189,10 @@ def advise_wave(wave_number: int, flags: list, result: dict,
     if result.get("towers_lost") and TOWER_LOSS["on"] and soak and max(soak) > 0:
         gi = max(range(len(soak)), key=lambda i: soak[i])
         g = stats[gi]
-        advice.append(f"return fire killed {','.join(result['towers_lost'])} — "
-                      f"{soak[gi]:.0f} of the pad damage is from {g['id']}: lower its "
-                      "weapon damage/fireRate on the prefab, field fewer, or raise TowerHealth")
+        advice.append(f"return fire killed {','.join(result['towers_lost'])} — top shooter "
+                      f"this wave: {g['id']} ({soak[gi]:.0f} dmg; turret damage CARRIES "
+                      "between waves, nothing repairs, so earlier waves contributed): lower "
+                      "its weapon damage/fireRate, field fewer, or raise TowerHealth")
 
     if "HIGH-CLOSE" in flags or "HIGH-MID" in flags:
         cap = BAND_CLOSE_MAX if wave_number == CLOSE_WAVE else BAND_MID_MAX
