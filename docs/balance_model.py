@@ -328,6 +328,11 @@ TOWER_HP_DEFAULT = 220.0
 # are 13-14 m), so return fire never discounts to zero. [TUNE]
 TOWER_LOSS_SURVIVAL_FLOOR = 0.15
 
+# Full-model evaluations the counts-only tuner may spend (suggest_fix). Each
+# is one complete run (~0.2 s); the chunked cuts converge in a handful per
+# flagged wave, so this cap is a runaway stop, not a working budget.
+MAX_FIX_RUNS = 60
+
 # Run-scoped switch (CLI-mutated), --r22-off pattern.
 TOWER_LOSS = {"on": True}
 
@@ -347,11 +352,14 @@ def _nearest_pad_in_range(geom: Geometry, built: dict, x: float, z: float,
 
 
 def tower_incoming(geom: Geometry, built: dict, groups: list,
-                   survival: list) -> dict:
-    """Return fire soaked per pad over one wave: pad name -> damage.
-    `survival` is the per-group alive fraction (parallel to groups)."""
+                   survival: list):
+    """Return fire soaked per pad over one wave. Returns (incoming, by_group):
+    pad name -> damage, and the same damage re-summed per group index (the
+    advice lines name the top shooter from it). `survival` is the per-group
+    alive fraction (parallel to groups)."""
+    by_group = [0.0] * len(groups)
     if not TOWER_LOSS["on"] or not built:
-        return {}
+        return {}, by_group
     incoming: dict = {}
     for gi, g in enumerate(groups):
         enemy = g["enemy"]
@@ -391,8 +399,10 @@ def tower_incoming(geom: Geometry, built: dict, groups: list,
                     dt = step / enemy_speed_at(enemy, s, route.polyline_length) * route.scale
                     per_enemy[pad] = per_enemy.get(pad, 0.0) + dt
         for pad, seconds in per_enemy.items():
-            incoming[pad] = incoming.get(pad, 0.0) + g["count"] * gdps * seconds
-    return incoming
+            dmg = g["count"] * gdps * seconds
+            incoming[pad] = incoming.get(pad, 0.0) + dmg
+            by_group[gi] += dmg
+    return incoming, by_group
 
 # ---- Generator overrides (roadmap R30) --------------------------------------
 #
@@ -865,6 +875,7 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
         groups.append(dict(id=enemy_id, enemy=enemy, count=count, gap=gap,
                            offset=offset, route=route, traverse=traverse,
                            eff_hp=eff_hp, delivered=0.0, exp_s=0.0,
+                           lane=None if enemy["air"] else spawner,
                            air_speed_mult=storm if enemy["air"] else 1.0))
         wave_duration = max(wave_duration, offset + max(0, count - 1) * gap + traverse)
 
@@ -957,11 +968,12 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
     pad_uptime = {}
     pad_damage = {}
     towers_lost = []
+    group_soak = [0.0] * len(groups)
     if TOWER_LOSS["on"] and built:
         survival = [1.0 if g["eff_hp"] <= 0.0 or g["delivered"] <= g["eff_hp"]
                     else max(TOWER_LOSS_SURVIVAL_FLOOR, g["eff_hp"] / g["delivered"])
                     for g in groups]
-        incoming = tower_incoming(geom, built, groups, survival)
+        incoming, group_soak = tower_incoming(geom, built, groups, survival)
         for pad, inst in built.items():
             soak = incoming.get(pad, 0.0)
             if soak <= 0.0:
@@ -1019,7 +1031,13 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                 worst_group=worst["id"], worst_margin=worst_margin,
                 peak_live=peak, duration=wave_duration,
                 strike_uses=strike_uses, towers_lost=towers_lost,
-                _pad_damage=pad_damage)
+                _pad_damage=pad_damage,
+                # Light per-group summary for the advice/tune machinery —
+                # stripped from rows before any JSON dump (see main).
+                _group_stats=[dict(id=g["id"], count=g["count"], eff_hp=g["eff_hp"],
+                                   delivered=g["delivered"], air=g["enemy"]["air"],
+                                   lane=g["lane"]) for g in groups],
+                _group_soak=group_soak)
 
 
 def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
@@ -1035,6 +1053,86 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
             bounties *= MUTATOR_OC_BOUNTY
     clear = wave["clear"] if wave["clear"] > 0 else 60 + 18 * wave_number
     return round(bounties * eco) + round(clear * eco)
+
+
+# =============================================================================
+#  Advice & counts-only tune (the gate's actionable half)
+# =============================================================================
+
+def advise_wave(wave_number: int, flags: list, result: dict) -> list:
+    """
+    First-order fix suggestions for a flagged wave — starting points, not
+    solutions: every edit shifts exposure and economy second-order, so the
+    loop is always edit → re-run. These lines ride the JSON rows into both
+    editor tools' messaging panes; the numbers exist only here, per R1.
+    """
+    if not flags:
+        return []
+    stats = result["_group_stats"]
+    soak = result["_group_soak"]
+    margin = result["margin"]
+    required = result["required"]
+    deliverable = result["deliverable"]
+    advice = []
+
+    def cut_or_hp(g, excess):
+        """'cut Z N→M or lower its baseHealth ~P%' for removing `excess` eff HP."""
+        per = g["eff_hp"] / g["count"]
+        k = math.ceil(excess / per)
+        if k < g["count"]:
+            pct = min(90, math.ceil(excess / g["eff_hp"] * 100))
+            base = ENEMIES[g["id"]]["hp"]
+            return (f"cut {g['id']} {g['count']}→{g['count'] - k}, or lower its "
+                    f"baseHealth ~{pct}% ({base:g}→{base * (100 - pct) / 100:.0f})")
+        return (f"even removing the whole {g['count']}×{g['id']} group (−{g['eff_hp']:.0f} "
+                "eff HP) does not close it — remove it, re-run, and fix what remains")
+
+    starved = [g for g in stats
+               if g["eff_hp"] > 0 and g["delivered"] / g["eff_hp"] < GROUP_MIN]
+    if any(f.startswith("GROUP-STARVED") for f in flags):
+        for g in starved:
+            q = g["delivered"] / g["eff_hp"]
+            where = ("the air corridor — anti-air coverage does not reach enough of it"
+                     if g["air"] else
+                     f"spawner {g['lane']}'s lane — its route is under-covered")
+            need = max(0.0, g["eff_hp"] - g["delivered"] / GROUP_MIN)
+            k = math.ceil(need / (g["eff_hp"] / g["count"]))
+            advice.append(f"{g['count']}×{g['id']} only gets {q:.2f}× of its HP shot: coverage "
+                          f"problem on {where}. Re-pad/reseed for coverage, or cut "
+                          f"{g['id']} {g['count']}→{max(0, g['count'] - k)}")
+
+    if "LOW" in flags:
+        excess = required - deliverable
+        covered = [g for g in stats
+                   if g["eff_hp"] > 0 and g["delivered"] / g["eff_hp"] >= GROUP_MIN] or \
+                  [g for g in stats if g["eff_hp"] > 0]
+        if covered:
+            g = max(covered, key=lambda s: s["eff_hp"])
+            advice.append(f"margin {margin:.2f} < {BAND_MIN:.2f} — shortfall "
+                          f"{excess:.0f} eff HP: " + cut_or_hp(g, excess))
+        if wave_number == 1:
+            advice.append("wave 1 meets the opening bank (~2 turrets built) — it has to "
+                          "stay light; heavies belong from wave 3 on")
+
+    if result.get("towers_lost") and TOWER_LOSS["on"] and soak and max(soak) > 0:
+        gi = max(range(len(soak)), key=lambda i: soak[i])
+        g = stats[gi]
+        advice.append(f"return fire killed {','.join(result['towers_lost'])} — "
+                      f"{soak[gi]:.0f} of the pad damage is from {g['id']}: lower its "
+                      "weapon damage/fireRate on the prefab, field fewer, or raise TowerHealth")
+
+    if "HIGH-CLOSE" in flags or "HIGH-MID" in flags:
+        cap = BAND_CLOSE_MAX if wave_number == CLOSE_WAVE else BAND_MID_MAX
+        room = deliverable / cap - required
+        pool = [g for g in stats if g["eff_hp"] > 0]
+        if pool and room > 0:
+            g = max(pool, key=lambda s: s["eff_hp"])
+            per = g["eff_hp"] / g["count"]
+            k = max(1, int(room / per))
+            advice.append(f"margin {margin:.2f} above the {cap:.2f} cap — room for "
+                          f"~{room:.0f} eff HP: add ~{k}×{g['id']}, or raise its baseHealth")
+
+    return advice
 
 
 # =============================================================================
@@ -1136,11 +1234,145 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
         if result["worst_margin"] < GROUP_MIN:
             flags.append(f"GROUP-STARVED({result['worst_group']})")
 
+        result["advice"] = advise_wave(wave_number, flags, result)
+
         rows.append(dict(wave=wave_number, salvage_before=salvage,
                          income=income, flags=flags, **result))
         salvage += income
 
     return geom, rows, build_log
+
+
+def suggest_fix(difficulty: str, measured_lengths=None, polyline=False,
+                geometry: Geometry = None):
+    """
+    Counts-only tune toward the band — the gate's actionable half, computed
+    HERE because only the model can iterate its own verdict (R1: one brain).
+    Greedy and deterministic: while any wave sits under band, trim the guilty
+    group of the worst one by the same chunk arithmetic the advice prints,
+    re-running the full model each step so build economy, coverage, return
+    fire and the following waves all react; then feed the over-cap waves the
+    same way. Counts are the only knob touched — gaps, offsets, mutators and
+    enemy stats are design, counts are load.
+
+    Returns (changes, in_band, note): changes as dicts
+    {wave, group, enemy, prev, next} against the CURRENT tables (next 0 =
+    drop the group). WAVES is restored before returning — the tune is a
+    suggestion, never a silent rewrite of this run's own verdict.
+    """
+    original = [dict(w, groups=list(w["groups"])) for w in WAVES]
+    runs = 0
+    note = ""
+
+    def evaluate():
+        nonlocal runs
+        runs += 1
+        _, rows, _ = run_model(difficulty, measured_lengths, polyline, geometry)
+        return rows
+
+    def set_count(wi, gi, count):
+        eid, _, gap, off, sp = WAVES[wi]["groups"][gi]
+        WAVES[wi]["groups"][gi] = (eid, count, gap, off, sp)
+
+    try:
+        rows = evaluate()
+
+        # Phase 1 — cuts, until nothing is under band. Converges: every step
+        # removes load from the worst cuttable wave, and a wave whose only
+        # remaining move would empty it entirely is frozen instead — an empty
+        # wave is not a fix, it is dead air with a free clear bonus.
+        uncuttable: set = set()
+        while runs < MAX_FIX_RUNS:
+            under = [r for r in rows
+                     if r["wave"] not in uncuttable
+                     and any(f == "LOW" or f.startswith("GROUP-STARVED")
+                             for f in r["flags"])]
+            if not under:
+                break
+            r = min(under, key=lambda x: x["margin"])
+            wi = r["wave"] - 1
+            stats = r["_group_stats"]
+            starved = [i for i, g in enumerate(stats)
+                       if g["count"] > 0 and g["eff_hp"] > 0
+                       and g["delivered"] / g["eff_hp"] < GROUP_MIN]
+            live = [i for i, g in enumerate(stats) if g["count"] > 0 and g["eff_hp"] > 0]
+            if starved:
+                gi = max(starved, key=lambda i: stats[i]["eff_hp"])
+                g = stats[gi]
+                need = max(0.0, g["eff_hp"] - g["delivered"] / GROUP_MIN)
+            else:
+                if not live:
+                    uncuttable.add(r["wave"])
+                    continue
+                gi = max(live, key=lambda i: stats[i]["eff_hp"])
+                g = stats[gi]
+                need = r["required"] - r["deliverable"]
+            per = g["eff_hp"] / g["count"]
+            k = max(1, min(g["count"], math.ceil(need / per)))
+            if len(live) == 1 and live[0] == gi:
+                k = min(k, g["count"] - 1)   # never empty the whole wave
+                if k <= 0:
+                    uncuttable.add(r["wave"])   # one unit left and still failing:
+                    continue                    # counts can't fix this wave
+            set_count(wi, gi, g["count"] - k)
+            rows = evaluate()
+
+        # Phase 2 — adds for over-cap waves. Adding load also ADDS delivery
+        # (longer engagement windows, more income), so the cap cannot be chased
+        # arithmetically: each wave gets two conservative attempts, capped at
+        # +100% of the group per step; an attempt that breaks any wave under
+        # band is reverted and the wave is left to the ADVICE lines. A harder-
+        # but-still-over result is kept — strictly closer to the cap.
+        attempts: dict = {}
+        while runs < MAX_FIX_RUNS:
+            over = [r for r in rows
+                    if attempts.get(r["wave"], 0) < 2 and r["required"] > 0
+                    and ("HIGH-CLOSE" in r["flags"] or "HIGH-MID" in r["flags"])]
+            if not over:
+                break
+            r = max(over, key=lambda x: x["margin"])
+            wave_no = r["wave"]
+            attempts[wave_no] = attempts.get(wave_no, 0) + 1
+            wi = wave_no - 1
+            stats = r["_group_stats"]
+            cap = BAND_CLOSE_MAX if wave_no == CLOSE_WAVE else BAND_MID_MAX
+            live = [i for i, g in enumerate(stats) if g["count"] > 0 and g["eff_hp"] > 0]
+            if not live:
+                attempts[wave_no] = 99
+                continue
+            gi = max(live, key=lambda i: stats[i]["eff_hp"])
+            g = stats[gi]
+            per = g["eff_hp"] / g["count"]
+            k = max(1, min(g["count"],
+                           int(0.5 * (r["deliverable"] / cap - r["required"]) / per)))
+            before = g["count"]
+            set_count(wi, gi, before + k)
+            new_rows = evaluate()
+            if any(f == "LOW" or f.startswith("GROUP-STARVED")
+                   for row in new_rows for f in row["flags"]):
+                set_count(wi, gi, before)   # the add broke a wave — take it back
+                rows = evaluate()
+                attempts[wave_no] = 99
+            else:
+                rows = new_rows
+
+        in_band = not any(row["flags"] for row in rows)
+        if not in_band and not note:
+            remaining = ", ".join(f"wave {row['wave']} [{','.join(row['flags'])}]"
+                                  for row in rows if row["flags"])
+            note = (f"still flagged after tuning: {remaining} — needs a non-count fix "
+                    "(coverage, stats, geometry, or re-authoring the wave); see ADVICE")
+
+        changes = []
+        for wi, w in enumerate(original):
+            for gi, (eid, prev, _, _, _) in enumerate(w["groups"]):
+                cur = WAVES[wi]["groups"][gi][1]
+                if cur != prev:
+                    changes.append(dict(wave=wi + 1, group=gi, enemy=eid,
+                                        prev=prev, next=cur))
+        return changes, in_band, note
+    finally:
+        WAVES[:] = original
 
 
 def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
@@ -1180,6 +1412,14 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
     if flagged:
         w("FLAGGED WAVES: " + ", ".join(
             f"wave {r['wave']} [{','.join(r['flags'])}]" for r in flagged))
+        advised = [r for r in flagged if r.get("advice")]
+        if advised:
+            w("")
+            w("ADVICE (first-order starting points — every edit shifts exposure "
+              "and economy, so the loop is: apply one, re-run):")
+            for r in advised:
+                for a in r["advice"]:
+                    w(f"  wave {r['wave']}: {a}")
     else:
         w("All waves in band — baseline healthy (opens ~1.5, mid 1.2-1.5, "
           "closes 1.0-1.2 on the boss; Appendix A's accepted shape).")
@@ -1463,6 +1703,25 @@ def main(argv=None) -> int:
     if solved is not None:
         report += f"\n\nSOLVED hpGrowthPerWave = {solved:.4f} (close-wave margin targeted at 1.10)"
 
+    # Flagged run → also compute the counts-only tune, so the gate message can
+    # OFFER the fix, not just the diagnosis. Evaluated at this run's final
+    # growth (the solver leaves ACTIVE at the solved value).
+    fix_changes, fix_in_band, fix_note = None, False, ""
+    if any(r["flags"] for r in rows):
+        fix_changes, fix_in_band, fix_note = suggest_fix(
+            args.difficulty, args.measured_lengths, args.polyline, geometry)
+        lines = [f"  wave {c['wave']}: {c['enemy']} {c['prev']}→{c['next']}" +
+                 (" (drop the group)" if c["next"] == 0 else "")
+                 for c in fix_changes]
+        report += "\n\nCOUNTS-ONLY TUNE " + (
+            "that passes the gate:" if fix_in_band else "(best effort — did NOT converge):")
+        report += "\n" + ("\n".join(lines) if lines
+                          else "  (no counts-only change helps — see ADVICE)")
+        if fix_note:
+            report += f"\n  {fix_note}"
+        report += ("\n  Counts only — gaps, offsets, mutators and enemy stats untouched. "
+                   "Campaign Builder step 6 can apply this to campaign-owned stages.")
+
     if args.measured_lengths:
         _, base_rows, _ = run_model(args.difficulty, polyline=True)
         report += "\n\n" + format_delta_table(
@@ -1487,7 +1746,12 @@ def main(argv=None) -> int:
                            solved_hp_growth=solved if solved is not None else -1.0,
                            max_live=ACTIVE["max_live"],
                            in_band=not any(r["flags"] for r in rows),
-                           rows=[{k: v for k, v in r.items()} for r in rows]),
+                           suggested_changes=fix_changes or [],
+                           suggested_in_band=fix_in_band,
+                           suggested_note=fix_note,
+                           # _-prefixed keys are working state, not output.
+                           rows=[{k: v for k, v in r.items()
+                                  if not k.startswith("_")} for r in rows]),
                       f, indent=1)
 
     return 1 if any(r["flags"] for r in rows) else 0

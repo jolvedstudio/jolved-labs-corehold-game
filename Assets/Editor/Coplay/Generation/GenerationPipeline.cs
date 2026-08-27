@@ -898,11 +898,22 @@ public static class GenerationPipeline
             var flagged = new List<string>();
             foreach (var row in ctx.model.rows)
                 if (row.flags != null && row.flags.Length > 0)
+                {
                     flagged.Add($"wave {row.wave}: margin {row.margin:0.00} [{string.Join(",", row.flags)}]" +
                                 (string.IsNullOrEmpty(row.worst_group) ? "" : $" worst={row.worst_group}"));
-            return StageResult.Fail("margins out of band at the solved/verified growth — this geometry " +
-                                    "cannot be balanced by growth alone; reseed (R29):\n  • " +
-                                    string.Join("\n  • ", flagged));
+                    // The model's own fix suggestions — which knob, which enemy,
+                    // how much. This pipeline discards the scene, so the fixes
+                    // land on the blueprint's wave/enemy assets (or the campaign
+                    // stage's, where the Builder can apply the tune directly).
+                    if (row.advice != null)
+                        foreach (string a in row.advice)
+                            flagged.Add($"    fix → {a}");
+                }
+            string tune = BalanceModelRunner.DescribeSuggestedTune(ctx.model);
+            return StageResult.Fail("margins out of band at the solved/verified growth. Reseed (R29) for a " +
+                                    "coverage problem, or apply the fixes below to the wave/enemy assets this " +
+                                    "level references:\n  • " + string.Join("\n  • ", flagged) +
+                                    (tune.Length > 0 ? "\n" + tune : ""));
         }
 
         float open = ctx.model.rows[0].margin;

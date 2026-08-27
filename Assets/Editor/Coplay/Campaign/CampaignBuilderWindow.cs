@@ -47,6 +47,15 @@ namespace CoreholdEditor.Campaign
 
         private readonly List<string> _issues = new List<string>();
 
+        /// <summary>
+        /// Counts-only tunes the last Verify collected for failing NON-RECIPE
+        /// stages, keyed by stage index — what the "Apply counts-only tune"
+        /// button applies. Cleared on every Verify; each change carries the
+        /// count it expects to find (prev), so a stale tune refuses itself.
+        /// </summary>
+        private readonly Dictionary<int, BalanceModelRunner.SuggestedChange[]> _pendingTunes =
+            new Dictionary<int, BalanceModelRunner.SuggestedChange[]>();
+
         private void OnGUI()
         {
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
@@ -470,6 +479,144 @@ namespace CoreholdEditor.Campaign
                 }
                 GUI.enabled = true;
             }
+
+            // The model's counts-only tunes from the last Verify — one click
+            // applies them to the failing stages' OWN wave assets and
+            // re-verifies, so "it fails" comes with "and this fixes it".
+            if (_pendingTunes.Count > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    $"{_pendingTunes.Count} stage(s) failed Verify with a counts-only tune available " +
+                    "(details in the report below). Applying edits ONLY group counts on the stage's own " +
+                    "wave assets — gaps, offsets, mutators and enemy stats stay yours — then re-verifies.",
+                    MessageType.Info);
+                if (GUILayout.Button($"Apply counts-only tune ({_pendingTunes.Count} stage(s))",
+                                     GUILayout.Width(280)))
+                    ApplyPendingTunes();
+            }
+        }
+
+        /// <summary>
+        /// Apply the model's counts-only tune to each pending stage's wave
+        /// assets, then re-run Verify so the report shows the new verdict.
+        /// Ownership-guarded (only assets under this campaign's data folder are
+        /// edited) and stale-guarded (each change names the count it expects to
+        /// find; a mismatch skips the stage and asks for a fresh Verify).
+        /// </summary>
+        private void ApplyPendingTunes()
+        {
+            var log = new StringBuilder();
+            log.AppendLine("Counts-only tune:");
+            var pending = new Dictionary<int, BalanceModelRunner.SuggestedChange[]>(_pendingTunes);
+            _pendingTunes.Clear();
+
+            foreach (var kv in pending)
+            {
+                if (kv.Key < 0 || kv.Key >= _authoring.stages.Count) continue;
+                var stage = _authoring.stages[kv.Key];
+                var def = string.IsNullOrEmpty(stage.levelDefPath)
+                    ? null
+                    : AssetDatabase.LoadAssetAtPath<LevelDefinition>(stage.levelDefPath);
+                if (def == null || def.waves == null)
+                {
+                    log.AppendLine($"  Level {kv.Key + 1}: SKIPPED — its LevelDefinition is not reachable any more.");
+                    continue;
+                }
+
+                // Ownership: every wave asset this tune would touch must live in
+                // THIS campaign's data folder. Shipped or foreign tables are
+                // never edited — the same doctrine as DeleteOwned.
+                bool foreign = false;
+                foreach (var c in kv.Value)
+                {
+                    string p = c.wave - 1 >= 0 && c.wave - 1 < def.waves.Length && def.waves[c.wave - 1] != null
+                        ? AssetDatabase.GetAssetPath(def.waves[c.wave - 1])
+                        : null;
+                    if (string.IsNullOrEmpty(p) || !p.StartsWith(_authoring.DataFolder + "/", System.StringComparison.Ordinal))
+                    {
+                        log.AppendLine($"  Level {kv.Key + 1}: REFUSED — wave {c.wave}'s table " +
+                                       $"({p ?? "missing"}) is not campaign-owned. Regenerate or Adopt the " +
+                                       "stage so it owns its waves, then Verify again.");
+                        foreign = true;
+                        break;
+                    }
+                }
+                if (foreign) continue;
+
+                if (!ApplyTuneToStage(kv.Key, def, kv.Value, log))
+                    continue;
+            }
+
+            AssetDatabase.SaveAssets();
+            log.AppendLine();
+            bool ok = VerifyCarryEconomy(log);
+            log.AppendLine(ok ? "\nRe-verify: all stages hold at the worst-case entry."
+                              : "\nRe-verify: still failing — what remains needs a non-count fix (see rows above).");
+            ShowReport(log.ToString());
+        }
+
+        private bool ApplyTuneToStage(int stageIndex, LevelDefinition def,
+                                      BalanceModelRunner.SuggestedChange[] changes, StringBuilder log)
+        {
+            // Pass 1 — VALIDATE everything before writing anything (a stale
+            // tune must refuse whole, never half-apply): every addressed group
+            // must still hold the enemy id and count the tune recorded.
+            foreach (var c in changes)
+            {
+                var so = new SerializedObject(def.waves[c.wave - 1]);
+                var groups = so.FindProperty("groups");
+                string stale = null;
+                if (groups == null || c.group < 0 || c.group >= groups.arraySize)
+                {
+                    stale = $"wave {c.wave} group {c.group} is gone";
+                }
+                else
+                {
+                    var g = groups.GetArrayElementAtIndex(c.group);
+                    var enemy = g.FindPropertyRelative("enemy").objectReferenceValue as EnemyDefinition;
+                    int count = g.FindPropertyRelative("count").intValue;
+                    if (enemy == null || enemy.id != c.enemy || count != c.prev)
+                        stale = $"wave {c.wave}: expected {c.prev}×{c.enemy}, found " +
+                                $"{count}×{(enemy != null ? enemy.id : "?")}";
+                }
+                if (stale != null)
+                {
+                    log.AppendLine($"  Level {stageIndex + 1}: STALE tune ({stale}) — the assets " +
+                                   "changed since Verify; nothing was edited. Run Verify again.");
+                    return false;
+                }
+            }
+
+            // Pass 2 — apply the counts. Deletions are collected and done last,
+            // highest group index first, so recorded indices stay valid.
+            var deletions = new List<(int wave, int group)>();
+            foreach (var c in changes)
+            {
+                var waveAsset = def.waves[c.wave - 1];
+                AssetDatabase.MakeEditable(AssetDatabase.GetAssetPath(waveAsset));
+                var so = new SerializedObject(waveAsset);
+                so.FindProperty("groups").GetArrayElementAtIndex(c.group)
+                  .FindPropertyRelative("count").intValue = c.next;
+                so.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(waveAsset);
+                log.AppendLine($"  Level {stageIndex + 1} wave {c.wave}: {c.enemy} {c.prev}→{c.next}" +
+                               (c.next == 0 ? " (group removed)" : ""));
+                if (c.next == 0)
+                    deletions.Add((c.wave, c.group));
+            }
+            foreach (var d in deletions.OrderByDescending(d => d.wave * 1000 + d.group))
+            {
+                var waveAsset = def.waves[d.wave - 1];
+                var so = new SerializedObject(waveAsset);
+                var groups = so.FindProperty("groups");
+                if (d.group < groups.arraySize)
+                {
+                    groups.DeleteArrayElementAtIndex(d.group);
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(waveAsset);
+                }
+            }
+            return true;
         }
 
         private void DrawRegisterStep()
@@ -618,6 +765,7 @@ namespace CoreholdEditor.Campaign
 
             log.AppendLine($"\nCarry verify — worst-case entry {worstEntry} salvage per stage:");
             bool allOk = true;
+            _pendingTunes.Clear();
             foreach (var stage in _authoring.stages)
             {
                 if (string.IsNullOrEmpty(stage.scenePath)) continue;
@@ -689,6 +837,34 @@ namespace CoreholdEditor.Campaign
                                    $"(growth {def.hpGrowthPerWave:0.###}, live waves) — the floor " +
                                    "cannot hold this map as its waves stand today.");
                     allOk = false;
+
+                    // The model's fix suggestions: per-wave advice lines, then
+                    // its counts-only tune. Recipe stages never get the tune
+                    // applied (regeneration would overwrite it and the seed
+                    // would no longer reproduce the waves) — their knob is the
+                    // recipe itself, which the advice translates to.
+                    foreach (var row in result.rows)
+                        if (row.advice != null)
+                            foreach (string a in row.advice)
+                                log.AppendLine($"      wave {row.wave}: {a}");
+                    string tune = BalanceModelRunner.DescribeSuggestedTune(result);
+                    if (tune.Length > 0)
+                    {
+                        foreach (string line in tune.Split('\n'))
+                            log.AppendLine("      " + line);
+                        if (RecipeFor(stage) != null)
+                        {
+                            log.AppendLine("      synthesized stage — apply the intent to the RECIPE " +
+                                           "(budgetBase / budgetGrowthPerWave / escalationPerStage / roster) " +
+                                           "and regenerate; a direct tune would not survive regeneration.");
+                        }
+                        else if (result.suggested_changes != null && result.suggested_changes.Length > 0)
+                        {
+                            _pendingTunes[_authoring.stages.IndexOf(stage)] = result.suggested_changes;
+                            log.AppendLine("      → 'Apply counts-only tune' under step 6 applies this to the " +
+                                           "stage's own wave assets.");
+                        }
+                    }
                 }
                 else
                 {
@@ -869,7 +1045,19 @@ namespace CoreholdEditor.Campaign
                 {
                     log.AppendLine($"  synthesized waves OUT OF BAND even at solved growth " +
                                    $"{model.solved_hp_growth:0.###} — soften the recipe (budget, growth, " +
-                                   "escalation) or reseed the stage.");
+                                   "escalation) or reseed the stage. The model suggests:");
+                    foreach (var row in model.rows)
+                        if (row.advice != null)
+                            foreach (string a in row.advice)
+                                log.AppendLine($"      wave {row.wave}: {a}");
+                    string tune = BalanceModelRunner.DescribeSuggestedTune(model);
+                    if (tune.Length > 0)
+                    {
+                        foreach (string line in tune.Split('\n'))
+                            log.AppendLine("      " + line);
+                        log.AppendLine("      (synthesized stage — translate this into recipe knobs; a direct " +
+                                       "tune would not survive regeneration)");
+                    }
                     return false;
                 }
 

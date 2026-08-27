@@ -44,6 +44,25 @@ public static class BalanceModelRunner
         // Pads whose turret died to return fire this wave (tower-loss term).
         // Informational — the margin already carries the cost.
         public string[] towers_lost;
+        // The model's fix suggestions for this wave (empty when unflagged):
+        // which knob, which enemy, how much. Display verbatim.
+        public string[] advice;
+    }
+
+    /// <summary>
+    /// One entry of the model's counts-only tune (emitted whenever a run is
+    /// flagged): set wave[wave-1].groups[group].count from prev to next
+    /// (next 0 = delete the group). Indices address the level's waves array
+    /// in its exported order; enemy is the id sanity check at apply time.
+    /// </summary>
+    [Serializable]
+    public class SuggestedChange
+    {
+        public int wave;     // 1-based
+        public int group;    // index into that wave's groups, pre-edit order
+        public string enemy;
+        public int prev;
+        public int next;
     }
 
     [Serializable]
@@ -55,7 +74,30 @@ public static class BalanceModelRunner
         public float solved_hp_growth;
         public int max_live;
         public bool in_band;
+        public SuggestedChange[] suggested_changes;
+        public bool suggested_in_band;
+        public string suggested_note;
         public Row[] rows;
+    }
+
+    /// <summary>
+    /// Human-readable block for a flagged run's counts-only tune; empty when
+    /// the run carried none. Display-only — the numbers are the model's.
+    /// </summary>
+    public static string DescribeSuggestedTune(Result r)
+    {
+        if (r == null || r.suggested_changes == null || r.suggested_changes.Length == 0)
+            return "";
+        var sb = new StringBuilder();
+        sb.AppendLine(r.suggested_in_band
+            ? "counts-only tune that passes the gate:"
+            : "counts-only tune (best effort — does not fully converge):");
+        foreach (SuggestedChange c in r.suggested_changes)
+            sb.AppendLine($"  wave {c.wave}: {c.enemy} {c.prev}→{c.next}" +
+                          (c.next == 0 ? " (drop the group)" : ""));
+        if (!string.IsNullOrEmpty(r.suggested_note))
+            sb.AppendLine($"  {r.suggested_note}");
+        return sb.ToString().TrimEnd();
     }
 
     /// <summary>Live cap the shipped map is tuned and framed around.</summary>
