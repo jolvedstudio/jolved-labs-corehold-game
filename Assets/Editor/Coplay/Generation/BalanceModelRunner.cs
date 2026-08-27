@@ -41,6 +41,9 @@ public static class BalanceModelRunner
         public float margin;
         public string[] flags;
         public string worst_group;
+        // Pads whose turret died to return fire this wave (tower-loss term).
+        // Informational — the margin already carries the cost.
+        public string[] towers_lost;
     }
 
     [Serializable]
@@ -126,8 +129,9 @@ public static class BalanceModelRunner
         // difficulty economy multiplier for it). -1 = the model's default.
         if (startingSalvage >= 0)
             args.Append($"--starting-salvage {startingSalvage} ");
-        // Part C: synthesized wave tables replace the shipped ones for this run,
-        // so the gate certifies the waves the level will actually play.
+        // Live certification: the level's actual wave tables + enemy stats
+        // (WaveTableExporter) replace the model's embedded copies for this run,
+        // so the gate certifies the assets the level will really play.
         if (!string.IsNullOrEmpty(wavesJsonPath))
             args.Append($"--waves \"{wavesJsonPath}\" ");
         args.Append(solveGrowth

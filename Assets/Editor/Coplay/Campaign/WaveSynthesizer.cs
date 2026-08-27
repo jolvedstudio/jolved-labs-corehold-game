@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using Corehold.Data;
 using UnityEditor;
 using UnityEngine;
@@ -10,8 +9,11 @@ namespace CoreholdEditor.Campaign
 {
     /// <summary>
     /// Wave synthesis (Part C): turns a <see cref="WaveRecipe"/> into per-stage
-    /// <see cref="WaveDefinition"/> assets plus the JSON twin the balance model
-    /// certifies them from.
+    /// <see cref="WaveDefinition"/> assets. Certification happens downstream:
+    /// WaveTableExporter reads the created assets (waves AND enemy stats,
+    /// guns included) into the model's --waves JSON, so there is exactly one
+    /// producer of model input and no roster-vs-embedded-table refusal — a
+    /// forge-built enemy certifies from its own asset like everything else.
     ///
     /// Deterministic by doctrine: every draw derives from
     /// Fnv1a(seed, "waves") → xorshift, so a stage's accepted seed reproduces
@@ -19,43 +21,13 @@ namespace CoreholdEditor.Campaign
     /// light single-group openers, air held back then escorted in, multi-group
     /// waves staggered across spawners, a boss finale with a light escort —
     /// while the SPENDING inside that structure is where the variability lives.
-    ///
-    /// Refuses to synthesize any roster whose ids are missing from
-    /// balance_model.py's ENEMIES: certification against an unmodeled enemy
-    /// would be a lie, and the forge transcript already prints the row to add.
     /// </summary>
     public static class WaveSynthesizer
     {
         public class Result
         {
             public WaveDefinition[] waves;
-            public string wavesJsonPath;   // the model's --waves twin (temp file)
             public string transcript;
-        }
-
-        // ------------------------------------------------------------ validate
-
-        /// <summary>Roster ids missing from the model's ENEMIES table (empty = good).</summary>
-        public static List<string> MissingModelRows(WaveRecipe recipe)
-        {
-            var missing = new List<string>();
-            string py;
-            try { py = System.IO.File.ReadAllText("docs/balance_model.py"); }
-            catch { return new List<string> { "(docs/balance_model.py not readable)" }; }
-
-            // The ENEMIES block: from its declaration to the first closing brace
-            // at column 0. Ids are the top-level string keys inside it.
-            var block = Regex.Match(py, @"^ENEMIES\s*=\s*\{(.*?)^\}", RegexOptions.Singleline | RegexOptions.Multiline);
-            if (!block.Success)
-                return new List<string> { "(ENEMIES table not found in balance_model.py)" };
-            var ids = new HashSet<string>(
-                Regex.Matches(block.Groups[1].Value, @"""(\w+)""\s*:")
-                     .Select(m => m.Groups[1].Value));
-
-            foreach (var e in (recipe.roster ?? new EnemyDefinition[0]).Where(e => e != null))
-                if (!ids.Contains(e.id))
-                    missing.Add(e.id);
-            return missing;
         }
 
         // ---------------------------------------------------------- synthesize
@@ -73,15 +45,6 @@ namespace CoreholdEditor.Campaign
             if (roster.Count == 0)
             {
                 log.AppendLine("Wave synthesis: the recipe has no roster.");
-                return new Result { transcript = log.ToString() };
-            }
-
-            var missing = MissingModelRows(recipe);
-            if (missing.Count > 0)
-            {
-                log.AppendLine("Wave synthesis REFUSED — roster enemies missing from balance_model.py " +
-                               $"ENEMIES: {string.Join(", ", missing)}. Add the rows (the Character Forge " +
-                               "transcript prints them) and re-generate.");
                 return new Result { transcript = log.ToString() };
             }
 
@@ -108,8 +71,6 @@ namespace CoreholdEditor.Campaign
             int ground = Mathf.Max(1, groundSpawners);
 
             var defs = new List<WaveDefinition>();
-            var json = new StringBuilder();
-            json.Append("[\n");
 
             for (int w = 1; w <= recipe.waveCount; w++)
             {
@@ -179,30 +140,14 @@ namespace CoreholdEditor.Campaign
                 AssetDatabase.CreateAsset(def, $"{wavesFolder}/Wave_{w:00}.asset");
                 defs.Add(def);
 
-                // ---- the model's twin ----
-                json.Append("  {\"clear\": ").Append(clear);
-                if (mutators != WaveMutator.None)
-                    json.Append(", \"mutators\": [\"").Append(mutators.ToString().ToLowerInvariant()).Append("\"]");
-                json.Append(", \"groups\": [");
-                json.Append(string.Join(", ", groups.Select(g =>
-                    $"{{\"enemy\": \"{g.enemy.id}\", \"count\": {g.count}, " +
-                    $"\"gap\": {g.spawnGap.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                    $"\"offset\": {g.startOffset.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}, " +
-                    $"\"spawner\": {g.spawnerIndex}}}")));
-                json.Append("]}").Append(w < recipe.waveCount ? ",\n" : "\n");
-
                 log.AppendLine($"  w{w,-2} budget {Mathf.RoundToInt(budget),4}  " +
                                string.Join(" + ", groups.Select(g => $"{g.count}×{g.enemy.id}@s{g.spawnerIndex}")) +
                                (mutators != WaveMutator.None ? $"  [{mutators}]" : ""));
             }
 
-            json.Append("]\n");
-            string jsonPath = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), $"corehold_waves_{System.Guid.NewGuid():N}.json");
-            System.IO.File.WriteAllText(jsonPath, json.ToString());
             AssetDatabase.SaveAssets();
 
-            return new Result { waves = defs.ToArray(), wavesJsonPath = jsonPath, transcript = log.ToString() };
+            return new Result { waves = defs.ToArray(), transcript = log.ToString() };
         }
 
         // ------------------------------------------------------------- helpers

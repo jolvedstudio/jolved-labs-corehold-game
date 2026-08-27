@@ -837,9 +837,26 @@ public static class GenerationPipeline
         Vector3 airSpawn = ctx.layout.airSpawn;
         Vector3 coreXZ = ctx.coreTarget.position;
 
+        // Live certification: the model runs against the wave and enemy assets
+        // THIS definition actually references, not the model's embedded hand
+        // copies — so an edited wave (a boss in wave 1, a tripled HP stat)
+        // moves the verdict on the very next generation.
+        string wavesJson = WaveTableExporter.Export(clone, out string waveError);
+        if (wavesJson == null)
+            return StageResult.Fail($"live wave export failed: {waveError}");
+
         int derivedMaxLive = BalanceModelRunner.DeriveMaxLive(ctx.routes, b.airCorridor);
-        ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
-            solveGrowth: true, hpGrowth: 0f, maxLive: derivedMaxLive, out string error);
+        string error;
+        try
+        {
+            ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
+                solveGrowth: true, hpGrowth: 0f, maxLive: derivedMaxLive, out error,
+                wavesJsonPath: wavesJson);
+        }
+        finally
+        {
+            try { System.IO.File.Delete(wavesJson); } catch { /* temp file */ }
+        }
         if (ctx.model == null)
             return StageResult.Fail(error);
         if (!ctx.model.solved || ctx.model.solved_hp_growth <= 0f)
@@ -857,7 +874,8 @@ public static class GenerationPipeline
         EditorUtility.SetDirty(clone);
         AssetDatabase.SaveAssets();
 
-        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; SOLVED hpGrowthPerWave = " +
+        return StageResult.Ok($"cloned '{b.rulesTemplate.name}' → {assetPath}; certified against the " +
+                              "LIVE wave/enemy assets (not the model's embedded copies); SOLVED hpGrowthPerWave = " +
                               $"{ctx.model.solved_hp_growth:0.####} (close targeted mid-band), " +
                               (clone.spreadGroundGroupsAcrossSpawners
                                   ? $"ground groups dealt across {ctx.routes.Count} approaches (R33 regenerates tables), "

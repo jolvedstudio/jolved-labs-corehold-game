@@ -650,25 +650,49 @@ namespace CoreholdEditor.Campaign
                     continue;
                 }
 
+                // Live certification: verify against the wave/enemy assets this
+                // stage ACTUALLY plays (synthesized, adopted or hand-edited) —
+                // an edit to any of them changes this verdict on the next click.
+                string wavesJson = WaveTableExporter.Export(def, out string waveErr);
+                if (wavesJson == null)
+                {
+                    log.AppendLine($"  {scene.name}: verify FAILED — wave export: {waveErr}");
+                    allOk = false;
+                    continue;
+                }
+
                 Vector3 airSpawn = air != null ? air.transform.position : anySpawner.transform.position;
-                var result = BalanceModelRunner.Run(routes, airSpawn, anySpawner.CoreTarget.position,
+                BalanceModelRunner.Result result;
+                try
+                {
+                    result = BalanceModelRunner.Run(routes, airSpawn, anySpawner.CoreTarget.position,
                                                     solveGrowth: false, hpGrowth: def.hpGrowthPerWave,
                                                     maxLive: def.maxLiveEnemies, out string err,
-                                                    startingSalvage: worstEntry);
-                if (result == null)
-                {
-                    log.AppendLine($"  {scene.name}: verify FAILED to run — {err}");
-                    allOk = false;
+                                                    startingSalvage: worstEntry,
+                                                    wavesJsonPath: wavesJson);
+                    if (result == null)
+                    {
+                        log.AppendLine($"  {scene.name}: verify FAILED to run — {err}");
+                        allOk = false;
+                    }
                 }
-                else if (!result.in_band)
+                finally
+                {
+                    try { System.IO.File.Delete(wavesJson); } catch { /* temp file */ }
+                }
+                if (result == null)
+                    continue;
+
+                if (!result.in_band)
                 {
                     log.AppendLine($"  {scene.name}: OUT OF BAND at entry {worstEntry} " +
-                                   $"(growth {def.hpGrowthPerWave:0.###}) — the floor cannot hold this map.");
+                                   $"(growth {def.hpGrowthPerWave:0.###}, live waves) — the floor " +
+                                   "cannot hold this map as its waves stand today.");
                     allOk = false;
                 }
                 else
                 {
-                    log.AppendLine($"  {scene.name}: in band at entry {worstEntry}.");
+                    log.AppendLine($"  {scene.name}: in band at entry {worstEntry} (live waves).");
                 }
             }
             return allOk;
@@ -798,11 +822,13 @@ namespace CoreholdEditor.Campaign
                 return false;
 
             // Synthesized waves invalidate the growth the pipeline solved
-            // against the SHIPPED tables — re-solve against the waves this level
-            // will actually play, on the same open scene's real geometry, and
-            // bake the result into the stage's LevelDefinition. This is what
-            // keeps "model-certified" true under wave variability (Part C).
-            if (RecipeFor(stage) != null && !string.IsNullOrEmpty(stage.wavesJsonPath))
+            // against the emitted definition's original tables — re-solve
+            // against the waves this level will actually play, on the same open
+            // scene's real geometry, and bake the result into the stage's
+            // LevelDefinition. Exported fresh from the relocated assets (the
+            // definition is already rewired to them), so what is certified is
+            // what is on disk — no temp-file twin to go stale.
+            if (RecipeFor(stage) != null)
             {
                 var routes = new List<Corehold.Core.PathRoute>(
                     Object.FindObjectsByType<Corehold.Core.PathRoute>(FindObjectsSortMode.None));
@@ -812,20 +838,33 @@ namespace CoreholdEditor.Campaign
                 if (routes.Count == 0 || coreSp == null)
                 {
                     log.AppendLine("  wave re-solve SKIPPED — scene geometry not reachable; the stage's " +
-                                   "growth still describes the shipped tables. Run Validate/Run Balance Model.");
+                                   "growth still describes the pre-synthesis tables. Run Validate/Run Balance Model.");
                     return false;
                 }
 
-                var model = BalanceModelRunner.Run(
-                    routes, airSp != null ? airSp.transform.position : coreSp.transform.position,
-                    coreSp.CoreTarget.position, solveGrowth: true, hpGrowth: 0f,
-                    maxLive: def.maxLiveEnemies, out string err, wavesJsonPath: stage.wavesJsonPath);
-
-                if (model == null)
+                string wavesJson = WaveTableExporter.Export(def, out string waveErr);
+                if (wavesJson == null)
                 {
-                    log.AppendLine($"  wave re-solve FAILED to run — {err}");
+                    log.AppendLine($"  wave re-solve FAILED — wave export: {waveErr}");
                     return false;
                 }
+
+                BalanceModelRunner.Result model;
+                try
+                {
+                    model = BalanceModelRunner.Run(
+                        routes, airSp != null ? airSp.transform.position : coreSp.transform.position,
+                        coreSp.CoreTarget.position, solveGrowth: true, hpGrowth: 0f,
+                        maxLive: def.maxLiveEnemies, out string err, wavesJsonPath: wavesJson);
+                    if (model == null)
+                        log.AppendLine($"  wave re-solve FAILED to run — {err}");
+                }
+                finally
+                {
+                    try { System.IO.File.Delete(wavesJson); } catch { /* temp file */ }
+                }
+                if (model == null)
+                    return false;
                 if (!model.in_band)
                 {
                     log.AppendLine($"  synthesized waves OUT OF BAND even at solved growth " +
@@ -955,7 +994,6 @@ namespace CoreholdEditor.Campaign
                 stage.scenePath = sceneDest;
                 stage.levelDefPath = defDest;
                 stage.wavesFolder = wavesFolder;
-                stage.wavesJsonPath = null;
                 // The generator stamps the seed into the filename — recover it
                 // so the stage records which seed this map came from.
                 string stem = System.IO.Path.GetFileNameWithoutExtension(src);
@@ -1024,7 +1062,8 @@ namespace CoreholdEditor.Campaign
             {
                 // Part C: SYNTHESIZE this stage's waves from the recipe — the
                 // variability lane. Deterministic from the stage's accepted
-                // seed; the JSON twin feeds the model re-solve that follows.
+                // seed; the re-solve that follows certifies the CREATED assets
+                // via WaveTableExporter (no side-channel twin).
                 // The CAMPAIGN recipe is a programme: it escalates by stage
                 // position. A STAGE OVERRIDE is bespoke: evaluated at position
                 // 0, exactly as authored — what you tuned is what plays.
@@ -1048,7 +1087,6 @@ namespace CoreholdEditor.Campaign
                 stage.scenePath = sceneDest;
                 stage.levelDefPath = defDest;
                 stage.wavesFolder = wavesFolder;
-                stage.wavesJsonPath = synth.wavesJsonPath;
                 log.AppendLine($"  {synth.waves.Length} waves SYNTHESIZED from '{recipe.name}' " +
                                (stage.waveRecipe != null
                                    ? "(stage override — as authored, no positional escalation)."
@@ -1079,7 +1117,6 @@ namespace CoreholdEditor.Campaign
             stage.scenePath = sceneDest;
             stage.levelDefPath = defDest;
             stage.wavesFolder = wavesFolder;
-            stage.wavesJsonPath = null;
             log.AppendLine($"  relocated to campaign folders; {cloned} wave tables deep-cloned (shipped assets untouched).");
             return true;
         }
@@ -1098,7 +1135,6 @@ namespace CoreholdEditor.Campaign
             if (DeleteOwned(stage.wavesFolder, _authoring.DataFolder, log)) removed++;
             if (removed > 0) log.AppendLine($"  deleted {removed} superseded campaign-owned output(s).");
             stage.scenePath = stage.levelDefPath = stage.wavesFolder = null;
-            stage.wavesJsonPath = null;
             stage.acceptedSeed = 0;
         }
 

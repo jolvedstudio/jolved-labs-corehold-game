@@ -68,9 +68,6 @@ namespace CoreholdEditor.Campaign
             public string scenePath;      // committed campaign copy, Scenes/Campaign/<id>/
             public string levelDefPath;   // committed LevelDefinition, Data/Levels/Campaign/<id>/
             public string wavesFolder;    // this stage's own WaveDefinition assets (cloned or synthesized)
-
-            [System.NonSerialized]
-            public string wavesJsonPath;  // synth twin for the model re-solve (temp; this run only)
         }
 
         /// <summary>Where this campaign's committed scenes live (decision D1).</summary>
