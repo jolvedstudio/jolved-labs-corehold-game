@@ -171,7 +171,10 @@ namespace Corehold.UI
                 // exist as data but cannot be built — show WIP, never a dead click.
                 bool buildable = def.basePrefab != null;
 
-                var icon = cell.transform.Find("Icon")?.GetComponent<Image>();
+                // The icon lives on a dark inset plate (Icon under IconPlate); fall
+                // back to a flat "Icon" for older templates.
+                var iconTf = cell.transform.Find("IconPlate/Icon") ?? cell.transform.Find("Icon");
+                var icon = iconTf != null ? iconTf.GetComponent<Image>() : null;
                 var nameTxt = cell.transform.Find("Name")?.GetComponent<TMP_Text>();
                 var costTxt = cell.transform.Find("Cost")?.GetComponent<TMP_Text>();
                 var roleTxt = cell.transform.Find("Role")?.GetComponent<TMP_Text>();
