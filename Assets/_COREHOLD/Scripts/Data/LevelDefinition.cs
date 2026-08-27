@@ -44,5 +44,17 @@ namespace Corehold.Data
                  "address two ground spawners, and a map with four approaches would otherwise leave half of " +
                  "them silent. Air groups are never redirected. Off for the shipped map.")]
         public bool spreadGroundGroupsAcrossSpawners;
+
+        [Header("Certified tuning (the generator's adopt flow writes these)")]
+
+        [Tooltip("Damage multiplier applied to EVERY turret on this level (1 = as authored). Level-scoped: " +
+                 "the Tower_*.asset tiers stay untouched. Written by the balance gate's Adopt when the fix " +
+                 "was 'raise turret firepower' rather than 'gut the waves'; the model certifies with the " +
+                 "same value, so hand edits here re-certify on the next Verify.")]
+        public float towerDamageMultiplier = 1f;
+
+        [Tooltip("Range multiplier applied to EVERY turret on this level (1 = as authored). Level-scoped, " +
+                 "same contract as the damage multiplier.")]
+        public float towerRangeMultiplier = 1f;
     }
 }

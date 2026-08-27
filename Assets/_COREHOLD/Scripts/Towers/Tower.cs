@@ -113,8 +113,9 @@ namespace Corehold.Towers
 
         // -- Effective (buffed) stats — COMPUTED, never cached (GDD §7.3) --------------
 
-        /// <summary>Base range × (1 + aura range bonus). Recomputed on every read.</summary>
-        public float EffectiveRange => BaseRange * (1f + _modifiers.rangeBonus);
+        /// <summary>Base range × (1 + aura range bonus) × the level's certified
+        /// range tuning. Recomputed on every read.</summary>
+        public float EffectiveRange => BaseRange * (1f + _modifiers.rangeBonus) * TowerTuning.RangeMult;
 
         /// <summary>Base fire rate × (1 + aura fire-rate bonus). Recomputed on every read.</summary>
         public float EffectiveFireRate => BaseFireRate * (1f + _modifiers.fireRateBonus);
@@ -135,9 +136,11 @@ namespace Corehold.Towers
             }
         }
 
-        /// <summary>Base damage × (1 + aura bonus + high ground) × veterancy (R21/M-b). Recomputed on every read.</summary>
+        /// <summary>Base damage × (1 + aura bonus + high ground) × veterancy (R21/M-b)
+        /// × the level's certified damage tuning. Recomputed on every read.</summary>
         public float EffectiveDamage =>
-            BaseDamage * (1f + _modifiers.damageBonus + HighGroundBonus) * VeterancyDamageMultiplier;
+            BaseDamage * (1f + _modifiers.damageBonus + HighGroundBonus) * VeterancyDamageMultiplier
+            * TowerTuning.DamageMult;
 
         /// <summary>
         /// True damage-per-second including aura buffs, terrain high ground and
@@ -147,6 +150,7 @@ namespace Corehold.Towers
         public float EffectiveDps => HasTier
             ? CurrentTier.TotalDps * (1f + _modifiers.damageBonus + HighGroundBonus)
               * (1f + _modifiers.fireRateBonus) * VeterancyDamageMultiplier
+              * TowerTuning.DamageMult
             : 0f;
 
         // ----- Veterancy (R21) -----

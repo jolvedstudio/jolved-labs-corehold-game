@@ -209,7 +209,19 @@ namespace Corehold.Core
 
             // Economy multiplier applies to starting salvage (GDD §8.2).
             float ecoMul = WaveManager.DifficultyEconomyMultiplier(tier);
-            Salvage = salvageOverride >= 0 ? salvageOverride : Mathf.RoundToInt(startingSalvage * ecoMul);
+
+            // Per-level economy (certified tuning): the LevelDefinition's own
+            // startingSalvage, when authored, replaces this scene default.
+            // Pulled here rather than pushed at scene load so Awake order can
+            // never lose it; campaign carry (salvageOverride) outranks both.
+            int levelSalvage = 0;
+            var wm = FindFirstObjectByType<WaveManager>();
+            if (wm != null)
+                levelSalvage = wm.LevelStartingSalvage;
+
+            Salvage = salvageOverride >= 0
+                ? salvageOverride
+                : Mathf.RoundToInt((levelSalvage > 0 ? levelSalvage : startingSalvage) * ecoMul);
             Integrity = integrityOverride >= 0 ? integrityOverride : StartingIntegrityFor(tier);
 
             // Fresh run — clear the kill streak (R2) and the run stats (R4).

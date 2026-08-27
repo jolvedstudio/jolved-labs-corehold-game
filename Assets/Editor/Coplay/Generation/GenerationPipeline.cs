@@ -859,9 +859,14 @@ public static class GenerationPipeline
         string error;
         try
         {
+            // The template may carry certified tuning (multipliers, its own
+            // starting salvage) — the model judges with them, as the runtime will.
             ctx.model = BalanceModelRunner.Run(ctx.routes, airSpawn, coreXZ,
                 solveGrowth: true, hpGrowth: 0f, maxLive: derivedMaxLive, out error,
-                wavesJsonPath: wavesJson);
+                startingSalvage: clone.startingSalvage > 0 ? clone.startingSalvage : -1,
+                wavesJsonPath: wavesJson,
+                towerDpsMult: clone.towerDamageMultiplier,
+                towerRangeMult: clone.towerRangeMultiplier);
         }
         finally
         {
@@ -906,11 +911,12 @@ public static class GenerationPipeline
         if (!ctx.model.in_band)
         {
             // Interactive runs get a CHOICE before the discard: adopt the
-            // model's counts-only tune (cloned level-owned, applied,
-            // re-certified) or discard as usual. Batch paths — the Campaign
-            // Builder's retry loop, contact sheets — never see a dialog.
+            // model's tune — defender package and/or wave count changes —
+            // (cloned level-owned, applied, re-certified) or discard as
+            // usual. Batch paths — the Campaign Builder's retry loop,
+            // contact sheets — never see a dialog.
             if (InteractiveTuneOffer && !Application.isBatchMode &&
-                ctx.model.suggested_changes != null && ctx.model.suggested_changes.Length > 0 &&
+                BalanceModelRunner.HasSuggestedTune(ctx.model) &&
                 OfferAdoptTune(ctx, out StageResult adopted))
                 return adopted;
 
@@ -964,27 +970,31 @@ public static class GenerationPipeline
     private static bool OfferAdoptTune(Context ctx, out StageResult result)
     {
         result = default;
-        var changes = ctx.model.suggested_changes;
+        var changes = ctx.model.suggested_changes ?? new BalanceModelRunner.SuggestedChange[0];
+        string package = BalanceModelRunner.DescribeDefenderPackage(ctx.model);
 
         var lines = new StringBuilder();
-        for (int i = 0; i < changes.Length && i < 12; i++)
+        if (package.Length > 0)
+            lines.AppendLine("  defender package (this level only): " + package);
+        for (int i = 0; i < changes.Length && i < 10; i++)
             lines.AppendLine($"  wave {changes[i].wave}: {changes[i].enemy} " +
                              $"{changes[i].prev}→{changes[i].next}" +
                              (changes[i].next == 0 ? " (drop the group)" : ""));
-        if (changes.Length > 12)
-            lines.AppendLine($"  … and {changes.Length - 12} more");
+        if (changes.Length > 10)
+            lines.AppendLine($"  … and {changes.Length - 10} more");
 
         bool adopt = EditorUtility.DisplayDialog(
-            "Waves out of band — adopt the model's counts-only tune?",
-            "This map fails the margin gate as its wave tables stand.\n\n" +
-            "Counts-only tune (gaps, offsets, mutators, enemy and tower stats stay yours):\n" +
+            "Margins out of band — adopt the model's tune?",
+            "This map fails the margin gate as it stands. The model's smallest fix, " +
+            "DEFENDER-FIRST (your waves are touched only where turret and economy buffs " +
+            "within sane caps cannot carry them):\n" +
             lines +
             (ctx.model.suggested_in_band
                 ? "\nThe model predicts this passes."
                 : "\nBest effort — the model predicts it does NOT fully converge.") +
-            "\n\nAdopt clones the wave tables so they belong to THIS level, applies the " +
-            "counts, re-solves the growth and re-certifies. Decline discards this seed " +
-            "as usual (the full advice is in the report either way).",
+            "\n\nAdopt writes the package into THIS level's definition (tower assets and " +
+            "shared wave tables are never edited — wave changes go to level-owned " +
+            "clones), re-solves the growth and re-certifies. Decline discards this seed.",
             "Adopt & re-certify", "Discard this seed");
         if (!adopt)
             return false;
@@ -997,11 +1007,30 @@ public static class GenerationPipeline
         }
 
         var log = new StringBuilder();
-        int cloned = EnsureLevelOwnedWaves(def, ctx.levelAssetPath);
-        if (!WaveTuneApplier.Apply(def, changes, "adopt", log))
+
+        // Defender package → the definition (runtime TowerTuning + the
+        // economy pull honour these; the re-run below certifies with them).
+        if (ctx.model.suggested_tower_dps_mult > def.towerDamageMultiplier)
+            def.towerDamageMultiplier = ctx.model.suggested_tower_dps_mult;
+        if (ctx.model.suggested_tower_range_mult > def.towerRangeMultiplier)
+            def.towerRangeMultiplier = ctx.model.suggested_tower_range_mult;
+        if (ctx.model.suggested_starting_salvage > 0)
+            def.startingSalvage = ctx.model.suggested_starting_salvage;
+        if (package.Length > 0)
         {
-            result = StageResult.Fail("adopt refused:\n" + log.ToString().TrimEnd());
-            return true;
+            EditorUtility.SetDirty(def);
+            log.AppendLine($"  adopt package: {package}");
+        }
+
+        int cloned = 0;
+        if (changes.Length > 0)
+        {
+            cloned = EnsureLevelOwnedWaves(def, ctx.levelAssetPath);
+            if (!WaveTuneApplier.Apply(def, changes, "adopt", log))
+            {
+                result = StageResult.Fail("adopt refused:\n" + log.ToString().TrimEnd());
+                return true;
+            }
         }
         AssetDatabase.SaveAssets();
 
@@ -1017,7 +1046,10 @@ public static class GenerationPipeline
         {
             model = BalanceModelRunner.Run(ctx.routes, ctx.layout.airSpawn, ctx.coreTarget.position,
                 solveGrowth: true, hpGrowth: 0f, maxLive: def.maxLiveEnemies, out error,
-                wavesJsonPath: wavesJson);
+                startingSalvage: def.startingSalvage > 0 ? def.startingSalvage : -1,
+                wavesJsonPath: wavesJson,
+                towerDpsMult: def.towerDamageMultiplier,
+                towerRangeMult: def.towerRangeMultiplier);
         }
         finally
         {
@@ -1039,15 +1071,17 @@ public static class GenerationPipeline
 
         if (!model.in_band)
         {
-            result = StageResult.Fail("user adopted the counts-only tune, but margins are STILL out " +
-                                      "of band at the re-solved growth — what remains needs a non-count " +
-                                      "fix; discarding:\n" + DescribeFlagged(model));
+            result = StageResult.Fail("user adopted the tune, but margins are STILL out of band at " +
+                                      "the re-solved growth — what remains is beyond the tune's caps; " +
+                                      "discarding:\n" + DescribeFlagged(model));
             return true;
         }
 
-        result = StageResult.Ok($"user ADOPTED the counts-only tune ({changes.Length} change(s)" +
-                                (cloned > 0 ? $", {cloned} wave table(s) cloned level-owned" : "") +
-                                $"); re-solved growth {model.solved_hp_growth:0.####}, all margins in band:\n" +
+        result = StageResult.Ok("user ADOPTED the tune" +
+                                (package.Length > 0 ? $" — {package}" : "") +
+                                (changes.Length > 0 ? $"; {changes.Length} wave count change(s)" : "") +
+                                (cloned > 0 ? $"; {cloned} wave table(s) cloned level-owned" : "") +
+                                $"; re-solved growth {model.solved_hp_growth:0.####}, all margins in band:\n" +
                                 log.ToString().TrimEnd());
         return true;
     }

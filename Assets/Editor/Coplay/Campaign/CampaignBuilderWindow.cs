@@ -48,13 +48,15 @@ namespace CoreholdEditor.Campaign
         private readonly List<string> _issues = new List<string>();
 
         /// <summary>
-        /// Counts-only tunes the last Verify collected for failing NON-RECIPE
-        /// stages, keyed by stage index — what the "Apply counts-only tune"
-        /// button applies. Cleared on every Verify; each change carries the
-        /// count it expects to find (prev), so a stale tune refuses itself.
+        /// Suggested tunes the last Verify collected for failing NON-RECIPE
+        /// stages, keyed by stage index — what the "Apply suggested tune"
+        /// button applies: the defender package (level-scoped multipliers)
+        /// plus any wave count changes. Cleared on every Verify; count
+        /// changes carry the count they expect to find (prev), so a stale
+        /// tune refuses itself.
         /// </summary>
-        private readonly Dictionary<int, BalanceModelRunner.SuggestedChange[]> _pendingTunes =
-            new Dictionary<int, BalanceModelRunner.SuggestedChange[]>();
+        private readonly Dictionary<int, BalanceModelRunner.Result> _pendingTunes =
+            new Dictionary<int, BalanceModelRunner.Result>();
 
         private void OnGUI()
         {
@@ -480,17 +482,18 @@ namespace CoreholdEditor.Campaign
                 GUI.enabled = true;
             }
 
-            // The model's counts-only tunes from the last Verify — one click
-            // applies them to the failing stages' OWN wave assets and
-            // re-verifies, so "it fails" comes with "and this fixes it".
+            // The model's suggested tunes from the last Verify — one click
+            // applies them (defender-first) and re-verifies, so "it fails"
+            // comes with "and this fixes it".
             if (_pendingTunes.Count > 0)
             {
                 EditorGUILayout.HelpBox(
-                    $"{_pendingTunes.Count} stage(s) failed Verify with a counts-only tune available " +
-                    "(details in the report below). Applying edits ONLY group counts on the stage's own " +
-                    "wave assets — gaps, offsets, mutators and enemy stats stay yours — then re-verifies.",
+                    $"{_pendingTunes.Count} stage(s) failed Verify with a suggested tune available " +
+                    "(details in the report below). Applying writes the DEFENDER package (level-scoped " +
+                    "turret damage/range multipliers — tower assets stay untouched) into the stage's " +
+                    "definition and any wave count changes into its own wave tables, then re-verifies.",
                     MessageType.Info);
-                if (GUILayout.Button($"Apply counts-only tune ({_pendingTunes.Count} stage(s))",
+                if (GUILayout.Button($"Apply suggested tune ({_pendingTunes.Count} stage(s))",
                                      GUILayout.Width(280)))
                     ApplyPendingTunes();
             }
@@ -506,8 +509,8 @@ namespace CoreholdEditor.Campaign
         private void ApplyPendingTunes()
         {
             var log = new StringBuilder();
-            log.AppendLine("Counts-only tune:");
-            var pending = new Dictionary<int, BalanceModelRunner.SuggestedChange[]>(_pendingTunes);
+            log.AppendLine("Suggested tune (defender-first):");
+            var pending = new Dictionary<int, BalanceModelRunner.Result>(_pendingTunes);
             _pendingTunes.Clear();
 
             foreach (var kv in pending)
@@ -523,11 +526,14 @@ namespace CoreholdEditor.Campaign
                     continue;
                 }
 
-                // Ownership: every wave asset this tune would touch must live in
-                // THIS campaign's data folder. Shipped or foreign tables are
-                // never edited — the same doctrine as DeleteOwned.
+                var tune = kv.Value;
+                var changes = tune.suggested_changes ?? new BalanceModelRunner.SuggestedChange[0];
+
+                // Ownership: every wave asset the count changes would touch must
+                // live in THIS campaign's data folder. Shipped or foreign tables
+                // are never edited — the same doctrine as DeleteOwned.
                 bool foreign = false;
-                foreach (var c in kv.Value)
+                foreach (var c in changes)
                 {
                     string p = c.wave - 1 >= 0 && c.wave - 1 < def.waves.Length && def.waves[c.wave - 1] != null
                         ? AssetDatabase.GetAssetPath(def.waves[c.wave - 1])
@@ -543,7 +549,22 @@ namespace CoreholdEditor.Campaign
                 }
                 if (foreign) continue;
 
-                if (!ApplyTuneToStage(kv.Key, def, kv.Value, log))
+                // Defender package first — level-scoped multipliers on the
+                // stage's own definition (the runtime honours them; the next
+                // Verify certifies with them). The campaign floor test never
+                // suggests a salvage change, so only the multipliers apply here.
+                string package = BalanceModelRunner.DescribeDefenderPackage(tune);
+                if (tune.suggested_tower_dps_mult > def.towerDamageMultiplier)
+                    def.towerDamageMultiplier = tune.suggested_tower_dps_mult;
+                if (tune.suggested_tower_range_mult > def.towerRangeMultiplier)
+                    def.towerRangeMultiplier = tune.suggested_tower_range_mult;
+                if (package.Length > 0)
+                {
+                    EditorUtility.SetDirty(def);
+                    log.AppendLine($"  Level {kv.Key + 1} package: {package}");
+                }
+
+                if (changes.Length > 0 && !ApplyTuneToStage(kv.Key, def, changes, log))
                     continue;
             }
 
@@ -551,7 +572,7 @@ namespace CoreholdEditor.Campaign
             log.AppendLine();
             bool ok = VerifyCarryEconomy(log);
             log.AppendLine(ok ? "\nRe-verify: all stages hold at the worst-case entry."
-                              : "\nRe-verify: still failing — what remains needs a non-count fix (see rows above).");
+                              : "\nRe-verify: still failing — what remains is beyond the tune's caps (see rows above).");
             ShowReport(log.ToString());
         }
 
@@ -763,7 +784,9 @@ namespace CoreholdEditor.Campaign
                                                     solveGrowth: false, hpGrowth: def.hpGrowthPerWave,
                                                     maxLive: def.maxLiveEnemies, out string err,
                                                     startingSalvage: worstEntry,
-                                                    wavesJsonPath: wavesJson);
+                                                    wavesJsonPath: wavesJson,
+                                                    towerDpsMult: def.towerDamageMultiplier,
+                                                    towerRangeMult: def.towerRangeMultiplier);
                     if (result == null)
                     {
                         log.AppendLine($"  {scene.name}: verify FAILED to run — {err}");
@@ -804,11 +827,12 @@ namespace CoreholdEditor.Campaign
                                            "(budgetBase / budgetGrowthPerWave / escalationPerStage / roster) " +
                                            "and regenerate; a direct tune would not survive regeneration.");
                         }
-                        else if (result.suggested_changes != null && result.suggested_changes.Length > 0)
+                        else if (BalanceModelRunner.HasSuggestedTune(result))
                         {
-                            _pendingTunes[_authoring.stages.IndexOf(stage)] = result.suggested_changes;
-                            log.AppendLine("      → 'Apply counts-only tune' under step 6 applies this to the " +
-                                           "stage's own wave assets.");
+                            _pendingTunes[_authoring.stages.IndexOf(stage)] = result;
+                            log.AppendLine("      → 'Apply suggested tune' under step 6 writes the defender " +
+                                           "package into the stage's definition and the count changes into " +
+                                           "its own wave assets.");
                         }
                     }
                 }
@@ -977,7 +1001,10 @@ namespace CoreholdEditor.Campaign
                     model = BalanceModelRunner.Run(
                         routes, airSp != null ? airSp.transform.position : coreSp.transform.position,
                         coreSp.CoreTarget.position, solveGrowth: true, hpGrowth: 0f,
-                        maxLive: def.maxLiveEnemies, out string err, wavesJsonPath: wavesJson);
+                        maxLive: def.maxLiveEnemies, out string err, wavesJsonPath: wavesJson,
+                        startingSalvage: def.startingSalvage > 0 ? def.startingSalvage : -1,
+                        towerDpsMult: def.towerDamageMultiplier,
+                        towerRangeMult: def.towerRangeMultiplier);
                     if (model == null)
                         log.AppendLine($"  wave re-solve FAILED to run — {err}");
                 }

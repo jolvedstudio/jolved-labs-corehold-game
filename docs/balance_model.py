@@ -422,6 +422,11 @@ ACTIVE = {
     # caller (Campaign Builder) has already settled any difficulty economics —
     # re-applying the multiplier here would double-count it.
     "starting_salvage": None,
+    # Certified per-level turret tuning (LevelDefinition.towerDamage/Range-
+    # Multiplier, honoured at runtime by TowerTuning): scales every tower's
+    # dps / range for the run. 1.0 = the assets as authored.
+    "tower_dps_mult": 1.0,
+    "tower_range_mult": 1.0,
 }
 
 
@@ -742,16 +747,17 @@ def tier_value(geom: Geometry, pad: str, tower_id: str, tier_idx: int) -> float:
     shares the snake) + DPS x covered air metres. This is what makes the sim
     coverage-aware: a tier whose bigger gun loses more ring than it gains is
     scored lower and not bought."""
-    key = (pad, tower_id, tier_idx)
+    key = (pad, tower_id, tier_idx, ACTIVE["tower_dps_mult"], ACTIVE["tower_range_mult"])
     if key in _value_cache:
         return _value_cache[key]
     px, pz = geom.pads[pad][0], geom.pads[pad][1]
     tower = TOWERS[tower_id]
     tier = tower["tiers"][tier_idx]
+    rng = tier["range"] * ACTIVE["tower_range_mult"]
     ground = sum(b - a for a, b in covered_intervals(
-        geom.routes[0], px, pz, tier["range"], tier["min_range"]))
-    air = air_covered_length(geom, px, pz, tier["range"], 4.0) if tower["air"] else 0.0
-    value = tier["dps"] * (ground + air)
+        geom.routes[0], px, pz, rng, tier["min_range"]))
+    air = air_covered_length(geom, px, pz, rng, 4.0) if tower["air"] else 0.0
+    value = tier["dps"] * ACTIVE["tower_dps_mult"] * (ground + air)
     _value_cache[key] = value
     return value
 
@@ -895,13 +901,13 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
         tower = TOWERS[inst.tower_id]
         tier = tower["tiers"][inst.tier]
         a_fire, a_range, a_dmg = aura_bonuses(geom, built, inst.pad)
-        rng = tier["range"] * (1.0 + a_range) * blackout_rng
+        rng = tier["range"] * ACTIVE["tower_range_mult"] * (1.0 + a_range) * blackout_rng
         # Veterancy (R21/R22): the fleet-average damage ramp rides the same
         # multiplier stack the live TowerWeapon uses ((1+aura)×(1+rank·4%)).
         # High ground (M-b) joins the damage factor ADDITIVELY, mirroring the
         # weapon's single (1 + aura_dmg + hg) funnel — a separate (1+hg)
         # multiplier would over-credit the defender whenever both are nonzero.
-        dps = (tier["dps"] * (1.0 + a_fire)
+        dps = (tier["dps"] * ACTIVE["tower_dps_mult"] * (1.0 + a_fire)
                * (1.0 + a_dmg + geom.pad_hg.get(inst.pad, 0.0)) * vet)
         if dps <= 0.0:
             continue
@@ -1093,7 +1099,8 @@ def _reach_gap(geom: Geometry, built: dict, g: dict):
         px, pz = geom.pads[pad][0], geom.pads[pad][1]
         gap = min(math.hypot(px - x, pz - z) for x, z in pts)
         if best is None or gap < best[2]:
-            reach = max(t["range"] for t in TOWERS[inst.tower_id]["tiers"])
+            reach = max(t["range"] for t in TOWERS[inst.tower_id]["tiers"]) \
+                    * ACTIVE["tower_range_mult"]
             best = (pad, inst.tower_id, gap, reach)
     return best
 
@@ -1123,11 +1130,17 @@ def advise_wave(wave_number: int, flags: list, result: dict,
         """'cut Z N→M or lower its baseHealth ~P%' for removing `excess` eff HP."""
         per = g["eff_hp"] / g["count"]
         k = math.ceil(excess / per)
+        base = ENEMIES[g["id"]]["hp"]
+        pct = min(90, math.ceil(excess / g["eff_hp"] * 100))
+        hp_alt = f"lower its baseHealth ~{pct}% ({base:g}→{base * (100 - pct) / 100:.0f})"
         if k < g["count"]:
-            pct = min(90, math.ceil(excess / g["eff_hp"] * 100))
-            base = ENEMIES[g["id"]]["hp"]
-            return (f"cut {g['id']} {g['count']}→{g['count'] - k}, or lower its "
-                    f"baseHealth ~{pct}% ({base:g}→{base * (100 - pct) / 100:.0f})")
+            return f"cut {g['id']} {g['count']}→{g['count'] - k}, or {hp_alt}"
+        if excess <= g["eff_hp"]:
+            # No partial cut suffices, but the group as a whole covers it — and
+            # the HP knob is the gentler alternative (a tiny shortfall against a
+            # single unit lands here: say "-6% hp", never "removal fails").
+            return (f"remove the {g['count']}×{g['id']} group (−{g['eff_hp']:.0f} eff HP "
+                    f"covers the {excess:.0f} shortfall), or {hp_alt}")
         return (f"even removing the whole {g['count']}×{g['id']} group (−{g['eff_hp']:.0f} "
                 "eff HP) does not close it — remove it, re-run, and fix what remains")
 
@@ -1183,9 +1196,10 @@ def advise_wave(wave_number: int, flags: list, result: dict,
     if result.get("towers_lost") and TOWER_LOSS["on"] and soak and max(soak) > 0:
         gi = max(range(len(soak)), key=lambda i: soak[i])
         g = stats[gi]
-        advice.append(f"return fire killed {','.join(result['towers_lost'])} — "
-                      f"{soak[gi]:.0f} of the pad damage is from {g['id']}: lower its "
-                      "weapon damage/fireRate on the prefab, field fewer, or raise TowerHealth")
+        advice.append(f"return fire killed {','.join(result['towers_lost'])} — top shooter "
+                      f"this wave: {g['id']} ({soak[gi]:.0f} dmg; turret damage CARRIES "
+                      "between waves, nothing repairs, so earlier waves contributed): lower "
+                      "its weapon damage/fireRate, field fewer, or raise TowerHealth")
 
     if "HIGH-CLOSE" in flags or "HIGH-MID" in flags:
         cap = BAND_CLOSE_MAX if wave_number == CLOSE_WAVE else BAND_MID_MAX
@@ -1309,125 +1323,231 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
     return geom, rows, build_log
 
 
-def suggest_fix(difficulty: str, measured_lengths=None, polyline=False,
-                geometry: Geometry = None):
-    """
-    Counts-only tune toward the band — the gate's actionable half, computed
-    HERE because only the model can iterate its own verdict (R1: one brain).
-    Greedy and deterministic: while any wave sits under band, trim the guilty
-    group of the worst one by the same chunk arithmetic the advice prints,
-    re-running the full model each step so build economy, coverage, return
-    fire and the following waves all react; then feed the over-cap waves the
-    same way. Counts are the only knob touched — gaps, offsets, mutators and
-    enemy stats are design, counts are load.
+# Defender-package caps: past these a tune is a redesign. [TUNE]
+DEFENDER_DPS_CAP = 1.5
+DEFENDER_RANGE_CAP = 1.25
+DEFENDER_SALVAGE_CAP = 2.0
+DEFENDER_PACKAGE_CAP = 6   # ladder evaluations (each may be a full growth solve)
 
-    Returns (changes, in_band, note): changes as dicts
-    {wave, group, enemy, prev, next} against the CURRENT tables (next 0 =
-    drop the group). WAVES is restored before returning — the tune is a
-    suggestion, never a silent rewrite of this run's own verdict.
+
+def suggest_fix(difficulty: str, measured_lengths=None, polyline=False,
+                geometry: Geometry = None, solve_mode: bool = False):
+    """
+    The gate's actionable half, computed HERE because only the model can
+    iterate its own verdict (R1: one brain). TWO-SIDED and defender-first, by
+    design: the wave tables are the author's, so the tune first tries bounded
+    DEFENDER packages that leave them untouched — a bigger opening bank
+    (more turrets standing at wave 1), a per-level turret damage multiplier,
+    a per-level range multiplier (all certified: the LevelDefinition carries
+    them and the runtime TowerTuning honours them) — walking a deterministic
+    escalation ladder and keeping the SMALLEST package that passes (or the
+    best scorer if none does). Only what defender knobs cannot fix within
+    their caps falls through to the counts phase: trim the guilty group of
+    the worst under-band wave, re-running the full model each step so build
+    economy, coverage, return fire and the following waves all react; then
+    feed the over-cap waves. Gaps, offsets, mutators and enemy stats are
+    never touched.
+
+    In solve mode (the generator) each defender package is evaluated with a
+    full growth re-solve, so the pass verdict is the real gate criterion; in
+    verify mode (campaign floor checks) growth stays fixed and the entry
+    bank is never raised — the floor being tested is the point.
+
+    Returns (changes, dps_mult, range_mult, salvage, in_band, note):
+    changes as {wave, group, enemy, prev, next} dicts (next 0 = drop the
+    group), dps/range as FINAL absolute multipliers (1.0 = untouched),
+    salvage as the FINAL absolute bank or None. Every global — WAVES, the
+    ACTIVE knobs, the solved growth — is restored before returning: the tune
+    is a suggestion, never a silent rewrite of this run's own verdict.
     """
     original = [dict(w, groups=list(w["groups"])) for w in WAVES]
+    saved = dict(salvage=ACTIVE["starting_salvage"], dps=ACTIVE["tower_dps_mult"],
+                 rng=ACTIVE["tower_range_mult"], growth=ACTIVE["hp_growth"])
     runs = 0
     note = ""
+    tuned_salvage = None
 
     def evaluate():
+        """Counts-phase evaluation: fast, at the CURRENT growth."""
         nonlocal runs
         runs += 1
         _, rows, _ = run_model(difficulty, measured_lengths, polyline, geometry)
         return rows
+
+    def evaluate_package():
+        """Defender-package evaluation: with a growth re-solve in solve mode,
+        so 'passes' means passes the way the gate will actually judge it."""
+        nonlocal runs
+        runs += 1
+        if solve_mode and geometry is not None:
+            _, rows, _ = solve_hp_growth(difficulty, geometry)
+        else:
+            _, rows, _ = run_model(difficulty, measured_lengths, polyline, geometry)
+        return rows
+
+    def score(rows):
+        """Lower is better: flagged-wave count, then depth of the worst margin."""
+        return (sum(1 for r in rows if r["flags"]),
+                -min((r["margin"] for r in rows), default=0.0))
 
     def set_count(wi, gi, count):
         eid, _, gap, off, sp = WAVES[wi]["groups"][gi]
         WAVES[wi]["groups"][gi] = (eid, count, gap, off, sp)
 
     try:
-        rows = evaluate()
+        rows = evaluate_package()
 
-        # Phase 1 — cuts, until nothing is under band. Converges: every step
-        # removes load from the worst cuttable wave, and a wave whose only
-        # remaining move would empty it entirely is frozen instead — an empty
-        # wave is not a fix, it is dead air with a free clear bonus.
-        uncuttable: set = set()
-        while runs < MAX_FIX_RUNS:
-            under = [r for r in rows
-                     if r["wave"] not in uncuttable
-                     and any(f == "LOW" or f.startswith("GROUP-STARVED")
-                             for f in r["flags"])]
-            if not under:
-                break
-            r = min(under, key=lambda x: x["margin"])
-            wi = r["wave"] - 1
-            stats = r["_group_stats"]
-            starved = [i for i, g in enumerate(stats)
-                       if g["count"] > 0 and g["eff_hp"] > 0
-                       and g["delivered"] / g["eff_hp"] < GROUP_MIN]
-            live = [i for i, g in enumerate(stats) if g["count"] > 0 and g["eff_hp"] > 0]
-            if starved:
-                gi = max(starved, key=lambda i: stats[i]["eff_hp"])
-                g = stats[gi]
-                need = max(0.0, g["eff_hp"] - g["delivered"] / GROUP_MIN)
+        # ---- Phase 0: defender packages (waves untouched) --------------------
+        if geometry is not None and any(r["flags"] for r in rows):
+            salvage_tunable = saved["salvage"] is None
+            base_bank = round(STARTING_SALVAGE * DIFFICULTY_ECO_MULT[difficulty])
+            ladder = []
+            if salvage_tunable:
+                ladder += [dict(salvage=1.25), dict(salvage=1.5)]
+            ladder += [dict(dps=1.1), dict(dps=1.2, rng=1.1)]
+            if salvage_tunable:
+                ladder += [dict(dps=1.2, rng=1.1, salvage=1.5)]
+            ladder += [dict(dps=DEFENDER_DPS_CAP, rng=DEFENDER_RANGE_CAP,
+                            salvage=DEFENDER_SALVAGE_CAP if salvage_tunable else None)]
+
+            def apply_package(pkg):
+                # Absolute targets, never below what the level already carries.
+                ACTIVE["tower_dps_mult"] = max(saved["dps"], pkg.get("dps", 1.0))
+                ACTIVE["tower_range_mult"] = max(saved["rng"], pkg.get("rng", 1.0))
+                m = pkg.get("salvage")
+                ACTIVE["starting_salvage"] = (round(base_bank * m)
+                                              if salvage_tunable and m else saved["salvage"])
+
+            best_score, best_pkg, best_rows = score(rows), None, rows
+            for pkg in ladder[:DEFENDER_PACKAGE_CAP]:
+                apply_package(pkg)
+                pkg_rows = evaluate_package()
+                s = score(pkg_rows)
+                if s < best_score:
+                    best_score, best_pkg, best_rows = s, pkg, pkg_rows
+                if not any(r["flags"] for r in pkg_rows):
+                    break   # the SMALLEST passing package wins — stop escalating
+
+            if best_pkg is not None:
+                apply_package(best_pkg)
+                rows = evaluate_package()   # settle growth on the kept package
+                tuned_salvage = ACTIVE["starting_salvage"] if salvage_tunable and \
+                    ACTIVE["starting_salvage"] != saved["salvage"] else None
             else:
-                if not live:
+                # No package helped at all — back to the entry state.
+                ACTIVE["tower_dps_mult"] = saved["dps"]
+                ACTIVE["tower_range_mult"] = saved["rng"]
+                ACTIVE["starting_salvage"] = saved["salvage"]
+                rows = evaluate_package()
+
+        # ---- Counts phases — what defender knobs could not fix ---------------
+        floored: set = set()   # (wave, group) whose cuts hit a floor
+
+        def phase_cuts():
+            # Cuts until nothing is under band or every failing wave is
+            # frozen. Two floors: a wave is never emptied entirely (dead air
+            # with a free clear bonus is not a fix), and the CLOSE wave keeps
+            # at least one unit of any boss-class group — the close needs its
+            # mass, and the growth re-solve is what centres it, not deletion.
+            nonlocal rows
+            uncuttable: set = set()
+            while runs < MAX_FIX_RUNS:
+                under = [r for r in rows
+                         if r["wave"] not in uncuttable
+                         and any(f == "LOW" or f.startswith("GROUP-STARVED")
+                                 for f in r["flags"])]
+                if not under:
+                    return
+                r = min(under, key=lambda x: x["margin"])
+                wi = r["wave"] - 1
+                stats = r["_group_stats"]
+                usable = [i for i, g in enumerate(stats)
+                          if g["count"] > 0 and g["eff_hp"] > 0
+                          and (r["wave"], i) not in floored]
+                starved = [i for i in usable
+                           if stats[i]["delivered"] / stats[i]["eff_hp"] < GROUP_MIN]
+                if starved:
+                    gi = max(starved, key=lambda i: stats[i]["eff_hp"])
+                    g = stats[gi]
+                    need = max(0.0, g["eff_hp"] - g["delivered"] / GROUP_MIN)
+                elif usable:
+                    gi = max(usable, key=lambda i: stats[i]["eff_hp"])
+                    g = stats[gi]
+                    need = r["required"] - r["deliverable"]
+                else:
                     uncuttable.add(r["wave"])
+                    continue
+                per = g["eff_hp"] / g["count"]
+                k = max(1, min(g["count"], math.ceil(need / per)))
+                live = [i for i, g2 in enumerate(stats)
+                        if g2["count"] > 0 and g2["eff_hp"] > 0]
+                if (len(live) == 1 and live[0] == gi) or \
+                        (r["wave"] == CLOSE_WAVE and per >= HEAVY_HP):
+                    k = min(k, g["count"] - 1)
+                    if k <= 0:
+                        floored.add((r["wave"], gi))
+                        continue
+                set_count(wi, gi, g["count"] - k)
+                rows = evaluate()
+
+        def phase_adds():
+            # Adds for over-cap waves. Adding load also ADDS delivery (longer
+            # engagement windows, more income), so the cap cannot be chased
+            # arithmetically: two conservative attempts per wave, +100% of the
+            # group per step at most; an attempt that breaks any wave under
+            # band is reverted. A harder-but-still-over result is kept.
+            nonlocal rows
+            attempts: dict = {}
+            while runs < MAX_FIX_RUNS:
+                over = [r for r in rows
+                        if attempts.get(r["wave"], 0) < 2 and r["required"] > 0
+                        and ("HIGH-CLOSE" in r["flags"] or "HIGH-MID" in r["flags"])]
+                if not over:
+                    return
+                r = max(over, key=lambda x: x["margin"])
+                wave_no = r["wave"]
+                attempts[wave_no] = attempts.get(wave_no, 0) + 1
+                wi = wave_no - 1
+                stats = r["_group_stats"]
+                cap = BAND_CLOSE_MAX if wave_no == CLOSE_WAVE else BAND_MID_MAX
+                live = [i for i, g in enumerate(stats) if g["count"] > 0 and g["eff_hp"] > 0]
+                if not live:
+                    attempts[wave_no] = 99
                     continue
                 gi = max(live, key=lambda i: stats[i]["eff_hp"])
                 g = stats[gi]
-                need = r["required"] - r["deliverable"]
-            per = g["eff_hp"] / g["count"]
-            k = max(1, min(g["count"], math.ceil(need / per)))
-            if len(live) == 1 and live[0] == gi:
-                k = min(k, g["count"] - 1)   # never empty the whole wave
-                if k <= 0:
-                    uncuttable.add(r["wave"])   # one unit left and still failing:
-                    continue                    # counts can't fix this wave
-            set_count(wi, gi, g["count"] - k)
-            rows = evaluate()
+                per = g["eff_hp"] / g["count"]
+                k = max(1, min(g["count"],
+                               int(0.5 * (r["deliverable"] / cap - r["required"]) / per)))
+                before = g["count"]
+                set_count(wi, gi, before + k)
+                new_rows = evaluate()
+                if any(f == "LOW" or f.startswith("GROUP-STARVED")
+                       for row in new_rows for f in row["flags"]):
+                    set_count(wi, gi, before)   # the add broke a wave — take it back
+                    rows = evaluate()
+                    attempts[wave_no] = 99
+                else:
+                    rows = new_rows
 
-        # Phase 2 — adds for over-cap waves. Adding load also ADDS delivery
-        # (longer engagement windows, more income), so the cap cannot be chased
-        # arithmetically: each wave gets two conservative attempts, capped at
-        # +100% of the group per step; an attempt that breaks any wave under
-        # band is reverted and the wave is left to the ADVICE lines. A harder-
-        # but-still-over result is kept — strictly closer to the cap.
-        attempts: dict = {}
-        while runs < MAX_FIX_RUNS:
-            over = [r for r in rows
-                    if attempts.get(r["wave"], 0) < 2 and r["required"] > 0
-                    and ("HIGH-CLOSE" in r["flags"] or "HIGH-MID" in r["flags"])]
-            if not over:
+        # Counts run at a FIXED growth, then the growth re-solves — the cuts
+        # change what the solver would pick, and a boss-anchored close often
+        # lands in band at the re-centred growth without any further surgery.
+        # One repair round if the settle surfaced new flags.
+        for _ in range(2):
+            if not any(r["flags"] for r in rows):
                 break
-            r = max(over, key=lambda x: x["margin"])
-            wave_no = r["wave"]
-            attempts[wave_no] = attempts.get(wave_no, 0) + 1
-            wi = wave_no - 1
-            stats = r["_group_stats"]
-            cap = BAND_CLOSE_MAX if wave_no == CLOSE_WAVE else BAND_MID_MAX
-            live = [i for i, g in enumerate(stats) if g["count"] > 0 and g["eff_hp"] > 0]
-            if not live:
-                attempts[wave_no] = 99
-                continue
-            gi = max(live, key=lambda i: stats[i]["eff_hp"])
-            g = stats[gi]
-            per = g["eff_hp"] / g["count"]
-            k = max(1, min(g["count"],
-                           int(0.5 * (r["deliverable"] / cap - r["required"]) / per)))
-            before = g["count"]
-            set_count(wi, gi, before + k)
-            new_rows = evaluate()
-            if any(f == "LOW" or f.startswith("GROUP-STARVED")
-                   for row in new_rows for f in row["flags"]):
-                set_count(wi, gi, before)   # the add broke a wave — take it back
-                rows = evaluate()
-                attempts[wave_no] = 99
-            else:
-                rows = new_rows
+            phase_cuts()
+            phase_adds()
+            rows = evaluate_package()   # the settle IS the gate's criterion state
 
         in_band = not any(row["flags"] for row in rows)
         if not in_band and not note:
             remaining = ", ".join(f"wave {row['wave']} [{','.join(row['flags'])}]"
                                   for row in rows if row["flags"])
-            note = (f"still flagged after tuning: {remaining} — needs a non-count fix "
-                    "(coverage, stats, geometry, or re-authoring the wave); see ADVICE")
+            note = (f"still flagged after tuning: {remaining} — needs a fix beyond the "
+                    "tune's caps (coverage, stats, geometry, or re-authoring the wave); "
+                    "see ADVICE")
 
         changes = []
         for wi, w in enumerate(original):
@@ -1436,9 +1556,14 @@ def suggest_fix(difficulty: str, measured_lengths=None, polyline=False,
                 if cur != prev:
                     changes.append(dict(wave=wi + 1, group=gi, enemy=eid,
                                         prev=prev, next=cur))
-        return changes, in_band, note
+        return (changes, ACTIVE["tower_dps_mult"], ACTIVE["tower_range_mult"],
+                tuned_salvage, in_band, note)
     finally:
         WAVES[:] = original
+        ACTIVE["starting_salvage"] = saved["salvage"]
+        ACTIVE["tower_dps_mult"] = saved["dps"]
+        ACTIVE["tower_range_mult"] = saved["rng"]
+        ACTIVE["hp_growth"] = saved["growth"]
 
 
 def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
@@ -1675,6 +1800,12 @@ def main(argv=None) -> int:
     ap.add_argument("--tower-loss-off", action="store_true",
                     help="disable the return-fire tower-loss term — reproduces the pre-term "
                          "report byte-for-byte")
+    ap.add_argument("--tower-dps-mult", type=float, default=1.0, metavar="X",
+                    help="certified per-level turret damage multiplier "
+                         "(LevelDefinition.towerDamageMultiplier; runtime TowerTuning honours it)")
+    ap.add_argument("--tower-range-mult", type=float, default=1.0, metavar="X",
+                    help="certified per-level turret range multiplier "
+                         "(LevelDefinition.towerRangeMultiplier)")
     args = ap.parse_args(argv)
 
     if args.waves:
@@ -1781,6 +1912,8 @@ def main(argv=None) -> int:
 
     if args.starting_salvage is not None:
         ACTIVE["starting_salvage"] = args.starting_salvage
+    ACTIVE["tower_dps_mult"] = max(0.01, args.tower_dps_mult)
+    ACTIVE["tower_range_mult"] = max(0.01, args.tower_range_mult)
 
     R22["on"] = not args.r22_off
     TOWER_LOSS["on"] = not args.tower_loss_off
@@ -1814,24 +1947,39 @@ def main(argv=None) -> int:
     if solved is not None:
         report += f"\n\nSOLVED hpGrowthPerWave = {solved:.4f} (close-wave margin targeted at 1.10)"
 
-    # Flagged run → also compute the counts-only tune, so the gate message can
-    # OFFER the fix, not just the diagnosis. Evaluated at this run's final
-    # growth (the solver leaves ACTIVE at the solved value).
+    # Flagged run → also compute the tune, so the gate message can OFFER the
+    # fix, not just the diagnosis. Defender-first: bounded salvage / turret
+    # multipliers before any wave count is touched (see suggest_fix).
     fix_changes, fix_in_band, fix_note = None, False, ""
+    fix_dps, fix_rng, fix_salvage = 1.0, 1.0, None
     if any(r["flags"] for r in rows):
-        fix_changes, fix_in_band, fix_note = suggest_fix(
-            args.difficulty, args.measured_lengths, args.polyline, geometry)
+        entry_dps, entry_rng = ACTIVE["tower_dps_mult"], ACTIVE["tower_range_mult"]
+        fix_changes, fix_dps, fix_rng, fix_salvage, fix_in_band, fix_note = suggest_fix(
+            args.difficulty, args.measured_lengths, args.polyline, geometry,
+            solve_mode=args.solve_hp_growth)
+        report += "\n\nSUGGESTED TUNE " + (
+            "that passes the gate:" if fix_in_band else "(best effort — did NOT converge):")
+        pkg = []
+        if fix_salvage is not None:
+            pkg.append(f"starting salvage → {fix_salvage}")
+        if fix_dps > entry_dps:
+            pkg.append(f"turret damage ×{fix_dps:0.2f}")
+        if fix_rng > entry_rng:
+            pkg.append(f"turret range ×{fix_rng:0.2f}")
+        if pkg:
+            report += "\n  defender package (level-scoped, certified): " + ", ".join(pkg)
         lines = [f"  wave {c['wave']}: {c['enemy']} {c['prev']}→{c['next']}" +
                  (" (drop the group)" if c["next"] == 0 else "")
                  for c in fix_changes]
-        report += "\n\nCOUNTS-ONLY TUNE " + (
-            "that passes the gate:" if fix_in_band else "(best effort — did NOT converge):")
-        report += "\n" + ("\n".join(lines) if lines
-                          else "  (no counts-only change helps — see ADVICE)")
+        if lines:
+            report += "\n" + "\n".join(lines)
+        elif not pkg:
+            report += "\n  (no tune within caps helps — see ADVICE)"
         if fix_note:
             report += f"\n  {fix_note}"
-        report += ("\n  Counts only — gaps, offsets, mutators and enemy stats untouched. "
-                   "Campaign Builder step 6 can apply this to campaign-owned stages.")
+        report += ("\n  Waves beyond counts, enemy stats and tower assets untouched — the "
+                   "defender package rides the LevelDefinition (runtime honours it). "
+                   "Adopt in the generator, or the Campaign Builder's step 6.")
 
     if args.measured_lengths:
         _, base_rows, _ = run_model(args.difficulty, polyline=True)
@@ -1850,6 +1998,9 @@ def main(argv=None) -> int:
                            max_live=ACTIVE["max_live"],
                            in_band=not any(r["flags"] for r in rows),
                            suggested_changes=fix_changes or [],
+                           suggested_tower_dps_mult=fix_dps,
+                           suggested_tower_range_mult=fix_rng,
+                           suggested_starting_salvage=fix_salvage if fix_salvage is not None else 0,
                            suggested_in_band=fix_in_band,
                            suggested_note=fix_note,
                            # _-prefixed keys are working state, not output.
