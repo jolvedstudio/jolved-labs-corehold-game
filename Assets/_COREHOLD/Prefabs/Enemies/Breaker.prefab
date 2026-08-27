@@ -206,7 +206,7 @@ MonoBehaviour:
     muzzle: {fileID: 5743171289591816855}
     muzzles:
     - {fileID: 5743171289591816855}
-    tracerColor: {r: 1944.3613, g: 137.57271, b: 322.8236, a: 1}
+    tracerColor: {r: 0, g: 642.21204, b: 2228.5352, a: 1}
   range: 25
   fireRate: 0.9
   damage: 22

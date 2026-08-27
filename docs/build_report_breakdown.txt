@@ -1,0 +1,158 @@
+Platform: WebGL
+Result: Succeeded   BuildEndedAt: 26/08/2026 22:40:52
+Total build size (uncompressed output): 152.4 MB
+Total build time: 00:23:28.0918155
+
+==== PACKED SIZE BY CATEGORY (top folders) ====
+   147.10 MB  Assets/Vendor/Stylized_Desert_Nature
+    79.33 MB  Assets/Vendor/Mech_Constructor_Spiders
+    10.10 MB  Assets/Vendor/Creepy_Cat
+     6.32 MB  Assets/Vendor/Vefects
+     4.67 MB  Packages/com.unity.render-pipelines.universal
+     4.16 MB  Assets/Vendor/GabrielAguiarProductions
+     3.16 MB  Assets/Vendor/SCI-FI UI Pack Pro
+     2.67 MB  Built-in Texture2D: Splash Screen Unity Logo
+     2.30 MB  Assets/_COREHOLD/Prefabs
+     2.19 MB  Assets/Vendor/RipVerticesStudio
+     2.10 MB  Assets/_COREHOLD/Art
+     2.00 MB  Assets/Vendor/Yoge
+     1.66 MB  Assets/TextMesh Pro/Examples & Extras
+     1.57 MB  Assets/Vendor/Mech_Constructor_Turrets
+     1.51 MB  Assets/Vendor/Mech_Constructor_Humanoids
+     1.34 MB  Assets/Vendor/JMO Assets
+     1.04 MB  Assets/TextMesh Pro/Resources
+     0.75 MB  Assets/Vendor/Fantasy Skybox FREE
+     0.62 MB  Assets/Vendor/Free Pack
+     0.62 MB  Packages/com.unity.render-pipelines.core
+     0.54 MB  Resources/unity_builtin_extra
+     0.34 MB  Assets/TextMesh Pro/Fonts
+     0.33 MB  Assets/TextMesh Pro/Sprites
+     0.33 MB  Packages/com.unity.visualeffectgraph
+     0.23 MB  Assets/Vendor/IndieGameModels
+     0.19 MB  Assets/TextMesh Pro/Shaders
+     0.13 MB  Assets/Vendor/Weapons of Choice FREE - Komposite Sound
+     0.09 MB  Packages/com.unity.visualscripting
+     0.06 MB  Assets/Samples/Splines
+     0.06 MB  Packages/com.unity.inputsystem
+     0.02 MB  Packages/com.unity.cloud.gltfast
+     0.01 MB  Packages/com.unity.cinemachine
+     0.01 MB  Packages/com.unity.ugui
+     0.01 MB  Assets/InputSystem_Actions.inputactions
+     0.01 MB  Assets/_COREHOLD/Data
+     0.01 MB  Packages/com.unity.mathematics
+     0.01 MB  Assets/_COREHOLD/Scripts
+     0.01 MB  Packages/com.unity.postprocessing
+     0.01 MB  Packages/com.unity.timeline
+     0.01 MB  Packages/com.unity.collections
+     0.00 MB  Packages/com.unity.burst
+     0.00 MB  Assets/Settings/UniversalRenderPipelineGlobalSettings.asset
+     0.00 MB  Packages/com.unity.shadergraph
+     0.00 MB  Packages/com.unity.splines
+     0.00 MB  Assets/Resources/PerformanceTestRunInfo.json
+     0.00 MB  Assets/Settings/DefaultVolumeProfile.asset
+     0.00 MB  (built-in / engine)
+     0.00 MB  Assets/Vendor/Epic Toon FX
+     0.00 MB  Packages/com.unity.multiplayer.center
+     0.00 MB  Assets/Free Slash VFX/Demo
+     0.00 MB  Assets/Vendor/Ciconia Studio
+     0.00 MB  Assets/Settings/SampleSceneProfile.asset
+     0.00 MB  Packages/com.unity.ai.navigation
+     0.00 MB  Assets/Settings/Mobile_RPAsset.asset
+     0.00 MB  Assets/Settings/PC_RPAsset.asset
+     0.00 MB  Built-in Sprite: 
+     0.00 MB  Assets/Settings/PC_Renderer.asset
+     0.00 MB  Assets/Settings/Mobile_Renderer.asset
+     0.00 MB  Packages/com.unity.render-pipelines.universal-config
+     0.00 MB  Assets/Layer Lab/GUI Pro-CasualGame
+     0.00 MB  Assets/Vendor/Rocks and Boulders 2
+     0.00 MB  Assets/Nicrom/Shaders
+     0.00 MB  Assets/Resources/PerformanceTestRunSettings.json
+
+==== PACKED SIZE BY EXTENSION/TYPE ====
+   149.45 MB  .tga
+    98.11 MB  .png
+     7.04 MB  .fbx
+     5.06 MB  .wav
+     4.49 MB  .asset
+     4.11 MB  .psd
+     2.69 MB  Texture2D
+     1.73 MB  .shader
+     1.33 MB  .tif
+     0.78 MB  .ttf
+     0.75 MB  .prefab
+     0.62 MB  .compute
+     0.50 MB  Cubemap
+     0.32 MB  .cs
+     0.15 MB  .vfx
+     0.14 MB  .jpg
+     0.14 MB  .mat
+     0.13 MB  .shadergraph
+     0.03 MB  .cfxrshader
+     0.02 MB  .inputactions
+     0.02 MB  .controller
+     0.01 MB  Shader
+     0.00 MB  .json
+     0.00 MB  (none)
+     0.00 MB  Sprite
+
+==== TOP 60 LARGEST PACKED ASSETS ====
+   21.33 MB  [Texture2D]  Assets/Vendor/Mech_Constructor_Spiders/Materials/MC_Spiders_Metallic_Smoothness.png
+   21.33 MB  [Texture2D]  Assets/Vendor/Mech_Constructor_Spiders/Materials/MC_Spiders_Normal_Clean.png
+   10.67 MB  [Texture2D]  Assets/Vendor/Mech_Constructor_Spiders/Materials/Realistic/MC_Spiders_Camo_Albedo_Teal.png
+   10.67 MB  [Texture2D]  Assets/Vendor/Mech_Constructor_Spiders/Materials/MC_Spiders_Diffuse_Red.png
+   10.67 MB  [Texture2D]  Assets/Vendor/Mech_Constructor_Spiders/Materials/MC_Spiders_Emission.png
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/T_Cactus_small_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_10_11_12_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/T_Cactus_large_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_7_8_9_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Small_Rock_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Bones_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_3_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_2_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_4_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_6_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Tree_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Plants_N.tga
+    5.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_1_N.tga
+    4.00 MB  [Texture2D]  Assets/Vendor/GabrielAguiarProductions/Textures/MuzzleFlash01.psd
+    3.78 MB  [AudioClip]  Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Sound/Ambiant/FreeMusic_By_CreepyCat_01.wav
+    2.67 MB  [Texture2D]  Built-in Texture2D: Splash Screen Unity Logo
+    2.67 MB  [Texture2D]  Assets/Vendor/Vefects/Free Fire VFX URP/Scene/Textures/Metrics_Grid_Base_Color.TGA
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/T_Cactus_large_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/T_Cactus_small_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_10_11_12_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_7_8_9_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/T_Cactus_small_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/T_Cactus_large_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Small_Rock_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_10_11_12_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Plants_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_2_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_3_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_1_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_6_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Bones_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_4_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Tree_MSAO.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Small_Rock_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_7_8_9_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Bones_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_2_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_3_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_1_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Tree_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_4_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Plants_A.tga
+    2.67 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Rock_6_A.tga
+    1.44 MB  [Texture2D]  Assets/Vendor/SCI-FI UI Pack Pro/SCI-FI UI Pack_V2 Pro(Cyan)/Textures/DemoScene_Cyan/PopupsAndPanels/Panel_Weapon.png
+    1.33 MB  [Texture2D]  Assets/Vendor/Mech_Constructor_Spiders/Materials/MC_Spiders_Tank_Tracks_Metallic_Smoothness.png
+    1.33 MB  [Texture2D]  Assets/Vendor/Mech_Constructor_Spiders/Materials/MC_Spiders_Tank_Tracks_Normal_Clean.png
+    1.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Camel_thorn_N.tga
+    1.33 MB  [Texture2D]  Assets/Vendor/Stylized_Desert_Nature/Textures/Camel_thorn_A.tga
+    1.33 MB  [Texture2D]  Assets/Vendor/Yoge/Textures/Stylized - Nature/Texture_1_Normal.png
+    1.33 MB  [Texture2D]  Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Textures/Wall_Atlas_02_Norm.png
+    1.33 MB  [Texture2D]  Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Textures/Wall_Atlas_02_Metal.tif
+    1.33 MB  [Texture2D]  Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Textures/Wall_Atlas_02_ID.png
+    1.00 MB  [Texture2D]  Assets/TextMesh Pro/Resources/Fonts & Materials/LiberationSans SDF.asset
+    1.00 MB  [Texture2D]  Assets/Vendor/Creepy_Cat/3D Scifi Kit Vol 4/Textures/Wall_Atlas_02_Illum.png
+    1.00 MB  [Texture2D]  Assets/TextMesh Pro/Examples & Extras/Resources/Fonts & Materials/Unity SDF.asset

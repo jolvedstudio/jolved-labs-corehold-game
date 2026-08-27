@@ -16,7 +16,7 @@ MonoBehaviour:
   displayName: Breaker
   icon: {fileID: 21300000, guid: 4f839335f363a954e86e78432cf96e85, type: 3}
   prefab: {fileID: 1098567759258226309, guid: 57f84eb9bf50b5d48a240031d2489451, type: 3}
-  baseHealth: 420
+  baseHealth: 200
   armourType: 1
   moveSpeed: 3.75
   bounty: 35

@@ -8,23 +8,30 @@ namespace Corehold.Systems
     /// <summary>
     /// Central spawner for every one-shot visual effect in the game (GDD §11).
     ///
-    /// Twelve pooled effects from Cartoon FX Remaster — three muzzle flashes (one
-    /// per damage type), an impact spark, two explosion sizes for splash weapons,
-    /// an enemy death burst, a Core hit flash, a build-placement puff, the two
-    /// status pulses (stun crackle / slow chill, R18) and the Strike Wing EM
-    /// burst (R19) — plus a pooled hitscan tracer for the Autocannon and Arc
-    /// Node. Missile and Mortar have visible travel time and need no tracer.
+    /// Twelve pooled effects — three muzzle flashes (one per damage type), an impact
+    /// spark, two explosion sizes for splash weapons, an enemy death burst, a Core
+    /// hit flash, a build-placement puff, the two status pulses (stun crackle / slow
+    /// chill, R18) and the Strike Wing EM burst (R19) — plus a pooled hitscan tracer
+    /// for the Autocannon and Arc Node. Missile and Mortar have visible travel time
+    /// and need no tracer.
+    ///
+    /// The director is provider-agnostic: it pools ANY prefab whose hierarchy
+    /// contains at least one Shuriken <see cref="ParticleSystem"/> — Cartoon FX
+    /// Remaster, Epic Toon FX, or any other Shuriken-based pack all work the same
+    /// way. The whole prefab root is cloned (not a single component), so multi-system
+    /// effect hierarchies are reproduced in full.
     ///
     /// Every effect is pooled through <see cref="CoreholdPool{T}"/>; nothing on a
-    /// gameplay path calls Instantiate or Destroy during a wave (GDD §11). Instead
-    /// of Cartoon FX's default <c>Destroy</c> clear-behaviour, every pooled copy is
-    /// forced to <see cref="CFXR_Effect.ClearBehavior.Disable"/> and a
-    /// <see cref="PooledEffect"/> watcher returns the instance to its pool when the
-    /// particle system finishes — so pool counts stay stable and the effect layer
-    /// allocates nothing after warm-up (the ticket's done-condition).
+    /// gameplay path calls Instantiate or Destroy during a wave (GDD §11). A
+    /// <see cref="PooledEffect"/> watcher returns each instance to its pool once all
+    /// of its particle systems have finished — so pool counts stay stable and the
+    /// effect layer allocates nothing after warm-up (the ticket's done-condition).
+    /// When a prefab happens to carry a Cartoon FX <see cref="CFXR_Effect"/>, its
+    /// clear-behaviour is neutralised so pooling owns the lifetime; prefabs without
+    /// one are driven purely by their particle systems.
     ///
     /// CFXR's global animated-light switch is turned OFF at boot
-    /// (<see cref="CFXR_Effect.GlobalDisableLights"/> = true): no effect spawns a
+    /// (<see cref="CFXR_Effect.GlobalDisableLights"/> = true): no CFXR effect spawns a
     /// light, per the ticket. Camera shake is left to the effect prefabs / §3.3.
     ///
     /// Access is via the <see cref="Instance"/> singleton. All the public Play*
@@ -75,14 +82,14 @@ namespace Corehold.Systems
             [Tooltip("Which logical effect this prefab fulfils (GDD §11).")]
             public Effect id;
 
-            [Tooltip("A Cartoon FX Remaster prefab. Its clear-behaviour is forced to Disable at spawn so it can be pooled.")]
+            [Tooltip("Any Shuriken-based effect prefab (Cartoon FX, Epic Toon FX, etc.). It must contain at least one ParticleSystem in its hierarchy. If it carries a CFXR_Effect its clear-behaviour is neutralised so it can be pooled.")]
             public GameObject prefab;
 
             [Tooltip("How many copies to prewarm so the first play never allocates.")]
             public int prewarm;
         }
 
-        [Header("Effects (GDD §11) — assign Cartoon FX Remaster prefabs")]
+        [Header("Effects (GDD §11) — assign any Shuriken-based effect prefabs")]
         [SerializeField]
         private EffectEntry[] effects =
         {
@@ -133,9 +140,12 @@ namespace Corehold.Systems
 
         // ----- Pools -----
 
-        // One CFXR_Effect pool per assigned prefab, keyed by the logical Effect id.
-        private readonly Dictionary<Effect, CoreholdPool<CFXR_Effect>> _pools =
-            new Dictionary<Effect, CoreholdPool<CFXR_Effect>>();
+        // One pool per assigned prefab, keyed by the logical Effect id. Pools clone
+        // the whole prefab ROOT (a Transform) rather than a single component, so any
+        // Shuriken-based effect — however many particle systems its hierarchy has —
+        // is reproduced in full.
+        private readonly Dictionary<Effect, CoreholdPool<Transform>> _pools =
+            new Dictionary<Effect, CoreholdPool<Transform>>();
 
         private Transform _poolRoot;
         private Transform _tracerRoot;
@@ -184,15 +194,21 @@ namespace Corehold.Systems
                     if (entry.prefab == null || _pools.ContainsKey(entry.id))
                         continue;
 
-                    CFXR_Effect prefabEffect = PreparePrefab(entry.prefab);
-                    if (prefabEffect == null)
+                    Transform prefabRoot = PreparePrefab(entry.prefab);
+                    if (prefabRoot == null)
+                    {
+                        Debug.LogWarning(
+                            $"[VFXDirector] Effect '{entry.id}' prefab '{entry.prefab.name}' has no " +
+                            "ParticleSystem in its hierarchy — no pool was built. Assign a Shuriken-based " +
+                            "effect prefab.", entry.prefab);
                         continue;
+                    }
 
                     var parentGo = new GameObject($"Pool_{entry.id}");
                     parentGo.transform.SetParent(_poolRoot, false);
 
                     int prewarm = Mathf.Max(0, entry.prewarm);
-                    var pool = new CoreholdPool<CFXR_Effect>(prefabEffect, parentGo.transform, prewarm);
+                    var pool = new CoreholdPool<Transform>(prefabRoot, parentGo.transform, prewarm);
                     _pools.Add(entry.id, pool);
                 }
             }
@@ -201,22 +217,22 @@ namespace Corehold.Systems
         }
 
         /// <summary>
-        /// Make sure the prefab carries a <see cref="CFXR_Effect"/> and force its
-        /// clear-behaviour to Disable so pooled instances self-deactivate instead of
-        /// destroying themselves (GDD §11). Returns the CFXR_Effect used as the pool
-        /// prefab, or null if the object is not a valid Cartoon FX effect.
+        /// Validate that the prefab is a usable Shuriken-based effect and return the
+        /// root <see cref="Transform"/> to clone into the pool. A prefab qualifies if
+        /// its hierarchy contains at least one <see cref="ParticleSystem"/> — that
+        /// covers Cartoon FX, Epic Toon FX and any other Shuriken pack. Returns null
+        /// (and the caller logs) when no particle system is present.
+        ///
+        /// Cloning the whole prefab root (rather than one component) preserves
+        /// multi-system hierarchies, which most non-trivial effects rely on.
         /// </summary>
-        private static CFXR_Effect PreparePrefab(GameObject prefab)
+        private static Transform PreparePrefab(GameObject prefab)
         {
-            var effect = prefab.GetComponent<CFXR_Effect>();
-            if (effect == null)
-                effect = prefab.GetComponentInChildren<CFXR_Effect>(true);
-            if (effect == null)
+            if (prefab == null)
                 return null;
-
-            // Root the pool prefab on the object that actually holds the CFXR_Effect
-            // (its own root particle system), so activate/deactivate is coherent.
-            return effect;
+            if (prefab.GetComponentInChildren<ParticleSystem>(true) == null)
+                return null;
+            return prefab.transform;
         }
 
         private void BuildTracerPool()
@@ -293,13 +309,13 @@ namespace Corehold.Systems
         /// call when the effect's prefab is unassigned — it simply no-ops. Returns
         /// the pooled instance, or null when nothing was spawned.
         /// </summary>
-        public CFXR_Effect Play(Effect effect, Vector3 position)
+        public ParticleSystem Play(Effect effect, Vector3 position)
         {
             return Play(effect, position, Quaternion.identity, 1f);
         }
 
         /// <summary>Play a one-shot effect at a position facing a direction.</summary>
-        public CFXR_Effect Play(Effect effect, Vector3 position, Vector3 forward)
+        public ParticleSystem Play(Effect effect, Vector3 position, Vector3 forward)
         {
             Quaternion rot = forward.sqrMagnitude > 0.0001f
                 ? Quaternion.LookRotation(forward.normalized, Vector3.up)
@@ -313,48 +329,54 @@ namespace Corehold.Systems
         /// particle systems replayed, and a <see cref="PooledEffect"/> watcher armed
         /// to return it to the pool when it finishes (GDD §11).
         /// </summary>
-        public CFXR_Effect Play(Effect effect, Vector3 position, Quaternion rotation, float scale)
+        public ParticleSystem Play(Effect effect, Vector3 position, Quaternion rotation, float scale)
         {
-            if (!_pools.TryGetValue(effect, out CoreholdPool<CFXR_Effect> pool) || pool == null)
+            if (!_pools.TryGetValue(effect, out CoreholdPool<Transform> pool) || pool == null)
                 return null;
 
-            CFXR_Effect fx = pool.Get();
-            if (fx == null)
+            Transform t = pool.Get();
+            if (t == null)
                 return null;
 
-            Transform t = fx.transform;
             t.SetPositionAndRotation(position, rotation);
-            if (!Mathf.Approximately(scale, 1f))
-                t.localScale = Vector3.one * scale;
+            t.localScale = Mathf.Approximately(scale, 1f) ? Vector3.one : Vector3.one * scale;
 
-            // The ticket asks for CFXR's auto-deactivate rather than Destroy. We take
-            // full ownership of the lifetime through PooledEffect so the instance is
-            // returned to the FREE stack (not merely deactivated out-of-band, which
-            // would leak the pool count), so CFXR's own clear pass is disabled here.
-            fx.clearBehavior = CFXR_Effect.ClearBehavior.None;
+            // If this happens to be a Cartoon FX effect, neutralise its own clear
+            // pass so pooling owns the lifetime (otherwise CFXR would Destroy or
+            // Disable the object out from under the pool, leaking the count). Prefabs
+            // from any other pack simply have no CFXR_Effect and are skipped.
+            var cfxr = t.GetComponent<CFXR_Effect>();
+            if (cfxr == null)
+                cfxr = t.GetComponentInChildren<CFXR_Effect>(true);
+            if (cfxr != null)
+            {
+                cfxr.clearBehavior = CFXR_Effect.ClearBehavior.None;
+                cfxr.ResetState();
+            }
 
-            // Arm the watcher that returns this instance to its pool once finished.
-            var watcher = fx.GetComponent<PooledEffect>();
-            if (watcher == null)
-                watcher = fx.gameObject.AddComponent<PooledEffect>();
-            watcher.Arm(pool, fx);
-
-            // Restart the particle systems so a reused instance plays from frame 0.
-            fx.ResetState();
-            var systems = fx.GetComponentsInChildren<ParticleSystem>(true);
+            // Restart every particle system so a reused instance plays from frame 0.
+            var systems = t.GetComponentsInChildren<ParticleSystem>(true);
             for (int i = 0; i < systems.Length; i++)
             {
                 systems[i].Clear(true);
                 systems[i].Play(true);
             }
 
-            return fx;
+            // Arm the watcher that returns this instance to its pool once every
+            // particle system has finished (provider-agnostic — no CFXR dependency).
+            var watcher = t.GetComponent<PooledEffect>();
+            if (watcher == null)
+                watcher = t.gameObject.AddComponent<PooledEffect>();
+            watcher.Arm(pool, t, systems);
+
+            // Return the root particle system as a convenience handle for callers.
+            return systems.Length > 0 ? systems[0] : null;
         }
 
         // ---- Convenience wrappers for gameplay call sites ----
 
         /// <summary>Muzzle flash for the given damage type at the muzzle point (GDD §11).</summary>
-        public CFXR_Effect PlayMuzzle(DamageType type, Vector3 position, Vector3 forward)
+        public ParticleSystem PlayMuzzle(DamageType type, Vector3 position, Vector3 forward)
         {
             Effect e = type switch
             {
@@ -370,7 +392,7 @@ namespace Corehold.Systems
         /// Impact spark where a shot strikes a unit (GDD §11), plus the standard
         /// small screen kick (R5 — CameraShake owns intensity and accessibility).
         /// </summary>
-        public CFXR_Effect PlayImpact(Vector3 position)
+        public ParticleSystem PlayImpact(Vector3 position)
         {
             if (CameraShake.Instance != null)
                 CameraShake.Instance.KickImpact(position);
@@ -392,7 +414,7 @@ namespace Corehold.Systems
         /// Falls back to the neutral <see cref="Effect.ImpactSpark"/> otherwise, so it
         /// is always safe to call. Carries the same R5 screen kick as <see cref="PlayImpact"/>.
         /// </summary>
-        public CFXR_Effect PlayImpactEffective(Vector3 position, float multiplier, ArmourType armour)
+        public ParticleSystem PlayImpactEffective(Vector3 position, float multiplier, ArmourType armour)
         {
             if (CameraShake.Instance != null)
                 CameraShake.Instance.KickImpact(position);
@@ -414,7 +436,7 @@ namespace Corehold.Systems
         /// the larger one at or above it (GDD §11 — "two explosion sizes for splash").
         /// Explosions carry the larger screen kick of the R5 impact standard.
         /// </summary>
-        public CFXR_Effect PlayExplosion(Vector3 position, float splashRadius)
+        public ParticleSystem PlayExplosion(Vector3 position, float splashRadius)
         {
             if (CameraShake.Instance != null)
                 CameraShake.Instance.KickExplosion(position);
@@ -423,14 +445,14 @@ namespace Corehold.Systems
         }
 
         /// <summary>Death burst when an enemy dies (GDD §11).</summary>
-        public CFXR_Effect PlayEnemyDeath(Vector3 position) => Play(Effect.EnemyDeath, position);
+        public ParticleSystem PlayEnemyDeath(Vector3 position) => Play(Effect.EnemyDeath, position);
 
         /// <summary>
         /// Flash on the Core when it takes a leak hit (GDD §11), with the medium
         /// screen kick (R5). The trauma shake for Core hits stays where it was
         /// (Enemy.ReachCore → ShakeCoreHit); this is the sharper directional nudge.
         /// </summary>
-        public CFXR_Effect PlayCoreHit(Vector3 position)
+        public ParticleSystem PlayCoreHit(Vector3 position)
         {
             if (CameraShake.Instance != null)
                 CameraShake.Instance.KickCoreHit(position);
@@ -438,23 +460,23 @@ namespace Corehold.Systems
         }
 
         /// <summary>Puff when a turret is built on a hardpoint (GDD §11).</summary>
-        public CFXR_Effect PlayBuildPuff(Vector3 position) => Play(Effect.BuildPuff, position);
+        public ParticleSystem PlayBuildPuff(Vector3 position) => Play(Effect.BuildPuff, position);
 
         /// <summary>
         /// Stun crackle over a unit (R18). One-shot; <see cref="Corehold.Enemies.Enemy"/>
         /// re-fires it about once a second while the status runs, so the pool sees
         /// only ordinary one-shots and no looping-effect lifetime management.
         /// </summary>
-        public CFXR_Effect PlayStun(Vector3 position) => Play(Effect.Stun, position);
+        public ParticleSystem PlayStun(Vector3 position) => Play(Effect.Stun, position);
 
         /// <summary>Slow chill glow over a unit (R18). Pulsed the same way as the stun.</summary>
-        public CFXR_Effect PlaySlow(Vector3 position) => Play(Effect.Slow, position);
+        public ParticleSystem PlaySlow(Vector3 position) => Play(Effect.Slow, position);
 
         /// <summary>
         /// Strike Wing EM burst (R19): the pooled effect scaled up to read at the
         /// 6 m ability radius, with the explosion-grade screen kick (R5).
         /// </summary>
-        public CFXR_Effect PlayStrikeWingBurst(Vector3 position)
+        public ParticleSystem PlayStrikeWingBurst(Vector3 position)
         {
             if (CameraShake.Instance != null)
                 CameraShake.Instance.KickExplosion(position);
@@ -514,46 +536,75 @@ namespace Corehold.Systems
     }
 
     /// <summary>
-    /// Lightweight watcher that returns a pooled <see cref="CFXR_Effect"/> to its
-    /// pool once its particle systems have finished (GDD §11). CFXR's own
-    /// clear-behaviour is set to Disable, which deactivates the GameObject; this
-    /// component runs one frame before that and hands the instance back to the pool
-    /// so it can be reused with no allocation.
+    /// Lightweight watcher that returns a pooled effect instance (its root
+    /// <see cref="Transform"/>) to its pool once ALL of its particle systems have
+    /// finished (GDD §11). Provider-agnostic: it watches the particle systems
+    /// directly rather than any vendor component, so Cartoon FX, Epic Toon FX and any
+    /// other Shuriken-based effect are all returned the same way with no allocation.
+    ///
+    /// A safety timeout guards against effects that never report "done" (e.g. a
+    /// looping system left on by accident): once it elapses the instance is force-
+    /// released so a pool can never be starved by a stuck copy.
     /// </summary>
     [DisallowMultipleComponent]
     public class PooledEffect : MonoBehaviour
     {
-        private CoreholdPool<CFXR_Effect> _pool;
-        private CFXR_Effect _effect;
-        private ParticleSystem _root;
-        private bool _armed;
+        // Force-release after this long even if a system reports itself still alive,
+        // so an accidentally-looping effect can never permanently drain the pool.
+        private const float SafetyTimeout = 12f;
 
-        /// <summary>Bind this instance to a pool so it can release itself when done.</summary>
-        public void Arm(CoreholdPool<CFXR_Effect> pool, CFXR_Effect effect)
+        private CoreholdPool<Transform> _pool;
+        private Transform _root;
+        private ParticleSystem[] _systems;
+        private bool _armed;
+        private float _age;
+
+        /// <summary>
+        /// Bind this instance to a pool so it can release itself when its particle
+        /// systems have all finished. The systems array is supplied by the caller
+        /// (already gathered when it restarted them) to avoid a second traversal.
+        /// </summary>
+        public void Arm(CoreholdPool<Transform> pool, Transform root, ParticleSystem[] systems)
         {
             _pool = pool;
-            _effect = effect;
-            if (_root == null)
-                _root = GetComponent<ParticleSystem>();
-            if (_root == null)
-                _root = GetComponentInChildren<ParticleSystem>(true);
+            _root = root;
+            _systems = systems;
+            if (_systems == null || _systems.Length == 0)
+                _systems = GetComponentsInChildren<ParticleSystem>(true);
             _armed = true;
+            _age = 0f;
         }
 
         private void LateUpdate()
         {
-            if (!_armed || _root == null)
+            if (!_armed)
                 return;
 
-            // Once the root system is finished, hand the instance back to the pool.
-            if (!_root.IsAlive(true))
+            _age += Time.deltaTime;
+
+            if (!AnyAlive() || _age >= SafetyTimeout)
             {
                 _armed = false;
                 if (_pool != null)
-                    _pool.Release(_effect != null ? _effect : GetComponent<CFXR_Effect>());
+                    _pool.Release(_root != null ? _root : transform);
                 else
                     gameObject.SetActive(false);
             }
+        }
+
+        private bool AnyAlive()
+        {
+            if (_systems == null)
+                return false;
+            for (int i = 0; i < _systems.Length; i++)
+            {
+                var ps = _systems[i];
+                // withChildren:false — each system in the array is checked on its own,
+                // so a null/destroyed entry simply counts as finished.
+                if (ps != null && ps.IsAlive(false))
+                    return true;
+            }
+            return false;
         }
     }
 

@@ -79,6 +79,17 @@ namespace CoreholdEditor
         }
         static readonly Color PanelTint = new Color(1f, 1f, 1f, 1f);
 
+        // ---- Spacing scale (Fix 5): one rhythm for every built layout, so gaps
+        // are chosen from a small set instead of typed ad-hoc per call site. ----
+        const float SpaceS = 8f;
+        const float SpaceM = 16f;
+        const float SpaceL = 24f;
+
+        /// <summary>Neutral dark inset for icon backing plates — one value, reused,
+        /// so every turret icon reads on the same backdrop regardless of its own
+        /// colouring (Fix 2). Routed through the scrim role so a skin moves it.</summary>
+        static Color IconInset => Scrim(0.55f);
+
         // ---- Proportions (skin, baked at build time) ----
         /// <summary>Extra px on every built button, for kit art with thick borders.</summary>
         static float ButtonPad => Skin != null ? Skin.buttonPadding : 0f;
@@ -397,14 +408,16 @@ namespace CoreholdEditor
             // 10-slot roster scrolls behind it as a carousel (drag, wheel, or
             // the edge arrows). 904 panel = 880 viewport + margins.
             var root = MakePanel(canvas.transform, "BuildMenu",
-                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(904, 150), theme.panel);
+                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(904, 180), theme.panel);
             var comp = canvas.gameObject.AddComponent<BuildMenu>();
 
             var title = MakeText(root, "Title", "BUILD", _small, TextAlignmentOptions.TopLeft, new Vector2(16, -6), new Vector2(200, 22));
             title.color = Cyan;
 
-            // Viewport (clips) → Content (the row BuildMenu populates).
-            var viewport = MakeRect(root, "Entries_Viewport", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(880, 110));
+            // Viewport (clips) → Content (the row BuildMenu populates). Taller now
+            // so the redesigned cells (icon plate + name + role + cost) fit without
+            // clipping the cost against the frame's lower bevel (Fix 2).
+            var viewport = MakeRect(root, "Entries_Viewport", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -8), new Vector2(872, 140));
             viewport.gameObject.AddComponent<RectMask2D>();
             var viewportImg = viewport.gameObject.AddComponent<Image>();
             viewportImg.color = new Color(0, 0, 0, 0.001f);   // raycast catcher for drags
@@ -425,10 +438,19 @@ namespace CoreholdEditor
             scroll.inertia = true; scroll.decelerationRate = 0.08f;
             scroll.scrollSensitivity = 24f;
 
-            var leftArrow = MakeButton(root, "ArrowLeft", "<", theme,
-                new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(6, -6), new Vector2(30, 96));
-            var rightArrow = MakeButton(root, "ArrowRight", ">", theme,
-                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-6, -6), new Vector2(30, 96));
+            // Carousel arrows (Fix 4): wider, taller and clearly framed so the
+            // "10 turrets scroll behind 6 visible" affordance is obvious. The
+            // chevrons are enlarged and accent-tinted rather than left as thin
+            // slivers of default label text.
+            var leftArrow = MakeButton(root, "ArrowLeft", "‹", theme,
+                new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, -6), new Vector2(48, 132));
+            var rightArrow = MakeButton(root, "ArrowRight", "›", theme,
+                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-10, -6), new Vector2(48, 132));
+            foreach (var arrow in new[] { leftArrow, rightArrow })
+            {
+                var lbl = arrow.GetComponentInChildren<TMP_Text>();
+                if (lbl != null) { lbl.fontSize = 40f; lbl.color = Cyan; lbl.fontStyle = FontStyles.Bold; }
+            }
 
             var carousel = root.gameObject.AddComponent<BuildMenuCarousel>();
             var carSo = new SerializedObject(carousel);
@@ -454,22 +476,45 @@ namespace CoreholdEditor
 
         static GameObject BuildTurretEntryTemplate(RectTransform parent, UITheme theme)
         {
+            // Taller framed cell (Fix 2): each turret is a clearly bounded, tappable
+            // card — icon on a uniform dark inset plate, name (auto-sized so long
+            // names don't clip), role tag, and a cost row that sits INSIDE the
+            // frame instead of clipping against its lower bevel.
             var cell = MakeButtonBase("EntryTemplate", parent, theme,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(140, 104));
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(140, 134));
             cell.gameObject.AddComponent<BuildEntryHover>();
 
-            // Slightly bigger icon showing just the tower (Ticket e).
-            var icon = MakeRect(cell, "Icon", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -6), new Vector2(58, 58));
+            // Icon backing plate: a uniform dark inset so every turret silhouette
+            // reads the same regardless of its own colouring (Floodlight's thin
+            // pole vanished on the bare frame before).
+            var plate = MakeRect(cell, "IconPlate", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -32), new Vector2(116, 50));
+            var plateImg = plate.gameObject.AddComponent<Image>();
+            plateImg.sprite = EnsureRoundedSprite();
+            plateImg.type = Image.Type.Sliced;
+            plateImg.color = IconInset;
+            plateImg.raycastTarget = false;
+
+            var icon = MakeRect(plate, "Icon", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(48, 48));
             var iconImg = icon.gameObject.AddComponent<Image>();
             iconImg.preserveAspect = true;
+            iconImg.raycastTarget = false;
 
-            var nm = MakeText(cell, "Name", "Turret", 15f, TextAlignmentOptions.Center, new Vector2(0, -4), new Vector2(132, 18));
-            SetAnchors(nm.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -4));
-            var role = MakeText(cell, "Role", "ROLE", 11f, TextAlignmentOptions.Center, new Vector2(0, -22), new Vector2(132, 14));
-            SetAnchors(role.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -22));
+            // Name: auto-sized between 12–15 so "Missile Battery" fits the 132 px
+            // field without truncation. Anchored to the top edge, below the plate.
+            var nm = MakeText(cell, "Name", "Turret", 15f, TextAlignmentOptions.Center, new Vector2(0, -66), new Vector2(132, 18));
+            SetAnchors(nm.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -66));
+            nm.enableAutoSizing = true; nm.fontSizeMin = 12f; nm.fontSizeMax = 15f;
+
+            var role = MakeText(cell, "Role", "ROLE", 11f, TextAlignmentOptions.Center, new Vector2(0, -85), new Vector2(132, 14));
+            SetAnchors(role.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -85));
             role.color = TextMuted;
-            var cost = MakeText(cell, "Cost", "100", 18f, TextAlignmentOptions.Center, new Vector2(0, 10), new Vector2(132, 22));
-            SetAnchors(cost.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 20));
+
+            // Cost row: anchored from the cell TOP like the icon plate and name,
+            // NOT the bottom. The button frame sprite carries internal padding at
+            // its lower edge, so a bottom-anchored label lands in that dead bevel
+            // and reads as clipped — top-anchoring keeps it on the visible face.
+            var cost = MakeText(cell, "Cost", "100", 18f, TextAlignmentOptions.Center, new Vector2(0, -104), new Vector2(132, 22));
+            SetAnchors(cost.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -104));
             cost.color = Cyan;
 
             cell.gameObject.SetActive(false);
@@ -478,63 +523,93 @@ namespace CoreholdEditor
 
         static TowerPanel BuildTowerPanel(Canvas canvas, UITheme theme, RangeRing ring)
         {
-            // 700 tall: the counter grid ends 466 below the top, and the bottom
-            // stack (feature row + upgrade + sell) needs 200 — at the old 620 the
-            // feature row landed ON the grid's last row.
+            // 690 tall, laid out on an explicit top-down DEPTH budget (Fix 1): the
+            // runtime NEXT line is TWO lines (cost + stat deltas), and every
+            // section now has a measured gap so nothing overlaps at portrait
+            // aspect. Left labels are LEFT-anchored+left-pivoted so wide rects
+            // can't hang off the panel's edge; button labels auto-size so they
+            // never spill past their frame.
+            const float panelW = 420f, panelH = 690f;
             var root = MakePanel(canvas.transform, "TowerPanel",
-                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-24, 0), new Vector2(420, 700), theme.popup);
+                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-24, 0), new Vector2(panelW, panelH), theme.popup);
             var comp = canvas.gameObject.AddComponent<TowerPanel>();
 
-            var name = MakeText(root, "Name", "AUTOCANNON", _large, TextAlignmentOptions.TopLeft, new Vector2(20, -14), new Vector2(300, 40));
-            name.color = Cyan;
-            var tier = MakeText(root, "Tier", "TIER 1", 18f, TextAlignmentOptions.Right, new Vector2(-24, -58), new Vector2(180, 24));
-            SetAnchors(tier.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-24, -58));
-            var dmgType = MakeText(root, "DamageType", "KINETIC", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -52), new Vector2(300, 24));
-            dmgType.color = Cyan;
+            // ---- Local helpers so every label uses the same safe anchoring. ----
+            void LeftLabel(TMP_Text t, float topDepth)
+            {
+                var rt = t.rectTransform;
+                rt.anchorMin = rt.anchorMax = new Vector2(0, 1);
+                rt.pivot = new Vector2(0, 1);
+                rt.anchoredPosition = new Vector2(SpaceL, -topDepth);
+            }
+            void AutoSizeLabel(RectTransform btn, float min, float max)
+            {
+                var l = btn.GetComponentInChildren<TMP_Text>();
+                if (l != null) { l.enableAutoSizing = true; l.fontSizeMin = min; l.fontSizeMax = max; }
+            }
 
-            var dps = MakeText(root, "DPS", "DPS  20.0", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -84), new Vector2(380, 24));
-            var range = MakeText(root, "Range", "RANGE  12 m", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -112), new Vector2(380, 24));
-            var next = MakeText(root, "Next", "NEXT (T2): 130", 18f, TextAlignmentOptions.TopLeft, new Vector2(20, -142), new Vector2(380, 44));
-            next.color = TextMuted;
+            // Close X, pinned to its own top-right corner slot (Fix 3).
+            var close = MakeButton(root, "CloseButton", "X", theme, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-22, -20), new Vector2(34, 34));
+            var closeLbl = close.GetComponentInChildren<TMP_Text>();
+            if (closeLbl != null) closeLbl.fontSize = 18f;
 
-            // Priority selector.
-            var prioLbl = MakeText(root, "PriorityLabel", "TARGETING", 16f, TextAlignmentOptions.Left, new Vector2(-172, -186), new Vector2(200, 20));
-            SetAnchors(prioLbl.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-88, -186));
-            prioLbl.color = Cyan;
-            var prioRow = MakeRect(root, "PriorityRow", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -220), new Vector2(380, 44));
+            // Header: name (left) + tier (right) + damage type (left).
+            var name = MakeText(root, "Name", "AUTOCANNON", _large, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(300, 40));
+            name.color = Cyan; LeftLabel(name, 10);
+            var dmgType = MakeText(root, "DamageType", "KINETIC", _small, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(220, 24));
+            dmgType.color = Cyan; LeftLabel(dmgType, 52);
+            var tier = MakeText(root, "Tier", "TIER 1", 18f, TextAlignmentOptions.TopRight, Vector2.zero, new Vector2(150, 24));
+            var tierRt = tier.rectTransform;
+            tierRt.anchorMin = tierRt.anchorMax = new Vector2(1, 1);
+            tierRt.pivot = new Vector2(1, 1);
+            tierRt.anchoredPosition = new Vector2(-SpaceL, -52);
+
+            // Stat block.
+            var dps = MakeText(root, "DPS", "DPS  20.0", _small, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(380, 22));
+            LeftLabel(dps, 84);
+            var range = MakeText(root, "Range", "RANGE  12 m", _small, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(380, 22));
+            LeftLabel(range, 110);
+
+            // Divider + the two-line upgrade preview (Fix 3).
+            var divider = MakeRect(root, "Divider", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -148), new Vector2(376, 2));
+            var divImg = divider.gameObject.AddComponent<Image>();
+            divImg.sprite = EnsureRoundedSprite(); divImg.type = Image.Type.Sliced;
+            var divC = Cyan; divC.a = 0.28f; divImg.color = divC; divImg.raycastTarget = false;
+            var next = MakeText(root, "Next", "NEXT (T2): 130", 16f, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(380, 50));
+            next.color = TextMuted; next.enableWordWrapping = true; LeftLabel(next, 160);
+
+            // Targeting selector.
+            var prioLbl = MakeText(root, "PriorityLabel", "TARGETING", 16f, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(300, 20));
+            prioLbl.color = Cyan; LeftLabel(prioLbl, 216);
+            var prioRow = MakeRect(root, "PriorityRow", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -262), new Vector2(376, 42));
             var prioHlg = prioRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            prioHlg.spacing = 6; prioHlg.childControlWidth = true; prioHlg.childForceExpandWidth = true; prioHlg.childControlHeight = true; prioHlg.childForceExpandHeight = true;
-            var pFirst = MakeButton(prioRow, "First", "FIRST", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(120, 40));
-            var pClose = MakeButton(prioRow, "Closest", "CLOSE", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(120, 40));
-            var pStrong = MakeButton(prioRow, "Strongest", "STRONG", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(120, 40));
+            prioHlg.spacing = SpaceS; prioHlg.padding = new RectOffset(4, 4, 0, 0); prioHlg.childControlWidth = true; prioHlg.childForceExpandWidth = true; prioHlg.childControlHeight = true; prioHlg.childForceExpandHeight = true;
+            var pFirst = MakeButton(prioRow, "First", "FIRST", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            var pClose = MakeButton(prioRow, "Closest", "CLOSE", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            var pStrong = MakeButton(prioRow, "Strongest", "STRONG", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            AutoSizeLabel(pFirst, 12, 16); AutoSizeLabel(pClose, 12, 16); AutoSizeLabel(pStrong, 12, 16);
 
-            // 3x3 counter grid.
-            var gridLbl = MakeText(root, "GridLabel", "DAMAGE vs ARMOUR", 16f, TextAlignmentOptions.Left, new Vector2(-88, -256), new Vector2(300, 20));
-            SetAnchors(gridLbl.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-88, -256));
-            gridLbl.color = Cyan;
-            var gridRoot = MakeRect(root, "CounterGrid", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -376), new Vector2(380, 180));
+            // 3×3 counter grid.
+            var gridLbl = MakeText(root, "GridLabel", "DAMAGE vs ARMOUR", 16f, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(300, 20));
+            gridLbl.color = Cyan; LeftLabel(gridLbl, 296);
+            var gridRoot = MakeRect(root, "CounterGrid", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -396), new Vector2(376, 152));
             var (cells, rows) = BuildCounterGrid(gridRoot, theme);
 
-            // Mid-term feature row (M-a camera/control, M-c relocation): three
-            // compact actions above the money buttons.
-            var featRow = MakeRect(root, "FeatureRow", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 172), new Vector2(360, 44));
+            // Feature row (M-a camera/control, M-c relocation): mode actions with a
+            // clear gap above the money buttons (b=180 from the bottom).
+            var featRow = MakeRect(root, "FeatureRow", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 180), new Vector2(376, 40));
             var featHlg = featRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            featHlg.spacing = 6; featHlg.childControlWidth = true; featHlg.childForceExpandWidth = true; featHlg.childControlHeight = true; featHlg.childForceExpandHeight = true;
+            featHlg.spacing = SpaceS; featHlg.padding = new RectOffset(4, 4, 0, 0); featHlg.childControlWidth = true; featHlg.childForceExpandWidth = true; featHlg.childControlHeight = true; featHlg.childForceExpandHeight = true;
             var move = MakeButton(featRow, "MoveButton", "MOVE", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
             var cam = MakeButton(featRow, "CamButton", "CAM", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
             var control = MakeButton(featRow, "ControlButton", "CONTROL", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            AutoSizeLabel(move, 12, 16); AutoSizeLabel(cam, 12, 16); AutoSizeLabel(control, 12, 16);
 
-            // Actions. Sell sits fully inside the panel (at 24 it clipped 6 px
-            // out the bottom); upgrade above it; the feature row above that.
-            var upgrade = MakeButton(root, "UpgradeButton", "UPGRADE 130", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 108), new Vector2(360, 64));
-            var sell = MakeButton(root, "SellButton", "SELL +60", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 40), new Vector2(360, 60));
-
-            // Close: a small labelled X, not the old 44 px icon button — the icon
-            // slot carried the PAUSE glyph (or a skin's blank sprite), which read
-            // as an empty box in the panel's corner.
-            var close = MakeButton(root, "CloseButton", "X", theme, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-26, -26), new Vector2(34, 34));
-            var closeLbl = close.GetComponentInChildren<TMP_Text>();
-            if (closeLbl != null) closeLbl.fontSize = 18f;
+            // Money actions: upgrade then sell, with measured gaps and an 18 px
+            // bottom margin — no dead zone, no crowding against the feature row.
+            var upgrade = MakeButton(root, "UpgradeButton", "UPGRADE 130", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 110), new Vector2(376, 56));
+            var sell = MakeButton(root, "SellButton", "SELL +60", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 45), new Vector2(376, 54));
+            AutoSizeLabel(upgrade, 16, 22); AutoSizeLabel(sell, 16, 22);
 
             var so = new SerializedObject(comp);
             SetRef(so, "theme", theme);
@@ -573,7 +648,10 @@ namespace CoreholdEditor
             var cells = new TMP_Text[9];
             var rows = new Image[3];
 
-            float w = 380f, h = 180f;
+            // Derive the grid from the ROOT rect's real size (Fix 1) so it always
+            // fits whatever the panel allots it — no hardcoded 380×180 that
+            // overflows a resized panel.
+            float w = root.sizeDelta.x, h = root.sizeDelta.y;
             float colW = w / 4f;   // first column is the row label
             float rowH = h / 4f;   // first row is the header
 

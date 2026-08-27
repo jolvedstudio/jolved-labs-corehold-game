@@ -25,7 +25,7 @@ namespace Corehold.Systems
             [Tooltip("Which logical effect this prefab fulfils (GDD §11).")]
             public VFXDirector.Effect id;
 
-            [Tooltip("A Cartoon FX Remaster prefab played for this effect.")]
+            [Tooltip("Any Shuriken-based effect prefab (Cartoon FX, Epic Toon FX, etc.) played for this effect. Must contain at least one ParticleSystem.")]
             public GameObject prefab;
 
             [Tooltip("How many copies to prewarm so the first play never allocates.")]
