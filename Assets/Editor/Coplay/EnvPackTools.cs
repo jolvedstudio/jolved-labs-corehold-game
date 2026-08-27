@@ -159,7 +159,9 @@ public static class EnvPackTools
             {
                 prefab = prefab,
                 role = role,
-                scaleRange = new Vector2(scale, scale),   // shipped scale, exactly — vary it later
+                scaleRange = new Vector2(scale, scale),   // exact anchor size; per-instance
+                                                          // variance comes from the pack's
+                                                          // scaleJitter knob, not this range
                 allowInFold = inFold
             };
 
