@@ -334,7 +334,15 @@ public static class BalanceModelRunner
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
+                    // Windows pipes default to the ANSI codepage (cp1252),
+                    // which cannot carry the report's arrows — the model
+                    // forces UTF-8 on its side (sys.stdout.reconfigure), this
+                    // is the matching read side plus a belt-and-braces env
+                    // override for any Python that predates reconfigure.
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8,
                 };
+                psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
                 using (var proc = Process.Start(psi))
                 {
                     // Drain the pipes on tasks so the wait loop below can poll
