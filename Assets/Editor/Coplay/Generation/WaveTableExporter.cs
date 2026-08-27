@@ -117,10 +117,23 @@ public static class WaveTableExporter
         // HP) — so a turret buff moves the verdict the same run it is
         // authored, exactly like an enemy edit does. Extra ids the sim never
         // places are harmless rows.
+        //
+        // UTILITY towers are skipped, not exported: the Cryo Node, Floodlight
+        // and Salvage Rig legitimately author range 0 (their reach is an aura
+        // or a light, not a gun), which the model's combat schema cannot
+        // express — and a row it cannot express must not brick certification
+        // of a map that never fields it. Skips are recorded in the JSON as
+        // towers_skipped so a debugging eye can see the decision.
         string towersError = null;
+        var towersSkipped = new List<string>();
         bool firstT = true;
         foreach (TowerDefinition tower in AllTowerDefinitions(ref towersError))
         {
+            if (tower.tiers.Any(t => t.cost <= 0 || t.range <= 0f))
+            {
+                towersSkipped.Add(tower.id);
+                continue;
+            }
             if (!firstT) sb.Append(',');
             firstT = false;
             sb.Append($"\"{tower.id}\":{{\"type\":{(int)tower.damageType}," +
@@ -159,8 +172,12 @@ public static class WaveTableExporter
             error = towersError;
             return null;
         }
+        sb.Append('}');
+        if (towersSkipped.Count > 0)
+            sb.Append(",\"towers_skipped\":[" +
+                      string.Join(",", towersSkipped.Select(t => $"\"{t}\"")) + "]");
 
-        sb.Append("},\"waves\":[");
+        sb.Append(",\"waves\":[");
 
         // ---- waves: exactly what WaveManager will run -----------------------
         for (int w = 0; w < level.waves.Length; w++)
