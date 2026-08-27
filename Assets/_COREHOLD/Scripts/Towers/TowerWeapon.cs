@@ -108,6 +108,7 @@ namespace Corehold.Towers
         /// </summary>
         public float Damage => HasTier
             ? CurrentTier.TotalDamagePerVolley * (1f + DamageBonus) * VeterancyMultiplier
+              * TowerTuning.DamageMult
             : 0f;
 
         /// <summary>Combined shots-per-second across every mount, scaled by any aura fire-rate buff.</summary>
@@ -277,7 +278,8 @@ namespace Corehold.Towers
             if (_barrelSpin != null)
                 _barrelSpin.NotifyFired();
 
-            float effectiveDamage = weapon.damage * (1f + DamageBonus) * VeterancyMultiplier;
+            float effectiveDamage = weapon.damage * (1f + DamageBonus) * VeterancyMultiplier
+                                    * TowerTuning.DamageMult;
             float effectiveFireRate = weapon.fireRate * (1f + FireRateBonus);
             Color trace = weapon.tracerColor.a > 0f ? weapon.tracerColor : tracerColor;
 

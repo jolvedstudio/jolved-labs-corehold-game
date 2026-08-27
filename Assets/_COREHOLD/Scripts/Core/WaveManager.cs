@@ -383,8 +383,20 @@ namespace Corehold.Core
         private readonly List<Enemy> _strandedScratch = new List<Enemy>();
         private bool _liveDirty;
 
+        /// <summary>This level's authored starting salvage (0 = none authored).
+        /// GameManager pulls it at run configuration — pull, not push, so the
+        /// order of Awakes can never lose it.</summary>
+        public int LevelStartingSalvage => level != null ? level.startingSalvage : 0;
+
         private void ResolveRules()
         {
+            // Per-level certified turret tuning (adopt writes it into the
+            // LevelDefinition). Applied — or reset to 1 — on EVERY level, so a
+            // previous scene's multipliers can never leak through the statics.
+            Corehold.Towers.TowerTuning.Apply(
+                level != null ? level.towerDamageMultiplier : 1f,
+                level != null ? level.towerRangeMultiplier : 1f);
+
             if (level != null)
             {
                 _maxLiveEnemies = level.maxLiveEnemies > 0 ? level.maxLiveEnemies : maxLiveEnemiesFallback;

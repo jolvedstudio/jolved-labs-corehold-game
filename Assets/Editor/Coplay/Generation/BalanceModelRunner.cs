@@ -75,29 +75,65 @@ public static class BalanceModelRunner
         public int max_live;
         public bool in_band;
         public SuggestedChange[] suggested_changes;
+        // Defender package (level-scoped, runtime-honoured): the FINAL
+        // multipliers/bank the tune settled on. 1 / 0 = untouched.
+        public float suggested_tower_dps_mult = 1f;
+        public float suggested_tower_range_mult = 1f;
+        public int suggested_starting_salvage;
         public bool suggested_in_band;
         public string suggested_note;
         public Row[] rows;
     }
 
+    /// <summary>True when the tune proposes anything at all — a defender
+    /// package, wave count changes, or both.</summary>
+    public static bool HasSuggestedTune(Result r)
+    {
+        if (r == null)
+            return false;
+        return (r.suggested_changes != null && r.suggested_changes.Length > 0) ||
+               r.suggested_tower_dps_mult > 1.0001f ||
+               r.suggested_tower_range_mult > 1.0001f ||
+               r.suggested_starting_salvage > 0;
+    }
+
     /// <summary>
-    /// Human-readable block for a flagged run's counts-only tune; empty when
+    /// Human-readable block for a flagged run's suggested tune; empty when
     /// the run carried none. Display-only — the numbers are the model's.
     /// </summary>
     public static string DescribeSuggestedTune(Result r)
     {
-        if (r == null || r.suggested_changes == null || r.suggested_changes.Length == 0)
+        if (!HasSuggestedTune(r))
             return "";
         var sb = new StringBuilder();
         sb.AppendLine(r.suggested_in_band
-            ? "counts-only tune that passes the gate:"
-            : "counts-only tune (best effort — does not fully converge):");
-        foreach (SuggestedChange c in r.suggested_changes)
-            sb.AppendLine($"  wave {c.wave}: {c.enemy} {c.prev}→{c.next}" +
-                          (c.next == 0 ? " (drop the group)" : ""));
+            ? "suggested tune that passes the gate:"
+            : "suggested tune (best effort — does not fully converge):");
+        string pkg = DescribeDefenderPackage(r);
+        if (pkg.Length > 0)
+            sb.AppendLine($"  defender package (level-scoped, certified): {pkg}");
+        if (r.suggested_changes != null)
+            foreach (SuggestedChange c in r.suggested_changes)
+                sb.AppendLine($"  wave {c.wave}: {c.enemy} {c.prev}→{c.next}" +
+                              (c.next == 0 ? " (drop the group)" : ""));
         if (!string.IsNullOrEmpty(r.suggested_note))
             sb.AppendLine($"  {r.suggested_note}");
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>"starting salvage → 600, turret damage ×1.50, …" or "".</summary>
+    public static string DescribeDefenderPackage(Result r)
+    {
+        if (r == null)
+            return "";
+        var parts = new List<string>();
+        if (r.suggested_starting_salvage > 0)
+            parts.Add($"starting salvage → {r.suggested_starting_salvage}");
+        if (r.suggested_tower_dps_mult > 1.0001f)
+            parts.Add($"turret damage ×{r.suggested_tower_dps_mult:0.00}");
+        if (r.suggested_tower_range_mult > 1.0001f)
+            parts.Add($"turret range ×{r.suggested_tower_range_mult:0.00}");
+        return string.Join(", ", parts);
     }
 
     /// <summary>Live cap the shipped map is tuned and framed around.</summary>
@@ -152,9 +188,11 @@ public static class BalanceModelRunner
     /// </summary>
     public static Result Run(List<PathRoute> routes, Vector3 airSpawn, Vector3 coreTarget,
                              bool solveGrowth, float hpGrowth, int maxLive, out string error,
-                             int startingSalvage = -1, string wavesJsonPath = null)
+                             int startingSalvage = -1, string wavesJsonPath = null,
+                             float towerDpsMult = 1f, float towerRangeMult = 1f)
     {
         error = null;
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
 
         string geometryPath = WriteGeometryJson(routes, airSpawn, coreTarget, out string geomError);
         if (geometryPath == null)
@@ -171,6 +209,13 @@ public static class BalanceModelRunner
         // difficulty economy multiplier for it). -1 = the model's default.
         if (startingSalvage >= 0)
             args.Append($"--starting-salvage {startingSalvage} ");
+        // Certified per-level turret tuning (LevelDefinition multipliers) —
+        // the model must judge the level with the same buffs the runtime
+        // (TowerTuning) will apply, or "certified" is fiction.
+        if (towerDpsMult > 0f && Mathf.Abs(towerDpsMult - 1f) > 0.0001f)
+            args.Append($"--tower-dps-mult {towerDpsMult.ToString("0.####", inv)} ");
+        if (towerRangeMult > 0f && Mathf.Abs(towerRangeMult - 1f) > 0.0001f)
+            args.Append($"--tower-range-mult {towerRangeMult.ToString("0.####", inv)} ");
         // Live certification: the level's actual wave tables + enemy stats
         // (WaveTableExporter) replace the model's embedded copies for this run,
         // so the gate certifies the assets the level will really play.
