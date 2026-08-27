@@ -1552,6 +1552,17 @@ def solve_hp_growth(difficulty: str, geometry: Geometry):
 
 
 def main(argv=None) -> int:
+    # Windows pipes (the Unity runner redirects stdout/stderr) default to the
+    # ANSI codepage — cp1252 cannot encode the report's arrows, print() dies,
+    # and a dead print means NO JSON for the gate. Force UTF-8 on both streams;
+    # a no-op everywhere sane.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
     ap = argparse.ArgumentParser(description="COREHOLD per-wave balance model (R1, R10, R30, R22)")
     ap.add_argument("--difficulty", choices=list(DIFFICULTY_HP_MULT),
                     default="normal")
@@ -1727,19 +1738,11 @@ def main(argv=None) -> int:
         report += "\n\n" + format_delta_table(
             args.difficulty, base_rows, rows, args.measured_lengths, geom)
 
-    print(report)
-
-    if args.report:
-        # The baseline file carries all three tiers, like Appendix A's own
-        # run()/run(veteran)/run(nightmare) printout. Normal is the gate. Any
-        # measured geometry applies to every tier, so the file describes one map.
-        sections = [report if d == args.difficulty else
-                    format_report(d, *run_model(d, args.measured_lengths, args.polyline))
-                    for d in ("normal", "veteran", "nightmare")]
-        with open(args.report, "w") as f:
-            f.write(("\n\n" + "=" * 78 + "\n\n").join(sections) + "\n")
+    # JSON first: it is what the generation gate actually consumes, so nothing
+    # that can go wrong with console printing may stand between the model and
+    # its verdict file.
     if args.json:
-        with open(args.json, "w") as f:
+        with open(args.json, "w", encoding="utf-8") as f:
             json.dump(dict(difficulty=args.difficulty,
                            hp_growth_used=ACTIVE["hp_growth"],
                            solved=args.solve_hp_growth,
@@ -1753,6 +1756,18 @@ def main(argv=None) -> int:
                            rows=[{k: v for k, v in r.items()
                                   if not k.startswith("_")} for r in rows]),
                       f, indent=1)
+
+    print(report)
+
+    if args.report:
+        # The baseline file carries all three tiers, like Appendix A's own
+        # run()/run(veteran)/run(nightmare) printout. Normal is the gate. Any
+        # measured geometry applies to every tier, so the file describes one map.
+        sections = [report if d == args.difficulty else
+                    format_report(d, *run_model(d, args.measured_lengths, args.polyline))
+                    for d in ("normal", "veteran", "nightmare")]
+        with open(args.report, "w", encoding="utf-8") as f:
+            f.write(("\n\n" + "=" * 78 + "\n\n").join(sections) + "\n")
 
     return 1 if any(r["flags"] for r in rows) else 0
 
