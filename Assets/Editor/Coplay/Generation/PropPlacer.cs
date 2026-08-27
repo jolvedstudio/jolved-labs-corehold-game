@@ -137,6 +137,23 @@ public static class PropPlacer
         var clutterPool = theme.entries?.Where(e => e.prefab != null && e.role == EnvPack.PropRole.Clutter)
             .OrderBy(e => e.prefab.name, System.StringComparer.Ordinal).ToList();
 
+        int tinted = 0;
+
+        // Per-instance size: the entry's authored band, then the pack's jitter
+        // damped by role — landmarks are navigation anchors and stay near
+        // their recognized size, clutter is where sameness shows most. The
+        // jitter draw happens even at knob 0 so turning variation off never
+        // reshuffles WHERE things landed, only how uniform they look.
+        float DrawScale(EnvPack.Entry entry)
+        {
+            float baseScale = Mathf.Lerp(
+                entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
+                entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
+                rng.Range(0f, 1f));
+            float j = theme.scaleJitter * RoleScaleJitter(entry.role);
+            return baseScale * (1f + rng.Range(-1f, 1f) * j);
+        }
+
         // The camera is FIXED (38° pitch), so whether a prop hides a pad from the
         // player is decided at placement time and never changes. One reusable
         // single-element list keeps the per-attempt test allocation-free.
@@ -205,10 +222,7 @@ public static class PropPlacer
                 for (int attempt = 0; attempt < MaxAttemptsPerProp; attempt++)
                 {
                     EnvPack.Entry entry = entries[(int)(rng.NextU() % (uint)entries.Count)];
-                    float scale = Mathf.Lerp(
-                        entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
-                        entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
-                        rng.Range(0f, 1f));
+                    float scale = DrawScale(entry);
 
                     Vector3 pos = inField
                         ? new Vector3(rng.Range(-halfW, halfW), 0f, rng.Range(-halfD, halfD))
@@ -278,10 +292,7 @@ public static class PropPlacer
                 for (int attempt = 0; attempt < MaxAttemptsPerProp; attempt++)
                 {
                     EnvPack.Entry entry = pool[(int)(rng.NextU() % (uint)pool.Count)];
-                    float scale = Mathf.Lerp(
-                        entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
-                        entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
-                        rng.Range(0f, 1f));
+                    float scale = DrawScale(entry);
 
                     var pos = new Vector3(rng.Range(fb.min.x + 3f, fb.max.x - 3f), 0f,
                                           rng.Range(fb.min.z + 3f, fb.max.z - 3f));
@@ -357,8 +368,30 @@ public static class PropPlacer
                     Quaternion.identity, Quaternion.FromToRotation(Vector3.up, normal),
                     theme.slopeTiltMaxDegrees) * rot;
             }
+
+            // UPRIGHT JITTER: a small role-damped lean in the prop's own frame,
+            // on top of the settle. The draws always happen, so zeroing the
+            // knob straightens the props without reshuffling the layout.
+            float lean = theme.uprightJitterDegrees * RoleLean(entry.role);
+            float leanX = rng.Range(-1f, 1f) * lean;
+            float leanZ = rng.Range(-1f, 1f) * lean;
+            if (lean > 0f)
+                rot = rot * Quaternion.Euler(leanX, 0f, leanZ);
+
+            // Sink varies per prop (0.06–0.15 × scale): a uniform sink line
+            // across a whole field reads as manufactured as uniform scale did.
             Vector3 placedPos = pos;
-            placedPos.y = -SinkIn * scale;
+            placedPos.y = -rng.Range(0.06f, 0.15f) * scale;
+
+            // TONE: one of five weathering steps, relief-biased on terrain maps
+            // (crests lean sun-bleached, hollows lean damp/dark) so the tint
+            // reads as one coherent place, not per-prop noise.
+            int toneStep = (int)(rng.NextU() % 5u) - 2;
+            if (field != null)
+            {
+                float relief = field.Relief(pos.x, pos.z);
+                toneStep = Mathf.Clamp(toneStep + (relief > 0.7f ? 1 : relief < 0.3f ? -1 : 0), -2, 2);
+            }
 
             var go = (GameObject)PrefabUtility.InstantiatePrefab(entry.prefab);
             go.transform.SetParent(dressing.transform, false);
@@ -366,6 +399,9 @@ public static class PropPlacer
             go.transform.rotation = rot;
             go.transform.localScale = Vector3.one * scale;
             go.name = name;
+
+            if (theme.toneVariation > 0f && ToneVariants.Apply(go, toneStep, theme.toneVariation) > 0)
+                tinted++;
 
             var marker = go.AddComponent<PlacedProp>();
             marker.placedFootprintRadius = radius;
@@ -403,13 +439,15 @@ public static class PropPlacer
                 for (int attempt = 0; attempt < SatelliteAttempts; attempt++)
                 {
                     EnvPack.Entry entry = clutterPool[(int)(rng.NextU() % (uint)clutterPool.Count)];
-                    float scale = Mathf.Lerp(
-                        entry.scaleRange.x > 0f ? entry.scaleRange.x : 1f,
-                        entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
-                        rng.Range(0f, 1f)) * rng.Range(0.7f, 0.95f);
+                    float scale = DrawScale(entry) * rng.Range(0.7f, 0.95f);
 
                     float ang = rng.Range(0f, Mathf.PI * 2f);
-                    float dist = anchorRadius + entry.footprintRadius * scale + rng.Range(0.4f, 3.0f);
+                    // Satellites shrink with distance from the anchor — debris
+                    // thins outward the way real scatter does, instead of the
+                    // cluster ending on a hard ring.
+                    float extra = rng.Range(0.4f, 3.0f);
+                    scale *= Mathf.Lerp(1f, 0.85f, (extra - 0.4f) / 2.6f);
+                    float dist = anchorRadius + entry.footprintRadius * scale + extra;
                     Vector3 pos = anchorPos + new Vector3(Mathf.Cos(ang) * dist, 0f, Mathf.Sin(ang) * dist);
                     float yaw = anchorYaw + rng.Range(-45f, 45f);
 
@@ -547,7 +585,38 @@ public static class PropPlacer
               (stillBlocked.Count == 0 ? "all pads recovered" : $"{stillBlocked.Count} pad(s) STILL short")
             : "  occlusion re-run: no pad lost a span to dressing");
 
+        log.AppendLine($"  variation: scale ±{theme.scaleJitter:P0} by role, " +
+                       $"{tinted} prop(s) tone-shifted across 5 steps (strength {theme.toneVariation:0.##}" +
+                       (field != null ? ", relief-biased" : "") + "), " +
+                       $"lean ±{theme.uprightJitterDegrees:0.#}° by role, sink 0.06–0.15 × scale");
+
         return log.ToString();
+    }
+
+    /// <summary>Scale-jitter damping per role: landmarks are navigation anchors
+    /// and stay near their recognized size; clutter is where sameness shows.</summary>
+    private static float RoleScaleJitter(EnvPack.PropRole role)
+    {
+        switch (role)
+        {
+            case EnvPack.PropRole.Landmark: return 0.5f;
+            case EnvPack.PropRole.Clutter: return 1.4f;
+            case EnvPack.PropRole.Silhouette: return 1.2f;
+            default: return 1f;
+        }
+    }
+
+    /// <summary>Upright-jitter damping per role: a leaning rock is geology, a
+    /// leaning building is a mistake.</summary>
+    private static float RoleLean(EnvPack.PropRole role)
+    {
+        switch (role)
+        {
+            case EnvPack.PropRole.Landmark: return 0.25f;
+            case EnvPack.PropRole.MidField: return 0.6f;
+            case EnvPack.PropRole.Silhouette: return 0.8f;
+            default: return 1f;
+        }
     }
 
     private static Vector3 Flat(Vector3 v)

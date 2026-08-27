@@ -113,6 +113,27 @@ namespace Corehold.Data
                  "settle slightly into the ground, so nothing perches. 0 keeps everything bolt upright.")]
         [Range(0f, 20f)] public float slopeTiltMaxDegrees = 10f;
 
+        [Header("Dressing variation")]
+
+        [Tooltip("Per-instance size variance on top of each entry's authored scale: ±this fraction, " +
+                 "damped by role (landmarks ×0.5 so navigation anchors stay recognizable, clutter " +
+                 "×1.4 where sameness shows most). Seeded — same seed, same sizes. 0 restores " +
+                 "every prop at its exact authored scale.")]
+        [Range(0f, 0.6f)] public float scaleJitter = 0.25f;
+
+        [Tooltip("Per-instance tone variance: props draw one of five tone steps (sun-bleached ↔ " +
+                 "damp/dark), applied as SHARED variant materials generated once under " +
+                 "Art/Generated/ToneVariants — batching-safe, scene-serializable, no per-instance " +
+                 "material leaks. On terrain maps the draw is relief-biased: crests lean bleached, " +
+                 "hollows lean dark, so the variation reads as weathering rather than noise. 0 = off.")]
+        [Range(0f, 1f)] public float toneVariation = 0.35f;
+
+        [Tooltip("Small random lean applied per instance (degrees), damped by role — clutter gets " +
+                 "the full value, mid-field ×0.6, silhouettes ×0.8, landmarks ×0.25 (a leaning " +
+                 "building reads as a mistake, a leaning rock reads as geology). Composes with the " +
+                 "terrain slope settle. 0 keeps everything perfectly plumb.")]
+        [Range(0f, 10f)] public float uprightJitterDegrees = 2.5f;
+
         [Header("Dressing density")]
 
         [Tooltip("Multiplier on LANDMARK placements inside the design box (1 ≈ 3 on the standard field). 0 disables the role for this theme.")]
