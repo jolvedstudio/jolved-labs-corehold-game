@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Corehold.Data;
 using Corehold.Enemies;
@@ -108,6 +109,57 @@ public static class WaveTableExporter
                 sb.Append($",\"gdps\":{F(gdps)},\"grange\":{F(grange)}");
             sb.Append('}');
         }
+        sb.Append("},\"towers\":{");
+
+        // ---- towers block: the DEFENDER side of live certification ----------
+        // Every TowerDefinition in the project, read straight off the assets
+        // (per-tier dps from the authored mounts, ranges, costs, auras, chassis
+        // HP) — so a turret buff moves the verdict the same run it is
+        // authored, exactly like an enemy edit does. Extra ids the sim never
+        // places are harmless rows.
+        string towersError = null;
+        bool firstT = true;
+        foreach (TowerDefinition tower in AllTowerDefinitions(ref towersError))
+        {
+            if (!firstT) sb.Append(',');
+            firstT = false;
+            sb.Append($"\"{tower.id}\":{{\"type\":{(int)tower.damageType}," +
+                      $"\"air\":{(tower.canTargetAir ? "true" : "false")}");
+            if (tower.targetAirOnly)
+                sb.Append(",\"air_only\":true");
+            sb.Append($",\"hp\":{F(TowerHp(tower))},\"tiers\":[");
+            for (int t = 0; t < tower.tiers.Length; t++)
+            {
+                TowerTier tier = tower.tiers[t];
+                if (t > 0) sb.Append(',');
+                sb.Append($"{{\"cost\":{tier.cost},\"range\":{F(tier.range)}," +
+                          $"\"min_range\":{F(tier.minRange)},\"dps\":{F(tier.TotalDps)}");
+                int chain = 0;
+                float falloff = 0f, splash = 0f;
+                foreach (TowerWeaponMount m in tier.Weapons)
+                {
+                    if (m.chainTargets > chain) { chain = m.chainTargets; falloff = m.chainFalloff; }
+                    splash = Mathf.Max(splash, m.splashRadius);
+                }
+                if (chain > 0)
+                    sb.Append($",\"chain\":{chain},\"falloff\":{F(falloff)}");
+                if (splash > 0f)
+                    sb.Append($",\"splash\":{F(splash)}");
+                if (tier.auraRadius > 0f)
+                    sb.Append($",\"aura_radius\":{F(tier.auraRadius)}," +
+                              $"\"aura_fire\":{F(tier.auraFireRateBonus)}," +
+                              $"\"aura_range\":{F(tier.auraRangeBonus)}," +
+                              $"\"aura_dmg\":{F(tier.auraDamageBonus)}");
+                sb.Append('}');
+            }
+            sb.Append("]}");
+        }
+        if (towersError != null)
+        {
+            error = towersError;
+            return null;
+        }
+
         sb.Append("},\"waves\":[");
 
         // ---- waves: exactly what WaveManager will run -----------------------
@@ -181,6 +233,50 @@ public static class WaveTableExporter
             gdps = lDamage * lRate;
             grange = lRange;
         }
+    }
+
+    /// <summary>
+    /// Every usable TowerDefinition in the project, deterministic order,
+    /// refusing id ambiguity the same way enemies do. Definitions with no id
+    /// or no tiers are skipped — the sim cannot place them anyway.
+    /// </summary>
+    private static IEnumerable<TowerDefinition> AllTowerDefinitions(ref string error)
+    {
+        var byId = new Dictionary<string, TowerDefinition>();
+        var ordered = new List<TowerDefinition>();
+        foreach (string guid in AssetDatabase.FindAssets("t:TowerDefinition")
+                     .OrderBy(g => AssetDatabase.GUIDToAssetPath(g), System.StringComparer.Ordinal))
+        {
+            var def = AssetDatabase.LoadAssetAtPath<TowerDefinition>(AssetDatabase.GUIDToAssetPath(guid));
+            if (def == null || string.IsNullOrEmpty(def.id) ||
+                def.tiers == null || def.tiers.Length == 0)
+                continue;
+            if (byId.TryGetValue(def.id, out TowerDefinition seen) && seen != def)
+            {
+                error = $"two tower definitions share id '{def.id}': '{seen.name}' and " +
+                        $"'{def.name}' — certification would be ambiguous";
+                return System.Linq.Enumerable.Empty<TowerDefinition>();
+            }
+            if (!byId.ContainsKey(def.id))
+            {
+                byId[def.id] = def;
+                ordered.Add(def);
+            }
+        }
+        return ordered;
+    }
+
+    /// <summary>Chassis HP: the prefab's authored TowerHealth, or the runtime
+    /// default Tower.Build falls back to when none is authored.</summary>
+    private static float TowerHp(TowerDefinition def)
+    {
+        if (def.basePrefab != null)
+        {
+            var health = def.basePrefab.GetComponentInChildren<Corehold.Towers.TowerHealth>(true);
+            if (health != null && health.MaxHealth > 0f)
+                return health.MaxHealth;
+        }
+        return 220f;
     }
 
     private static string MutatorNames(WaveMutator flags)

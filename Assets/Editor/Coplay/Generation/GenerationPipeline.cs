@@ -205,6 +205,16 @@ public static class GenerationPipeline
         {
             AssetDatabase.DeleteAsset(ctx.levelAssetPath);
             notes.Add($"deleted {ctx.levelAssetPath}");
+
+            // An adopt offer may have cloned level-owned wave tables beside the
+            // definition — they die with it, or a failed adopt leaves orphans.
+            string wavesFolder = ctx.levelAssetPath.Substring(0, ctx.levelAssetPath.Length - ".asset".Length)
+                                 + "_Waves";
+            if (AssetDatabase.IsValidFolder(wavesFolder))
+            {
+                AssetDatabase.DeleteAsset(wavesFolder);
+                notes.Add("deleted its cloned wave tables");
+            }
         }
 
         if (ctx.sceneCreated && !ctx.sceneSaved)
@@ -895,31 +905,188 @@ public static class GenerationPipeline
 
         if (!ctx.model.in_band)
         {
-            var flagged = new List<string>();
-            foreach (var row in ctx.model.rows)
-                if (row.flags != null && row.flags.Length > 0)
-                {
-                    flagged.Add($"wave {row.wave}: margin {row.margin:0.00} [{string.Join(",", row.flags)}]" +
-                                (string.IsNullOrEmpty(row.worst_group) ? "" : $" worst={row.worst_group}"));
-                    // The model's own fix suggestions — which knob, which enemy,
-                    // how much. This pipeline discards the scene, so the fixes
-                    // land on the blueprint's wave/enemy assets (or the campaign
-                    // stage's, where the Builder can apply the tune directly).
-                    if (row.advice != null)
-                        foreach (string a in row.advice)
-                            flagged.Add($"    fix → {a}");
-                }
-            string tune = BalanceModelRunner.DescribeSuggestedTune(ctx.model);
+            // Interactive runs get a CHOICE before the discard: adopt the
+            // model's counts-only tune (cloned level-owned, applied,
+            // re-certified) or discard as usual. Batch paths — the Campaign
+            // Builder's retry loop, contact sheets — never see a dialog.
+            if (InteractiveTuneOffer && !Application.isBatchMode &&
+                ctx.model.suggested_changes != null && ctx.model.suggested_changes.Length > 0 &&
+                OfferAdoptTune(ctx, out StageResult adopted))
+                return adopted;
+
             return StageResult.Fail("margins out of band at the solved/verified growth. Reseed (R29) for a " +
-                                    "coverage problem, or apply the fixes below to the wave/enemy assets this " +
-                                    "level references:\n  • " + string.Join("\n  • ", flagged) +
-                                    (tune.Length > 0 ? "\n" + tune : ""));
+                                    "coverage problem, or apply the fixes below to the wave/enemy/tower " +
+                                    "assets this level references:\n" + DescribeFlagged(ctx.model));
         }
 
         float open = ctx.model.rows[0].margin;
         float close = ctx.model.rows[ctx.model.rows.Length - 1].margin;
         return StageResult.Ok($"all {ctx.model.rows.Length} waves in band at growth " +
                               $"{ctx.model.hp_growth_used:0.####} — opens {open:0.00}, closes {close:0.00}");
+    }
+
+    /// <summary>
+    /// Interactive runs only (the Generator window / menu set this around
+    /// RunAll): a failed margin gate OFFERS the model's counts-only tune via a
+    /// dialog instead of silently discarding. Batch drivers — the Campaign
+    /// Builder's auto-reseed loop, contact sheets — leave it false and keep
+    /// the pure discard-on-fail contract.
+    /// </summary>
+    public static bool InteractiveTuneOffer;
+
+    /// <summary>The flagged waves + the model's advice + its tune, as one
+    /// bulleted block — the shared body of every margin-gate failure text.</summary>
+    private static string DescribeFlagged(BalanceModelRunner.Result model)
+    {
+        var flagged = new List<string>();
+        foreach (var row in model.rows)
+            if (row.flags != null && row.flags.Length > 0)
+            {
+                flagged.Add($"wave {row.wave}: margin {row.margin:0.00} [{string.Join(",", row.flags)}]" +
+                            (string.IsNullOrEmpty(row.worst_group) ? "" : $" worst={row.worst_group}"));
+                if (row.advice != null)
+                    foreach (string a in row.advice)
+                        flagged.Add($"    fix → {a}");
+            }
+        string tune = BalanceModelRunner.DescribeSuggestedTune(model);
+        return "  • " + string.Join("\n  • ", flagged) + (tune.Length > 0 ? "\n" + tune : "");
+    }
+
+    /// <summary>
+    /// The adopt-or-discard dialog and, on adopt, the whole loop: clone the
+    /// wave tables level-owned (the shipped/shared assets are never edited),
+    /// apply the tune through the shared applier, re-export, re-solve,
+    /// re-certify. Returns false when the user declined (caller falls through
+    /// to the normal discard); true with <paramref name="result"/> otherwise —
+    /// Ok when the adopted table certifies, Fail when even the tune cannot
+    /// save this seed (one offer per seed; no dialog loops).
+    /// </summary>
+    private static bool OfferAdoptTune(Context ctx, out StageResult result)
+    {
+        result = default;
+        var changes = ctx.model.suggested_changes;
+
+        var lines = new StringBuilder();
+        for (int i = 0; i < changes.Length && i < 12; i++)
+            lines.AppendLine($"  wave {changes[i].wave}: {changes[i].enemy} " +
+                             $"{changes[i].prev}→{changes[i].next}" +
+                             (changes[i].next == 0 ? " (drop the group)" : ""));
+        if (changes.Length > 12)
+            lines.AppendLine($"  … and {changes.Length - 12} more");
+
+        bool adopt = EditorUtility.DisplayDialog(
+            "Waves out of band — adopt the model's counts-only tune?",
+            "This map fails the margin gate as its wave tables stand.\n\n" +
+            "Counts-only tune (gaps, offsets, mutators, enemy and tower stats stay yours):\n" +
+            lines +
+            (ctx.model.suggested_in_band
+                ? "\nThe model predicts this passes."
+                : "\nBest effort — the model predicts it does NOT fully converge.") +
+            "\n\nAdopt clones the wave tables so they belong to THIS level, applies the " +
+            "counts, re-solves the growth and re-certifies. Decline discards this seed " +
+            "as usual (the full advice is in the report either way).",
+            "Adopt & re-certify", "Discard this seed");
+        if (!adopt)
+            return false;
+
+        var def = AssetDatabase.LoadAssetAtPath<LevelDefinition>(ctx.levelAssetPath);
+        if (def == null)
+        {
+            result = StageResult.Fail("adopt: the emitted LevelDefinition is not loadable any more");
+            return true;
+        }
+
+        var log = new StringBuilder();
+        int cloned = EnsureLevelOwnedWaves(def, ctx.levelAssetPath);
+        if (!WaveTuneApplier.Apply(def, changes, "adopt", log))
+        {
+            result = StageResult.Fail("adopt refused:\n" + log.ToString().TrimEnd());
+            return true;
+        }
+        AssetDatabase.SaveAssets();
+
+        string wavesJson = WaveTableExporter.Export(def, out string exportError);
+        if (wavesJson == null)
+        {
+            result = StageResult.Fail($"adopt: re-export failed — {exportError}");
+            return true;
+        }
+        BalanceModelRunner.Result model;
+        string error;
+        try
+        {
+            model = BalanceModelRunner.Run(ctx.routes, ctx.layout.airSpawn, ctx.coreTarget.position,
+                solveGrowth: true, hpGrowth: 0f, maxLive: def.maxLiveEnemies, out error,
+                wavesJsonPath: wavesJson);
+        }
+        finally
+        {
+            try { System.IO.File.Delete(wavesJson); } catch { /* temp file */ }
+        }
+        if (model == null)
+        {
+            result = StageResult.Fail($"adopt: model re-run failed — {error}");
+            return true;
+        }
+
+        ctx.model = model;
+        if (model.solved && model.solved_hp_growth > 0f)
+        {
+            def.hpGrowthPerWave = model.solved_hp_growth;
+            EditorUtility.SetDirty(def);
+            AssetDatabase.SaveAssets();
+        }
+
+        if (!model.in_band)
+        {
+            result = StageResult.Fail("user adopted the counts-only tune, but margins are STILL out " +
+                                      "of band at the re-solved growth — what remains needs a non-count " +
+                                      "fix; discarding:\n" + DescribeFlagged(model));
+            return true;
+        }
+
+        result = StageResult.Ok($"user ADOPTED the counts-only tune ({changes.Length} change(s)" +
+                                (cloned > 0 ? $", {cloned} wave table(s) cloned level-owned" : "") +
+                                $"); re-solved growth {model.solved_hp_growth:0.####}, all margins in band:\n" +
+                                log.ToString().TrimEnd());
+        return true;
+    }
+
+    /// <summary>
+    /// Deep-clone any wave table the definition shares with the rest of the
+    /// project (the shipped Wave_01..10, another level's tables) into this
+    /// level's own {name}_Waves folder and rewire — so an adopted tune can
+    /// never edit an asset some other level plays. Already-owned tables pass
+    /// through untouched; returns how many were cloned.
+    /// </summary>
+    private static int EnsureLevelOwnedWaves(LevelDefinition def, string levelAssetPath)
+    {
+        string dir = System.IO.Path.GetDirectoryName(levelAssetPath).Replace('\\', '/');
+        string folder = levelAssetPath.Substring(0, levelAssetPath.Length - ".asset".Length) + "_Waves";
+
+        var defSo = new SerializedObject(def);
+        var wavesProp = defSo.FindProperty("waves");
+        int cloned = 0;
+        for (int w = 0; w < wavesProp.arraySize; w++)
+        {
+            var element = wavesProp.GetArrayElementAtIndex(w);
+            var shared = element.objectReferenceValue as WaveDefinition;
+            if (shared == null)
+                continue;
+            string path = AssetDatabase.GetAssetPath(shared);
+            if (path.StartsWith(folder + "/", StringComparison.Ordinal))
+                continue;   // already this level's own copy
+            if (!AssetDatabase.IsValidFolder(folder))
+                AssetDatabase.CreateFolder(dir, System.IO.Path.GetFileName(folder));
+            var copy = UnityEngine.Object.Instantiate(shared);
+            copy.name = shared.name;
+            AssetDatabase.CreateAsset(copy, $"{folder}/{shared.name}.asset");
+            element.objectReferenceValue = copy;
+            cloned++;
+        }
+        defSo.ApplyModifiedPropertiesWithoutUndo();
+        EditorUtility.SetDirty(def);
+        return cloned;
     }
 
     private static StageResult StSave(Context ctx)

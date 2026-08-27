@@ -50,7 +50,19 @@ public static class GenerateLevel
         log.AppendLine();
 
         bool failed = false;
-        foreach (var run in GenerationPipeline.RunAll(blueprint))
+        // Menu path is human-driven too: the margin gate may offer its
+        // counts-only tune before discarding.
+        GenerationPipeline.InteractiveTuneOffer = true;
+        List<GenerationPipeline.StageRun> runs;
+        try
+        {
+            runs = GenerationPipeline.RunAll(blueprint);
+        }
+        finally
+        {
+            GenerationPipeline.InteractiveTuneOffer = false;
+        }
+        foreach (var run in runs)
         {
             string icon = !run.result.ok ? "✗" : run.result.skipped ? "–" : "✓";
             string gate = run.stage.gate ? "[GATE] " : "";

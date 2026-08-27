@@ -570,7 +570,18 @@ public class GeneratorWindow : EditorWindow
         _scenePath = null;
         _ran = true;
 
-        var results = GenerationPipeline.RunAll(_blueprint);
+        // A human is at the window: a failed margin gate may OFFER the model's
+        // counts-only tune before discarding (batch drivers never see it).
+        List<GenerationPipeline.StageRun> results;
+        GenerationPipeline.InteractiveTuneOffer = true;
+        try
+        {
+            results = GenerationPipeline.RunAll(_blueprint);
+        }
+        finally
+        {
+            GenerationPipeline.InteractiveTuneOffer = false;
+        }
         _results.AddRange(results);
 
         _totalSeconds = 0;

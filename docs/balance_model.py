@@ -913,6 +913,10 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
             if enemy["air"] and not tower["air"]:
                 exposures.append(0.0)
                 continue
+            # Flak-class towers (roster): air ONLY — ground contacts skipped.
+            if not enemy["air"] and tower.get("air_only"):
+                exposures.append(0.0)
+                continue
             if enemy["air"]:
                 covered = air_covered_length(geom, px, pz, rng, enemy["altitude"])
                 t_per = covered / (enemy["speed"] * g["air_speed_mult"])
@@ -1036,6 +1040,7 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                 # stripped from rows before any JSON dump (see main).
                 _group_stats=[dict(id=g["id"], count=g["count"], eff_hp=g["eff_hp"],
                                    delivered=g["delivered"], air=g["enemy"]["air"],
+                                   alt=g["enemy"].get("altitude", 0.0),
                                    lane=g["lane"]) for g in groups],
                 _group_soak=group_soak)
 
@@ -1059,12 +1064,51 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
 #  Advice & counts-only tune (the gate's actionable half)
 # =============================================================================
 
-def advise_wave(wave_number: int, flags: list, result: dict) -> list:
+def _reach_gap(geom: Geometry, built: dict, g: dict):
+    """
+    For a starved group: the nearest built pad's horizontal gap to the group's
+    path, and the longest range its tower could ever field. When the gap
+    exceeds that best range the starvation is a literal REACH failure and a
+    range buff is a valid fix; when it does not, the shortage is exposure
+    scale, and firepower is the honest knob instead. Returns
+    (pad, tower_id, gap_m, best_range_m) or None with no built pads.
+    """
+    if not built:
+        return None
+    if g["air"]:
+        pts = []
+        ax, az = geom.air_spawn
+        bx, bz = geom.air_target
+        n = 24
+        for i in range(n + 1):
+            t = i / n
+            pts.append((ax + (bx - ax) * t, az + (bz - az) * t))
+    else:
+        route = geom.routes.get(g["lane"]) or geom.routes[min(geom.routes)]
+        n = max(2, int(route.polyline_length / 4.0))
+        pts = [route.sample(route.polyline_length * i / n) for i in range(n + 1)]
+
+    best = None
+    for pad, inst in built.items():
+        px, pz = geom.pads[pad][0], geom.pads[pad][1]
+        gap = min(math.hypot(px - x, pz - z) for x, z in pts)
+        if best is None or gap < best[2]:
+            reach = max(t["range"] for t in TOWERS[inst.tower_id]["tiers"])
+            best = (pad, inst.tower_id, gap, reach)
+    return best
+
+
+def advise_wave(wave_number: int, flags: list, result: dict,
+                geom: Geometry, built: dict) -> list:
     """
     First-order fix suggestions for a flagged wave — starting points, not
     solutions: every edit shifts exposure and economy second-order, so the
-    loop is always edit → re-run. These lines ride the JSON rows into both
-    editor tools' messaging panes; the numbers exist only here, per R1.
+    loop is always edit → re-run. Deliberately TWO-SIDED: every under-band
+    wave gets both the enemy-side knob (counts / baseHealth) and the
+    defender-side knob (turret firepower, or range where the failure is a
+    literal reach gap) — which side to move is a design choice, not the
+    model's. These lines ride the JSON rows into both editor tools'
+    messaging panes; the numbers exist only here, per R1.
     """
     if not flags:
         return []
@@ -1092,14 +1136,27 @@ def advise_wave(wave_number: int, flags: list, result: dict) -> list:
     if any(f.startswith("GROUP-STARVED") for f in flags):
         for g in starved:
             q = g["delivered"] / g["eff_hp"]
-            where = ("the air corridor — anti-air coverage does not reach enough of it"
-                     if g["air"] else
-                     f"spawner {g['lane']}'s lane — its route is under-covered")
             need = max(0.0, g["eff_hp"] - g["delivered"] / GROUP_MIN)
             k = math.ceil(need / (g["eff_hp"] / g["count"]))
-            advice.append(f"{g['count']}×{g['id']} only gets {q:.2f}× of its HP shot: coverage "
-                          f"problem on {where}. Re-pad/reseed for coverage, or cut "
-                          f"{g['id']} {g['count']}→{max(0, g['count'] - k)}")
+            cut = f"cut {g['id']} {g['count']}→{max(0, g['count'] - k)}"
+            path = "the air corridor" if g["air"] else f"spawner {g['lane']}'s lane"
+            # Name the cause the EVIDENCE supports: a reach gap is a coverage
+            # problem and range/re-padding fixes it; guns that do reach but
+            # under-deliver are oversubscribed or down, and the fix is
+            # firepower there — claiming "coverage" for both was a misread.
+            gap = _reach_gap(geom, built, g)
+            if gap is not None:
+                pad, tower_id, dist, reach = gap
+                needed = math.hypot(dist, g["alt"]) if g["air"] else dist
+                if needed > reach:
+                    advice.append(f"{g['count']}×{g['id']} only gets {q:.2f}× of its HP shot — "
+                                  f"OUT OF REACH on {path}: nearest gun {pad} ({tower_id}) tops "
+                                  f"out at {reach:.0f} m, this path needs {needed:.0f} m. Extend "
+                                  f"range/re-pad/reseed, or {cut}")
+                    continue
+            advice.append(f"{g['count']}×{g['id']} only gets {q:.2f}× of its HP shot on {path} — "
+                          "guns in reach are oversubscribed or down this wave: add firepower "
+                          f"there, or {cut}")
 
     if "LOW" in flags:
         excess = required - deliverable
@@ -1110,6 +1167,15 @@ def advise_wave(wave_number: int, flags: list, result: dict) -> list:
             g = max(covered, key=lambda s: s["eff_hp"])
             advice.append(f"margin {margin:.2f} < {BAND_MIN:.2f} — shortfall "
                           f"{excess:.0f} eff HP: " + cut_or_hp(g, excess))
+        # Defender side: the same shortfall as a firepower delta. Tower asset
+        # edits certify live, so this is a real knob — but only a SANE one up
+        # to about a re-tune; past +150% it is a redesign, not a suggestion.
+        if deliverable > 0:
+            pct = math.ceil((required / deliverable - 1.0) * 100)
+            if 0 < pct <= 150:
+                advice.append(f"defender side: ~+{pct}% turret damage/fire rate overall would "
+                              "close this wave (edit the Tower_*.asset tiers — certification "
+                              "reads them live)")
         if wave_number == 1:
             advice.append("wave 1 meets the opening bank (~2 turrets built) — it has to "
                           "stay light; heavies belong from wave 3 on")
@@ -1234,7 +1300,7 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
         if result["worst_margin"] < GROUP_MIN:
             flags.append(f"GROUP-STARVED({result['worst_group']})")
 
-        result["advice"] = advise_wave(wave_number, flags, result)
+        result["advice"] = advise_wave(wave_number, flags, result, geom, built)
 
         rows.append(dict(wave=wave_number, salvage_before=salvage,
                          income=income, flags=flags, **result))
@@ -1600,12 +1666,12 @@ def main(argv=None) -> int:
                          "(no difficulty economy multiplier — the caller already settled it); "
                          "omit for the tunable default")
     ap.add_argument("--waves", metavar="PATH",
-                    help="replace the embedded wave tables with THIS LEVEL'S (live certification): "
+                    help="replace the embedded tables with THIS LEVEL'S (live certification): "
                          "either a JSON list of waves, each {clear, mutators?, groups:[{enemy,count,"
-                         "gap,offset,spawner}]}, or an object {enemies:{id:{hp,armour,speed,bounty,"
-                         "leak,air,...}}, waves:[...]} whose enemies block overrides/extends the "
-                         "embedded rows with the stats the assets actually carry (what "
-                         "WaveTableExporter writes). Omit for the frozen reference tables")
+                         "gap,offset,spawner}]}, or an object {enemies:{...}, towers:{...}, "
+                         "waves:[...]} whose enemies/towers blocks override the embedded rows with "
+                         "the stats the assets actually carry (what WaveTableExporter writes). "
+                         "Omit for the frozen reference tables")
     ap.add_argument("--tower-loss-off", action="store_true",
                     help="disable the return-fire tower-loss term — reproduces the pre-term "
                          "report byte-for-byte")
@@ -1646,6 +1712,40 @@ def main(argv=None) -> int:
                 # Wholesale replace — the exporter writes complete rows, so a
                 # stat edit on the asset lands here whole, never half-merged.
                 ENEMIES[eid] = parsed_row
+
+            # Optional towers block: the DEFENDER side of live certification.
+            # Same contract as enemies — complete rows read off the actual
+            # TowerDefinition assets, replacing the embedded hand copies, so a
+            # turret buff (range, damage, fire rate) moves the verdict the
+            # same run it is authored.
+            for tid, row in (data.get("towers", {}) if isinstance(data, dict) else {}).items():
+                t_parsed = dict(type=int(row["type"]), air=bool(row["air"]),
+                                hp=float(row.get("hp", TOWER_HP_DEFAULT)))
+                if not 0 <= t_parsed["type"] <= 2:
+                    raise ValueError(f"tower '{tid}': type must be 0..2")
+                if t_parsed["hp"] <= 0:
+                    raise ValueError(f"tower '{tid}': hp must be positive")
+                if bool(row.get("air_only", False)):
+                    t_parsed["air_only"] = True
+                tiers = []
+                for ti, tr in enumerate(row["tiers"]):
+                    tier = dict(cost=int(tr["cost"]), range=float(tr["range"]),
+                                min_range=float(tr.get("min_range", 0.0)),
+                                dps=float(tr.get("dps", 0.0)),
+                                chain=int(tr.get("chain", 0)),
+                                falloff=float(tr.get("falloff", 0.0)),
+                                splash=float(tr.get("splash", 0.0)))
+                    if tier["cost"] <= 0 or tier["range"] <= 0:
+                        raise ValueError(f"tower '{tid}' tier {ti + 1}: cost and range "
+                                         "must be positive")
+                    for k in ("aura_radius", "aura_fire", "aura_range", "aura_dmg"):
+                        if float(tr.get(k, 0.0)) > 0:
+                            tier[k] = float(tr[k])
+                    tiers.append(tier)
+                if not tiers:
+                    raise ValueError(f"tower '{tid}': no tiers")
+                t_parsed["tiers"] = tiers
+                TOWERS[tid] = t_parsed
 
             parsed = []
             for w in wave_list:
