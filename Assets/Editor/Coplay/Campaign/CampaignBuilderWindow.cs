@@ -558,65 +558,11 @@ namespace CoreholdEditor.Campaign
         private bool ApplyTuneToStage(int stageIndex, LevelDefinition def,
                                       BalanceModelRunner.SuggestedChange[] changes, StringBuilder log)
         {
-            // Pass 1 — VALIDATE everything before writing anything (a stale
-            // tune must refuse whole, never half-apply): every addressed group
-            // must still hold the enemy id and count the tune recorded.
-            foreach (var c in changes)
-            {
-                var so = new SerializedObject(def.waves[c.wave - 1]);
-                var groups = so.FindProperty("groups");
-                string stale = null;
-                if (groups == null || c.group < 0 || c.group >= groups.arraySize)
-                {
-                    stale = $"wave {c.wave} group {c.group} is gone";
-                }
-                else
-                {
-                    var g = groups.GetArrayElementAtIndex(c.group);
-                    var enemy = g.FindPropertyRelative("enemy").objectReferenceValue as EnemyDefinition;
-                    int count = g.FindPropertyRelative("count").intValue;
-                    if (enemy == null || enemy.id != c.enemy || count != c.prev)
-                        stale = $"wave {c.wave}: expected {c.prev}×{c.enemy}, found " +
-                                $"{count}×{(enemy != null ? enemy.id : "?")}";
-                }
-                if (stale != null)
-                {
-                    log.AppendLine($"  Level {stageIndex + 1}: STALE tune ({stale}) — the assets " +
-                                   "changed since Verify; nothing was edited. Run Verify again.");
-                    return false;
-                }
-            }
-
-            // Pass 2 — apply the counts. Deletions are collected and done last,
-            // highest group index first, so recorded indices stay valid.
-            var deletions = new List<(int wave, int group)>();
-            foreach (var c in changes)
-            {
-                var waveAsset = def.waves[c.wave - 1];
-                AssetDatabase.MakeEditable(AssetDatabase.GetAssetPath(waveAsset));
-                var so = new SerializedObject(waveAsset);
-                so.FindProperty("groups").GetArrayElementAtIndex(c.group)
-                  .FindPropertyRelative("count").intValue = c.next;
-                so.ApplyModifiedPropertiesWithoutUndo();
-                EditorUtility.SetDirty(waveAsset);
-                log.AppendLine($"  Level {stageIndex + 1} wave {c.wave}: {c.enemy} {c.prev}→{c.next}" +
-                               (c.next == 0 ? " (group removed)" : ""));
-                if (c.next == 0)
-                    deletions.Add((c.wave, c.group));
-            }
-            foreach (var d in deletions.OrderByDescending(d => d.wave * 1000 + d.group))
-            {
-                var waveAsset = def.waves[d.wave - 1];
-                var so = new SerializedObject(waveAsset);
-                var groups = so.FindProperty("groups");
-                if (d.group < groups.arraySize)
-                {
-                    groups.DeleteArrayElementAtIndex(d.group);
-                    so.ApplyModifiedPropertiesWithoutUndo();
-                    EditorUtility.SetDirty(waveAsset);
-                }
-            }
-            return true;
+            // One shared applier (WaveTuneApplier) serves this button and the
+            // Level Generator's adopt offer — two appliers of one tune would
+            // be exactly the drift the doctrine forbids. Validate-all-then-
+            // apply and the stale refusal live there.
+            return WaveTuneApplier.Apply(def, changes, $"Level {stageIndex + 1}", log);
         }
 
         private void DrawRegisterStep()
