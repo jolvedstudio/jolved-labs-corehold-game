@@ -568,7 +568,20 @@ namespace Corehold.Systems
         public PooledEffect PlaySpawnPortalOpen(Vector3 position, Vector3 forward,
             float sizeMultiplier = 1f, float pulseAmplitude = 0f, float pulseHz = 0f)
         {
-            ParticleSystem ps = Play(Effect.SpawnPortal, position, forward);
+            Quaternion rot = forward.sqrMagnitude > 0.0001f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
+                : Quaternion.identity;
+            return PlaySpawnPortalOpen(position, rot, sizeMultiplier, pulseAmplitude, pulseHz);
+        }
+
+        /// <summary>Rotation-explicit variant: prefab authoring differs (some portal
+        /// effects are gates facing +Z, some are GROUND RINGS lying flat), so the
+        /// caller composes the exact orientation — WaveManager adds its [TUNE]
+        /// euler offset on top of the spawner facing.</summary>
+        public PooledEffect PlaySpawnPortalOpen(Vector3 position, Quaternion rotation,
+            float sizeMultiplier = 1f, float pulseAmplitude = 0f, float pulseHz = 0f)
+        {
+            ParticleSystem ps = Play(Effect.SpawnPortal, position, rotation, 1f);
             if (ps == null)
                 return null;
             PooledEffect fx = ps.GetComponentInParent<PooledEffect>();
