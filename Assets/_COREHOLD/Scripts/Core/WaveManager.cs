@@ -507,8 +507,6 @@ namespace Corehold.Core
         [SerializeField] private float portalScale = 1f;
         [Tooltip("[TUNE] Euler offset applied AFTER the computed facing. Prefab authoring differs: a gate authored facing +Z needs (0,0,0); a GROUND-RING effect lying flat needs X=90 (or -90 if it faces away) to stand upright.")]
         [SerializeField] private Vector3 portalEulerOffset = Vector3.zero;
-        [Tooltip("[TUNE] Face each portal toward the CAMERA (horizontal look), so every spawner's gate reads from the fixed view regardless of which map edge it sits on. Off = face the spawner's forward.")]
-        [SerializeField] private bool portalFaceCamera = true;
         [Tooltip("[TUNE] Fraction of the portal's world diameter to lift it so the LOWER RIM meets the ground: 0.5 for an upright gate, 0 for a flat ground circle. The pulse is compensated so the rim never sinks. Air-corridor portals ignore this and float centred where the flyers emerge.")]
         [Range(0f, 0.6f)] [SerializeField] private float portalGroundAnchor = 0.5f;
 
@@ -626,27 +624,26 @@ namespace Corehold.Core
                 (worldDiameter * portalGroundAnchor * (1f + portalPulseAmplitude));
         }
 
-        /// <summary>Portal orientation: face the CAMERA (horizontal look) so the
-        /// gate reads from the fixed view whichever map edge it sits on; falls
-        /// back to the spawner's forward. The [TUNE] euler offset corrects the
-        /// prefab's authoring on top (ground ring vs +Z gate).</summary>
+        /// <summary>Portal orientation: the gate is DIEGETIC — it stands upright
+        /// across the unit's INITIAL direction of travel (the route's starting
+        /// tangent; the run at the Core for air), so units step through it and
+        /// the fixed camera foreshortens it naturally: edge-on (an ellipse) at
+        /// the screen's sides, a full circle when travel runs straight away
+        /// from the view. The [TUNE] euler offset corrects the prefab's
+        /// authoring on top (ground ring vs +Z gate).</summary>
         private Quaternion PortalFacing(Spawner sp)
         {
-            Vector3 facing = sp.transform.forward;
-            if (portalFaceCamera)
-            {
-                Camera cam = Camera.main;
-                if (cam != null)
-                {
-                    Vector3 toCam = cam.transform.position - sp.Position;
-                    toCam.y = 0f;
-                    if (toCam.sqrMagnitude > 0.01f)
-                        facing = toCam.normalized;
-                }
-            }
-            if (facing.sqrMagnitude < 0.0001f)
-                facing = Vector3.forward;
-            return Quaternion.LookRotation(facing.normalized, Vector3.up) *
+            Vector3 travel = Vector3.zero;
+            if (sp.Route != null)
+                sp.Route.SamplePosition(0f, out travel);
+            else if (sp.CoreTarget != null)
+                travel = sp.CoreTarget.position - sp.Position;
+            if (travel.sqrMagnitude < 0.0001f)
+                travel = sp.transform.forward;
+            travel.y = 0f;
+            if (travel.sqrMagnitude < 0.0001f)
+                travel = Vector3.forward;
+            return Quaternion.LookRotation(travel.normalized, Vector3.up) *
                    Quaternion.Euler(portalEulerOffset);
         }
 
