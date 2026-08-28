@@ -208,15 +208,26 @@ public static class VendorLocalizer
         }
 
         // ---- remap: closure text assets + the copies themselves -------------
+        // .meta files ride along for BOTH: an importer's references live in
+        // the meta (an FBX's material-remap table points at pack materials),
+        // and a meta left unrewritten keeps the closure impure forever. A
+        // meta's own "guid:" line is safe — map KEYS are pack guids, never a
+        // committed or copied asset's own guid.
+        var closure = AssetDatabase.GetDependencies(roots, true)
+            .Where(p => !IsVendorPath(p) && p.StartsWith("Assets/", System.StringComparison.Ordinal))
+            .ToArray();
         var toRewrite = new HashSet<string>(
-            AssetDatabase.GetDependencies(roots, true)
-                .Where(p => !IsVendorPath(p) && p.StartsWith("Assets/", System.StringComparison.Ordinal)
-                            && TextAssetExtensions.Contains(Path.GetExtension(p))));
+            closure.Where(p => TextAssetExtensions.Contains(Path.GetExtension(p))));
+        foreach (string p in closure)
+            if (File.Exists(p + ".meta"))
+                toRewrite.Add(p + ".meta");
         foreach (string src in external)
         {
             string dest = DestinationFor(src);
             if (TextAssetExtensions.Contains(Path.GetExtension(dest)) && File.Exists(dest))
                 toRewrite.Add(dest);
+            if (File.Exists(dest + ".meta"))
+                toRewrite.Add(dest + ".meta");
         }
 
         int rewritten = 0;
@@ -263,17 +274,47 @@ public static class VendorLocalizer
                            $"once) and {strippedComponents} vendor script component(s) stripped from the copies — " +
                            "the director/pool owns effect lifecycle, so the copies behave the same on every machine.");
 
-        // Scene objects carrying pack components cannot be healed by copying —
-        // code is never vendored — so say it, per offending script, instead of
-        // leaving preflight red with no visible cause.
-        var scriptDeps = AssetDatabase.GetDependencies(roots, true)
-            .Where(p => IsVendorPath(p) &&
-                        NeverCopyExtensions.Contains(Path.GetExtension(p).ToLowerInvariant()))
-            .ToList();
-        if (scriptDeps.Count > 0)
-            log.AppendLine($"  localize: WARNING — {scriptDeps.Count} pack script(s) still referenced by the " +
-                           $"roots themselves (e.g. {Path.GetFileName(scriptDeps[0])}): some scene object " +
-                           "carries a pack component. Remove that component by hand — script code is never vendored.");
+        // Convergence check: the whole point is an EMPTY vendor closure. When
+        // dependencies remain, name each one AND the closure files still
+        // holding a reference to it — "which file is stuck" is the actual
+        // question when repeated localize runs do not converge.
+        var remaining = FindExternalDependencies(roots);
+        if (remaining.Count > 0)
+        {
+            var textCache = new Dictionary<string, string>();
+            string TextOf(string p)
+            {
+                if (!textCache.TryGetValue(p, out string t))
+                    textCache[p] = t = File.Exists(p) ? File.ReadAllText(p) : "";
+                return t;
+            }
+            var holdersScan = AssetDatabase.GetDependencies(roots, true)
+                .Where(p => !IsVendorPath(p) && p.StartsWith("Assets/", System.StringComparison.Ordinal))
+                .ToList();
+            log.AppendLine($"  localize: WARNING — {remaining.Count} vendor dependenc" +
+                           $"{(remaining.Count == 1 ? "y" : "ies")} REMAIN after localize:");
+            foreach (string dep in remaining.Take(10))
+            {
+                string depGuid = AssetDatabase.AssetPathToGUID(dep);
+                var holders = new List<string>();
+                foreach (string p in holdersScan)
+                {
+                    if (TextAssetExtensions.Contains(Path.GetExtension(p)) && TextOf(p).Contains(depGuid))
+                        holders.Add(Path.GetFileName(p));
+                    else if (TextOf(p + ".meta").Contains(depGuid))
+                        holders.Add(Path.GetFileName(p) + " (meta)");
+                    if (holders.Count >= 3)
+                        break;
+                }
+                string tag = NeverCopyExtensions.Contains(Path.GetExtension(dep).ToLowerInvariant())
+                    ? "   [script — never vendored: remove/strip the component]"
+                    : "";
+                log.AppendLine($"    {dep}{tag}");
+                log.AppendLine($"      held by: {(holders.Count > 0 ? string.Join(", ", holders) : "(no text ref found — importer-internal)")}");
+            }
+            if (remaining.Count > 10)
+                log.AppendLine($"    … and {remaining.Count - 10} more.");
+        }
 
         // Post-condition, every run: the roots must not reference anything that
         // does not exist. A remap that lands on ghosts (the recently-deleted

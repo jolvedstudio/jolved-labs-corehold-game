@@ -615,13 +615,33 @@ namespace CoreholdEditor.Campaign
                     // adopted stages do this automatically.
                     var llog = new StringBuilder();
                     llog.AppendLine("Vendor localization — all stages:");
+                    var covered = new HashSet<string>();
                     foreach (var st in _authoring.stages)
                     {
                         if (string.IsNullOrEmpty(st.scenePath)) continue;
+                        covered.Add(st.scenePath);
                         llog.AppendLine($"  {System.IO.Path.GetFileNameWithoutExtension(st.scenePath)}:");
                         try { LocalizeStage(st, llog); }
                         catch (System.Exception ex)
                         { llog.AppendLine($"    FAILED — {ex.GetType().Name}: {ex.Message}"); }
+                    }
+                    // Preflight judges the MANIFEST's scenes — welcome/closing
+                    // and any stage whose emitted path is not what the
+                    // authoring rows recorded. Localize those too, or the
+                    // button can "succeed" while preflight stays red.
+                    var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(_authoring.ManifestAssetPath);
+                    if (manifest != null)
+                    {
+                        foreach (var ms in manifest.stages)
+                        {
+                            if (string.IsNullOrEmpty(ms.scenePath) || covered.Contains(ms.scenePath) ||
+                                !System.IO.File.Exists(ms.scenePath))
+                                continue;
+                            llog.AppendLine($"  {System.IO.Path.GetFileNameWithoutExtension(ms.scenePath)} (manifest):");
+                            try { VendorLocalizer.Localize(new[] { ms.scenePath }, llog); }
+                            catch (System.Exception ex)
+                            { llog.AppendLine($"    FAILED — {ex.GetType().Name}: {ex.Message}"); }
+                        }
                     }
                     AssetDatabase.SaveAssets();
                     llog.AppendLine("\nRe-run Preflight — external-reference errors should be gone. " +
