@@ -515,9 +515,16 @@ namespace Corehold.Enemies
             IsAlive = false;
             Debug.Log($"[Corehold] {name} reached the Core (leak {leakDamage}).");
 
-            // Core hit flash where the leaker reached the Core (GDD §11), pooled.
+            // The CRASH read (VFX): the unit detonates at its own centre as it
+            // disappears — sized by its body, so a Colossus impact is a large
+            // blast and a Scuttler a pop. PlayExplosion carries the screen
+            // kick, trauma rumble and WebGL haptics with it; the Core-side
+            // flash still marks the structure being hit.
             if (Corehold.Systems.VFXDirector.Instance != null)
+            {
+                Corehold.Systems.VFXDirector.Instance.PlayExplosion(HitPoint, BodyRadius * 3f);
                 Corehold.Systems.VFXDirector.Instance.PlayCoreHit(HitPoint);
+            }
 
             // Core alarm on a leak (GDD §10). Voice-stolen / collapsed in the director.
             if (Corehold.Systems.AudioDirector.Instance != null)

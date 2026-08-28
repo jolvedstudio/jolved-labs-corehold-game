@@ -42,6 +42,9 @@ namespace Corehold.Enemies
         [Tooltip("Degrees per second the unit rotates to face its direction of travel.")]
         [SerializeField] private float turnRate = 360f;
 
+        [Tooltip("[TUNE] Arrival standoff (m): the unit reaches the Core when its front is this far from the route end (its body radius is added on top), so the crash detonates at the Core's FACE instead of the model sinking into the structure. Shortens travel by ~(standoff+radius)/speed seconds — small against full routes; the live balance gate re-certifies every level anyway.")]
+        [SerializeField] private float coreArrivalStandoff = 1.1f;
+
         [Tooltip("Absolute floor on desired speed in m/s. Any future slow/stun effect clamps to this so a unit is never fully stopped by a status effect (keeps the car-following chain live — GDD liveness).")]
         [SerializeField] private float minDesiredSpeed = 0.4f;
 
@@ -357,7 +360,11 @@ namespace Corehold.Enemies
             TryPhaseChange();
             TryFootfall();
 
-            if (_frontness >= MaxFrontness - 0.0001f)
+            // Arrival at the STANDOFF, not the route end: the route runs to the
+            // Core's centre, and finishing there sank the model into the
+            // structure before it vanished. Works for air identically (air
+            // frontness is the negative distance to the Core).
+            if (_frontness >= MaxFrontness - coreArrivalStandoff - BodyRadius - 0.0001f)
             {
                 ArriveAtCore();
                 return true;
