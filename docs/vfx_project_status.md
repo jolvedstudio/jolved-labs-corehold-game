@@ -82,7 +82,15 @@ Cosmetic only, as ever — Blackout's gameplay darkness stays a wave mutator.
   4. campaign preflight ERRORs (blocks Build) while any stage still
      references a pack.
 
-## ACTION NEEDED on a machine that has the packs
+## ~~ACTION NEEDED~~ DONE — localization executed and committed
+
+Executed and verified in-repo (config + 969 vendored files + campaign
+sandy-desert-120, including baked CFXR shaders with their cginc includes;
+no code or .cfxrshader under Vendored; every config/scene reference
+resolves to a committed asset or a package asset). The instructions below
+remain as the runbook for FUTURE packs and machines.
+
+## Runbook: localizing on a machine that has the packs
 
 `VFXDirectorConfig.asset` at HEAD references machine-local Cartoon FX
 prefabs — on a fresh clone every effect slot dangles and a clean build ships
