@@ -14,18 +14,23 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WeatherPreset
   overrideAmbient: 1
   ambientColor: {r: 0.38, g: 0.32, b: 0.24, a: 1}
+  overrideSun: 1
+  sunTemperatureKelvin: 6500
+  sunFilter: {r: 0.990566, g: 0.9346956, b: 0.7242346, a: 1}
+  sunIntensityMult: 1
+  sunShadowStrengthMult: 1
   overrideFog: 1
   fogColor: {r: 0.22, g: 0.18, b: 0.13, a: 1}
   fogDensity: 0.0068
   overrideGroundTint: 1
   groundTint: {r: 1, g: 0.94, b: 0.82, a: 1}
   precipitation: 2
-  ambientLoop: {fileID: 0}
+  ambientLoop: {fileID: 8300000, guid: a0cc576982ec97743b72733d6959880d, type: 3}
   ambientVolume: 0.32
   precipitationPrefab: {fileID: 0}
   precipitationRate: 180
   fallSpeed: 1.6
-  particleSize: 0.065
+  particleSize: 0.019
   streakLength: 18
   particleColor: {r: 0.85, g: 0.76, b: 0.6, a: 0.16}
   overridePostProfile: 1

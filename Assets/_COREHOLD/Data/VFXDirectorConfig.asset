@@ -14,49 +14,49 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Systems.VFXDirectorConfig
   effects:
   - id: 0
-    prefab: {fileID: 117382, guid: f6fd7c6469f235a4595c9be5430ef7d9, type: 3}
+    prefab: {fileID: 117382, guid: 64258f385f661894c8baa7ef510bb81c, type: 3}
     prewarm: 4
   - id: 1
-    prefab: {fileID: 1751010978416606, guid: 71052c1e9d47774439ae2a30c4489596, type: 3}
+    prefab: {fileID: 1751010978416606, guid: a91dc9740806cdb42ae1a22556ccf4c3, type: 3}
     prewarm: 4
   - id: 2
-    prefab: {fileID: 178120, guid: 134acf54a988c0641bd67617d5ab5a9e, type: 3}
+    prefab: {fileID: 178120, guid: 1fe371a92b76a12429f2cab1d42ffad1, type: 3}
     prewarm: 4
   - id: 3
-    prefab: {fileID: 161422, guid: 02b55b1514278964187c93c0b09a3dc4, type: 3}
+    prefab: {fileID: 161422, guid: 823b7174707949b4f9349eca88cd5224, type: 3}
     prewarm: 8
   - id: 4
-    prefab: {fileID: 121806, guid: 4dbaeaca9d7e967419f27723f2718287, type: 3}
+    prefab: {fileID: 121806, guid: 72e5ce07d14d0aa4896e51455456dc59, type: 3}
     prewarm: 4
   - id: 5
-    prefab: {fileID: 134878, guid: 6d8229e80027fc54195fba9200a99df5, type: 3}
+    prefab: {fileID: 134878, guid: 43952f830191df44da495aaedf60b71a, type: 3}
     prewarm: 4
   - id: 6
-    prefab: {fileID: 161422, guid: 02b55b1514278964187c93c0b09a3dc4, type: 3}
+    prefab: {fileID: 161422, guid: 823b7174707949b4f9349eca88cd5224, type: 3}
     prewarm: 6
   - id: 7
-    prefab: {fileID: 2708598583397607911, guid: 6398d43fe79ea0140913dc5530c646af, type: 3}
+    prefab: {fileID: 2708598583397607911, guid: df8e663b5c896c3458c504a4af2193fc, type: 3}
     prewarm: 2
   - id: 8
-    prefab: {fileID: 9157105887711914197, guid: c4f829cb7dd4b864caf8832ec5b1ee55, type: 3}
+    prefab: {fileID: 9157105887711914197, guid: 6b8727fdc6dbc854480ca12630b8b453, type: 3}
     prewarm: 2
   - id: 9
-    prefab: {fileID: 1141330259687333427, guid: 6718dc24203da53468af9ada8fef7d6d, type: 3}
+    prefab: {fileID: 1141330259687333427, guid: fa47d3eb632006e46a634bc05047e939, type: 3}
     prewarm: 6
   - id: 10
-    prefab: {fileID: 121806, guid: 4dbaeaca9d7e967419f27723f2718287, type: 3}
+    prefab: {fileID: 121806, guid: 72e5ce07d14d0aa4896e51455456dc59, type: 3}
     prewarm: 6
   - id: 11
-    prefab: {fileID: 1141330259687333427, guid: 6718dc24203da53468af9ada8fef7d6d, type: 3}
+    prefab: {fileID: 1141330259687333427, guid: fa47d3eb632006e46a634bc05047e939, type: 3}
     prewarm: 2
   - id: 12
-    prefab: {fileID: 4021103657954561961, guid: 5c755f9bc5253ea418e919994537dcc7, type: 3}
+    prefab: {fileID: 4021103657954561961, guid: 0c1fcda390656824799c3cee23ff58b8, type: 3}
     prewarm: 8
   - id: 13
-    prefab: {fileID: 1503414589296656, guid: 505f0a9187a0d514ca9afdc34c51a984, type: 3}
+    prefab: {fileID: 1503414589296656, guid: e2c2fe56cf92b014bad6467b011fa67e, type: 3}
     prewarm: 8
   - id: 14
-    prefab: {fileID: 1128922939517096, guid: 13bf80939900a2a4c8d5a6ac51f555d5, type: 3}
+    prefab: {fileID: 1128922939517096, guid: fa326611fb3814841ab3d3a32beb15c8, type: 3}
     prewarm: 6
   tracerMaterial: {fileID: 2100000, guid: 389fb66783f792745ac0553bd3178f91, type: 2}
   tracerWidth: 0.05
