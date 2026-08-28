@@ -123,6 +123,7 @@ public static class VendorLocalizer
         if (external.Count == 0)
         {
             log.AppendLine("  localize: closure is fully committed — nothing to copy.");
+            ReportDanglingReferences(roots, log);
             return 0;
         }
 
@@ -227,6 +228,41 @@ public static class VendorLocalizer
                            $"roots themselves (e.g. {Path.GetFileName(scriptDeps[0])}): some scene object " +
                            "carries a pack component. Remove that component by hand — script code is never vendored.");
         return copied;
+    }
+
+    /// <summary>
+    /// "Nothing to copy" is also what a BROKEN root looks like: a reference to
+    /// a deleted vendored copy (or an uninstalled pack) resolves to NO asset at
+    /// all, so it never appears as a vendor dependency. Scan the roots' text
+    /// for guids that resolve to nothing and say so — the difference between
+    /// "already localized" and "quietly dangling" is invisible otherwise.
+    /// </summary>
+    private static void ReportDanglingReferences(string[] roots, StringBuilder log)
+    {
+        var dangling = new HashSet<string>();
+        foreach (string root in roots)
+        {
+            if (!File.Exists(root) ||
+                !TextAssetExtensions.Contains(Path.GetExtension(root).ToLowerInvariant()))
+                continue;
+            foreach (System.Text.RegularExpressions.Match m in
+                     System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(root), "guid: ([0-9a-f]{32})"))
+            {
+                string guid = m.Groups[1].Value;
+                if (guid == "0000000000000000e000000000000000" ||   // unity builtin extra
+                    guid == "0000000000000000f000000000000000" ||   // unity default resources
+                    guid == "00000000000000000000000000000000")
+                    continue;
+                if (string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(guid)))
+                    dangling.Add(guid);
+            }
+        }
+        if (dangling.Count == 0)
+            return;
+        log.AppendLine($"  localize: WARNING — {dangling.Count} reference(s) in the roots resolve to NO asset on " +
+                       "this machine, and a reference that points at nothing cannot be localized. If vendored " +
+                       "copies were deleted after a remap, either restore Assets/_COREHOLD/Vendored from git or " +
+                       "DISCARD the root files' local changes (so they reference the packs again), then re-run.");
     }
 
     /// <summary>
@@ -354,7 +390,10 @@ public static class VendorLocalizer
         AssetDatabase.SaveAssets();
         Debug.Log(log.ToString() + (copied > 0
             ? "Commit Assets/_COREHOLD/Vendored and the updated config — clean clones then build with effects."
-            : "If slots still dangle, this machine is missing the source packs — run where they exist."));
+            : "If slots still dangle, read the lines above: a dangling-reference WARNING means the config points " +
+              "at deleted copies — restore Assets/_COREHOLD/Vendored from git, or discard the config's local " +
+              "changes so it references the packs again, then re-run. No warning and no packs installed means " +
+              "run this on a machine that has them."));
     }
 
     private static string DestinationFor(string srcPath)
