@@ -29,6 +29,10 @@ namespace Corehold.UI
         private Renderer[] _ownerRenderers;
 
         private Transform _root;
+        /// <summary>The generated bar sub-tree (quads), or null before Build(). Exposed so
+        /// other cosmetics (e.g. ShieldAura's bounds measurement) can exclude the bar
+        /// without walking up to this component, which lives on the owner root.</summary>
+        public Transform BarRoot => _root;
         private Transform _fill;
         private MeshRenderer _backRenderer;
         private MeshRenderer _fillRenderer;

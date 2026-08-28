@@ -890,8 +890,8 @@ MonoBehaviour:
   leakDamage: 1
   deathAnimDuration: 0.6
   isAir: 0
-  armourType: 0
-  definition: {fileID: 0}
+  armourType: 2
+  definition: {fileID: 11400000, guid: 7377642b255fe0649955e7d78ecad2e5, type: 2}
   enrageRenderers: []
   enrageEmissiveFrom: {r: 2, g: 0.7, b: 0, a: 2}
   enrageEmissiveTo: {r: 3, g: 3, b: 3, a: 3}

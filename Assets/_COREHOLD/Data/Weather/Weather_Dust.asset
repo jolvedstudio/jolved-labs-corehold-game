@@ -22,7 +22,7 @@ MonoBehaviour:
   precipitation: 2
   ambientLoop: {fileID: 0}
   ambientVolume: 0.32
-  precipitationPrefab: {fileID: 100894, guid: d4d6a29c9156ee948a0a44b98b1f1da8, type: 3}
+  precipitationPrefab: {fileID: 0}
   precipitationRate: 180
   fallSpeed: 1.6
   particleSize: 0.065

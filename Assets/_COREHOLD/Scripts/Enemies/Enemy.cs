@@ -150,7 +150,12 @@ namespace Corehold.Enemies
         public ArmourType ArmourType => armourType;
 
         /// <summary>Set the armour type (called at spawn from the enemy's definition).</summary>
-        public void SetArmourType(ArmourType value) => armourType = value;
+        public void SetArmourType(ArmourType value)
+        {
+            armourType = value;
+            // Keep the visible shield read (VFX Tier 1) in sync with the armour type.
+            ShieldAura.Refresh(this);
+        }
 
         /// <summary>True once this enemy has enraged (GDD §6.2).</summary>
         public bool IsEnraged => _enraged;
@@ -241,6 +246,9 @@ namespace Corehold.Enemies
             // Re-enable renderers hidden by the death sequence when reused from pool.
             foreach (var r in GetComponentsInChildren<Renderer>(true))
                 r.enabled = true;
+            // Reflect the current armour type on reuse (VFX Tier 1): show the shield
+            // shell for a Shielded unit, keep it hidden otherwise.
+            ShieldAura.Refresh(this);
             if (!Live.Contains(this))
                 Live.Add(this);
         }
@@ -280,6 +288,9 @@ namespace Corehold.Enemies
                 SetMaxHealth(def.baseHealth);
 
             ResetEnrage();
+
+            // Show the visible shield shell when this unit is Shielded (VFX Tier 1).
+            ShieldAura.Refresh(this);
         }
 
         /// <summary>Apply damage. When health reaches zero the enemy dies and raises OnDied.</summary>
@@ -547,6 +558,10 @@ namespace Corehold.Enemies
         private void Die()
         {
             IsAlive = false;
+
+            // Detach the visible shield shell on death (VFX Tier 1 — attach on spawn,
+            // detach on death; there is no shield-break mechanic).
+            ShieldAura.Hide(this);
 
             // Everything between here and OnDied is COSMETIC or economic — VFX,
             // audio, the salvage payout and the HUD it drives. None of it may be

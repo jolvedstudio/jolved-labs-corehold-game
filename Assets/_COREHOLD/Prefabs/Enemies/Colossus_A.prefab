@@ -2946,7 +2946,7 @@ MonoBehaviour:
   deathAnimDuration: 1.7
   isAir: 0
   armourType: 2
-  definition: {fileID: 11400000, guid: 3b63d6d6386832841b60e95507c0fb3c, type: 2}
+  definition: {fileID: 11400000, guid: 28001cf5bafe7bf41bb4949adf896f06, type: 2}
   enrageRenderers:
   - {fileID: 3135940120099066034}
   - {fileID: 1068376407656374642}

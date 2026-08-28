@@ -544,7 +544,7 @@ MonoBehaviour:
   deathAnimDuration: 0.37500003
   isAir: 0
   armourType: 0
-  definition: {fileID: 0}
+  definition: {fileID: 11400000, guid: 1e572c188599b73478267a6f4bf09f84, type: 2}
   enrageRenderers: []
   enrageEmissiveFrom: {r: 2, g: 0.7, b: 0, a: 2}
   enrageEmissiveTo: {r: 3, g: 3, b: 3, a: 3}

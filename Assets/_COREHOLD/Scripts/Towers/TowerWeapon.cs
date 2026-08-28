@@ -476,12 +476,28 @@ namespace Corehold.Towers
         /// <see cref="VFXDirector"/>'s pooled additive tracer when one exists, and
         /// falls back to the legacy <see cref="ChainTracer"/> pool otherwise.
         /// </summary>
+        // Faction tracer identity (VFX colour-language): ALL friendly tower fire reads
+        // as glowing blue, regardless of the per-mount authored colour. Forcing it at
+        // this single choke point (every tower tracer path funnels through here) keeps
+        // the read consistent without editing every weapon asset, and preserves the
+        // per-mount alpha so a mount authored with alpha 0 (no tracer) still draws none.
+        //
+        // The colour is NEARLY PURE single-channel: a high blue with the OTHER two
+        // channels near zero. This is the real rule for a coloured HDR line: a single
+        // clipped channel keeps its hue, but two clipped channels sum to white/cyan
+        // (the shipped default's high green+blue is why it read cyan-white). Keeping
+        // green/red almost off lets the line stay blue even where it saturates, while a
+        // high blue value keeps it bright enough to bloom.
+        private static readonly Color FriendlyTracerColor = new Color(0.0f, 0.25f, 7.0f, 1f);
+
         private void DrawTracer(Vector3 from, Vector3 to, Color color)
         {
+            Color faction = FriendlyTracerColor;
+            faction.a = color.a; // honour "no tracer" (alpha 0) authoring
             if (VFXDirector.Instance != null)
-                VFXDirector.Instance.DrawTracer(from, to, color);
+                VFXDirector.Instance.DrawTracer(from, to, faction);
             else
-                ChainTracer.Draw(from, to, color);
+                ChainTracer.Draw(from, to, faction);
         }
 
         /// <summary>

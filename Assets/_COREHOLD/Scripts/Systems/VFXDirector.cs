@@ -73,7 +73,13 @@ namespace Corehold.Systems
             /// <summary>Muted deflection spark for a resisted (mismatched) hit (R22 — counter readability).</summary>
             ImpactWeak,
             /// <summary>Energy ripple when a shot strikes a Shielded enemy (R22 — counter readability).</summary>
-            ShieldHit
+            ShieldHit,
+            /// <summary>Splash explosion tinted for a Kinetic weapon (VFX color-language rule). Optional; falls back to the size-based explosion when unassigned.</summary>
+            ExplosionKinetic,
+            /// <summary>Splash explosion tinted for an Energy weapon (VFX color-language rule). Optional; falls back to the size-based explosion when unassigned.</summary>
+            ExplosionEnergy,
+            /// <summary>Splash explosion tinted for an Explosive weapon (VFX color-language rule). Optional; falls back to the size-based explosion when unassigned.</summary>
+            ExplosionExplosive
         }
 
         [System.Serializable]
@@ -108,6 +114,9 @@ namespace Corehold.Systems
             new EffectEntry { id = Effect.ImpactStrong,     prewarm = 8 },
             new EffectEntry { id = Effect.ImpactWeak,       prewarm = 8 },
             new EffectEntry { id = Effect.ShieldHit,        prewarm = 6 },
+            new EffectEntry { id = Effect.ExplosionKinetic,   prewarm = 4 },
+            new EffectEntry { id = Effect.ExplosionEnergy,    prewarm = 4 },
+            new EffectEntry { id = Effect.ExplosionExplosive, prewarm = 4 },
         };
 
         [Header("Hitscan tracer (GDD §11) — Autocannon + Arc Node only")]
@@ -233,6 +242,22 @@ namespace Corehold.Systems
             if (prefab.GetComponentInChildren<ParticleSystem>(true) == null)
                 return null;
             return prefab.transform;
+        }
+
+        /// <summary>
+        /// Disable every real-time <see cref="Light"/> in a pooled effect instance's
+        /// hierarchy. The ticket forbids VFX-spawned lights (GDD §11) — CFXR honours
+        /// this through its GlobalDisableLights switch, but the provider-agnostic pool
+        /// clones prefabs from any pack (e.g. Epic Toon FX) whose effects commonly embed
+        /// point Lights. On the WebGL, fill-rate-bound target a handful of concurrent
+        /// per-pixel lights is a real cost, so they are switched off once when the
+        /// instance is first played.
+        /// </summary>
+        private static void DisableEmbeddedLights(Transform root)
+        {
+            var lights = root.GetComponentsInChildren<Light>(true);
+            for (int i = 0; i < lights.Length; i++)
+                lights[i].enabled = false;
         }
 
         private void BuildTracerPool()
@@ -366,7 +391,16 @@ namespace Corehold.Systems
             // particle system has finished (provider-agnostic — no CFXR dependency).
             var watcher = t.GetComponent<PooledEffect>();
             if (watcher == null)
+            {
+                // First time this pooled instance is played. CFXR's GlobalDisableLights
+                // only muzzles CFXR effects; the agnostic pool clones ANY prefab, and
+                // packs like Epic Toon FX embed real-time Lights that would otherwise put
+                // per-pixel lights back on the (WebGL, fill-rate-bound) target. Strip them
+                // once here — the PooledEffect persists across releases, so this never runs
+                // again for the same instance.
+                DisableEmbeddedLights(t);
                 watcher = t.gameObject.AddComponent<PooledEffect>();
+            }
             watcher.Arm(pool, t, systems);
 
             // Return the root particle system as a convenience handle for callers.
@@ -444,6 +478,41 @@ namespace Corehold.Systems
             return Play(e, position);
         }
 
+        /// <summary>
+        /// Splash explosion whose LOOK encodes the firing weapon's damage type (VFX
+        /// color-language rule): a Kinetic/Energy/Explosive explosion shares its
+        /// muzzle+tracer palette, so a kill reinforces which weapon scored it. The
+        /// three damage-type palettes are kept distinct from the three armour-identity
+        /// colours (Energy must NOT read as Shielded-blue) so this deepens the counter
+        /// language rather than muddying it.
+        ///
+        /// The tinted slot is OPTIONAL: when its prefab is unassigned this falls back
+        /// to the neutral size-based <see cref="PlayExplosion(Vector3,float)"/>, so it
+        /// is always safe to call and never regresses an un-wired scene. Carries the
+        /// same R5 explosion screen kick.
+        /// </summary>
+        public ParticleSystem PlayExplosion(Vector3 position, float splashRadius, DamageType type)
+        {
+            if (CameraShake.Instance != null)
+                CameraShake.Instance.KickExplosion(position);
+
+            Effect typed = type switch
+            {
+                DamageType.Kinetic => Effect.ExplosionKinetic,
+                DamageType.Energy => Effect.ExplosionEnergy,
+                DamageType.Explosive => Effect.ExplosionExplosive,
+                _ => Effect.ExplosionKinetic
+            };
+
+            // Use the typed explosion when its slot is wired; otherwise fall back to
+            // the size-based neutral explosion (kick already applied above).
+            if (HasPool(typed))
+                return Play(typed, position);
+
+            Effect sized = splashRadius >= LargeSplashThreshold ? Effect.ExplosionLarge : Effect.ExplosionSmall;
+            return Play(sized, position);
+        }
+
         /// <summary>Death burst when an enemy dies (GDD §11).</summary>
         public ParticleSystem PlayEnemyDeath(Vector3 position) => Play(Effect.EnemyDeath, position);
 
@@ -519,6 +588,10 @@ namespace Corehold.Systems
         // ================================================================================
         //  Diagnostics (done-condition: pool counts must stay stable)
         // ================================================================================
+
+        /// <summary>True when an effect has a built pool (its prefab was assigned and valid).</summary>
+        public bool HasPool(Effect effect) =>
+            _pools.TryGetValue(effect, out var p) && p != null;
 
         /// <summary>Total copies ever created for a given effect pool (for profiling).</summary>
         public int TotalCount(Effect effect) =>

@@ -324,7 +324,10 @@ namespace Corehold.Towers
             {
                 if (_tier.splashRadius > 0f)
                 {
-                    VFXDirector.Instance.PlayExplosion(center, _tier.splashRadius);
+                    // Damage-type-tinted explosion (VFX color-language rule); falls
+                    // back to the neutral size-based explosion when the typed slot
+                    // is unassigned.
+                    VFXDirector.Instance.PlayExplosion(center, _tier.splashRadius, _damageType);
                 }
                 else
                 {

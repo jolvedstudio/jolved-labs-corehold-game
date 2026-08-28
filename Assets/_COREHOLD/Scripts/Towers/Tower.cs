@@ -237,6 +237,10 @@ namespace Corehold.Towers
             if (towerHealth == null)
                 towerHealth = gameObject.AddComponent<TowerHealth>();
 
+            // Configure the tier's authored shield (0 = no shield). Done after health
+            // exists so a shielded tier reads as fully charged the moment it is built.
+            ApplyTierShield(towerHealth);
+
             // Attach a self-contained world-space health bar (billboarded, always on).
             if (GetComponentInChildren<Corehold.UI.WorldHealthBar>() == null)
             {
@@ -296,7 +300,24 @@ namespace Corehold.Towers
             SyncWeaponTier();
             ApplyEffectiveRange();
 
+            // Re-apply the (possibly different) tier's shield. Upgrading to a shielded
+            // tier grants and fully charges its barrier; upgrading away removes it.
+            ApplyTierShield(GetComponent<TowerHealth>());
+
             NotifyRosterChanged();
+        }
+
+        /// <summary>
+        /// Push the current tier's authored shield values into the turret's health
+        /// component. Safe to call with a null health (no-op) and when the tier has no
+        /// shield (configures a zero barrier = "no shield").
+        /// </summary>
+        private void ApplyTierShield(TowerHealth health)
+        {
+            if (health == null || !HasTier)
+                return;
+            TowerTier tier = CurrentTier;
+            health.ConfigureShield(tier.shieldHitPoints, tier.shieldRegenPerSec, tier.shieldRegenDelay);
         }
 
         /// <summary>
