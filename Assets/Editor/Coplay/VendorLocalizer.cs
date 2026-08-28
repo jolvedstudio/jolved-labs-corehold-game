@@ -140,7 +140,12 @@ public static class VendorLocalizer
             }
             string dest = DestinationFor(src);
             string oldGuid = AssetDatabase.AssetPathToGUID(src);
-            string newGuid = AssetDatabase.AssetPathToGUID(dest);
+            // File.Exists, not AssetPathToGUID alone: AssetPathToGUID ALSO
+            // answers for recently DELETED assets (its documented default),
+            // which once made a wiped Vendored folder read as "79 already
+            // vendored" and remapped the config onto guids of deleted files.
+            // The question here is strictly "is there a copy on disk".
+            string newGuid = File.Exists(dest) ? AssetDatabase.AssetPathToGUID(dest) : null;
             if (string.IsNullOrEmpty(newGuid))
             {
                 EnsureFolder(Path.GetDirectoryName(dest).Replace('\\', '/'));
@@ -227,6 +232,11 @@ public static class VendorLocalizer
             log.AppendLine($"  localize: WARNING — {scriptDeps.Count} pack script(s) still referenced by the " +
                            $"roots themselves (e.g. {Path.GetFileName(scriptDeps[0])}): some scene object " +
                            "carries a pack component. Remove that component by hand — script code is never vendored.");
+
+        // Post-condition, every run: the roots must not reference anything that
+        // does not exist. A remap that lands on ghosts (the recently-deleted
+        // guid trap above) must SCREAM here, never report success.
+        ReportDanglingReferences(roots, log);
         return copied;
     }
 
