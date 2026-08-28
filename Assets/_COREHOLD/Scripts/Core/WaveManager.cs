@@ -505,8 +505,12 @@ namespace Corehold.Core
         [Range(0f, 5f)] [SerializeField] private float portalPulseHz = 0.9f;
         [Tooltip("[TUNE] Extra uniform multiplier on top of the computed unit-fit size — the fastest 'make it bigger' knob while the authored-diameter measurement is unset.")]
         [SerializeField] private float portalScale = 1f;
-        [Tooltip("[TUNE] Euler offset applied AFTER facing the spawner's forward. Prefab authoring differs: a gate authored facing +Z needs (0,0,0); a GROUND-RING effect lying flat needs X=90 (or -90 if it faces away) to stand upright.")]
+        [Tooltip("[TUNE] Euler offset applied AFTER the computed facing. Prefab authoring differs: a gate authored facing +Z needs (0,0,0); a GROUND-RING effect lying flat needs X=90 (or -90 if it faces away) to stand upright.")]
         [SerializeField] private Vector3 portalEulerOffset = Vector3.zero;
+        [Tooltip("[TUNE] Face each portal toward the CAMERA (horizontal look), so every spawner's gate reads from the fixed view regardless of which map edge it sits on. Off = face the spawner's forward.")]
+        [SerializeField] private bool portalFaceCamera = true;
+        [Tooltip("[TUNE] Fraction of the portal's world diameter to lift it so the LOWER RIM meets the ground: 0.5 for an upright gate, 0 for a flat ground circle. The pulse is compensated so the rim never sinks. Air-corridor portals ignore this and float centred where the flyers emerge.")]
+        [Range(0f, 0.6f)] [SerializeField] private float portalGroundAnchor = 0.5f;
 
         private readonly Dictionary<int, Corehold.Systems.PooledEffect> _openPortals =
             new Dictionary<int, Corehold.Systems.PooledEffect>();
@@ -575,6 +579,10 @@ namespace Corehold.Core
             _portalPending.TryGetValue(spawnerIndex, out int pending);
             _portalPending[spawnerIndex] = pending + unitCount;
 
+            Spawner sp = FindSpawner(spawnerIndex);
+            if (sp == null)
+                return;
+
             // Authored diameter × mult must cover the unit's body diameter with
             // headroom; the authored size is the floor so small units still get
             // a readable gate. portalScale rides on top as the direct knob.
@@ -589,24 +597,57 @@ namespace Corehold.Core
                 {
                     _portalMult[spawnerIndex] = mult;
                     open.SetSizeMultiplier(mult);
+                    // Re-anchor: a grown gate's rim must stay ON the ground, not sink.
+                    open.transform.position = PortalAnchor(sp, mult);
                 }
                 return;   // already open (overlapping chained wave) — counts stack
             }
 
             if (Corehold.Systems.VFXDirector.Instance == null)
                 return;
-            Spawner sp = FindSpawner(spawnerIndex);
-            if (sp == null)
-                return;
-            Quaternion rot = Quaternion.LookRotation(sp.transform.forward, Vector3.up) *
-                             Quaternion.Euler(portalEulerOffset);
             var fx = Corehold.Systems.VFXDirector.Instance.PlaySpawnPortalOpen(
-                sp.Position, rot, mult, portalPulseAmplitude, portalPulseHz);
+                PortalAnchor(sp, mult), PortalFacing(sp), mult, portalPulseAmplitude, portalPulseHz);
             if (fx != null)
             {
                 _openPortals[spawnerIndex] = fx;
                 _portalMult[spawnerIndex] = mult;
             }
+        }
+
+        /// <summary>Portal position: lifted so the LOWER RIM meets the ground —
+        /// with pulse headroom so breathing never sinks it. The air corridor's
+        /// portal floats centred where the flyers actually emerge.</summary>
+        private Vector3 PortalAnchor(Spawner sp, float mult)
+        {
+            if (sp.Route == null)   // air spawner
+                return sp.Position;
+            float worldDiameter = Mathf.Max(0.1f, portalAuthoredDiameter) * mult;
+            return sp.Position + Vector3.up *
+                (worldDiameter * portalGroundAnchor * (1f + portalPulseAmplitude));
+        }
+
+        /// <summary>Portal orientation: face the CAMERA (horizontal look) so the
+        /// gate reads from the fixed view whichever map edge it sits on; falls
+        /// back to the spawner's forward. The [TUNE] euler offset corrects the
+        /// prefab's authoring on top (ground ring vs +Z gate).</summary>
+        private Quaternion PortalFacing(Spawner sp)
+        {
+            Vector3 facing = sp.transform.forward;
+            if (portalFaceCamera)
+            {
+                Camera cam = Camera.main;
+                if (cam != null)
+                {
+                    Vector3 toCam = cam.transform.position - sp.Position;
+                    toCam.y = 0f;
+                    if (toCam.sqrMagnitude > 0.01f)
+                        facing = toCam.normalized;
+                }
+            }
+            if (facing.sqrMagnitude < 0.0001f)
+                facing = Vector3.forward;
+            return Quaternion.LookRotation(facing.normalized, Vector3.up) *
+                   Quaternion.Euler(portalEulerOffset);
         }
 
         /// <summary>One unit accounted for at a spawner (appeared, or provably
