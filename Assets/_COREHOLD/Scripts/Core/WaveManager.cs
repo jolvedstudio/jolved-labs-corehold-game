@@ -495,6 +495,8 @@ namespace Corehold.Core
         // portal stays open until every emitting wave is through it. Sized to
         // the widest unit emerging there and pulsing while held.
         [Header("Spawn portals (VFX)")]
+        [Tooltip("[TUNE] Master toggle for spawn portals, per level. Turn OFF where gates clutter the read (e.g. siege approaches with many spawners) — the per-unit SpawnFlash still marks each materialisation.")]
+        [SerializeField] private bool portalsEnabled = true;
         [Tooltip("[TUNE] World diameter (m) the authored SpawnPortal prefab covers at scale 1 — measure it once in the testbed. Sizing scales instances RELATIVE to this so the portal fits the unit stepping out of it.")]
         [SerializeField] private float portalAuthoredDiameter = 2f;
         [Tooltip("[TUNE] Portal diameter as a multiple of the widest emerging unit's body diameter. 1 = snug; ~1.7 reads as a gate the unit comes through. Never scales below the authored size.")]
@@ -574,6 +576,11 @@ namespace Corehold.Core
         /// portal GROWS live when a wider late group joins, never shrinks.</summary>
         private void OpenPortal(int spawnerIndex, int unitCount, EnemyDefinition enemy)
         {
+            // Disabled: skip the ACCOUNTING too, not just the effect — with no
+            // pending entries, the DrainPortal calls in SpawnEnemy are no-ops.
+            if (!portalsEnabled)
+                return;
+
             _portalPending.TryGetValue(spawnerIndex, out int pending);
             _portalPending[spawnerIndex] = pending + unitCount;
 
