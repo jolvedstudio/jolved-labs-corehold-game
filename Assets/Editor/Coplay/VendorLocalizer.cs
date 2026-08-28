@@ -60,12 +60,18 @@ public static class VendorLocalizer
         "Assets/Eric VFX Studio/", "Assets/Free Slash VFX/",
     };
 
-    /// <summary>Extensions that carry serialized references (Force Text YAML).</summary>
+    /// <summary>Extensions that carry serialized references (Force Text YAML).
+    /// .vfx et al. matter: a vendored VFX Graph copy kept referencing its pack
+    /// texture/mesh because the graph was copied but never rewritten — the
+    /// classic symptom is a preflight that names the SAME two pack files after
+    /// every localize run.</summary>
     private static readonly HashSet<string> TextAssetExtensions = new HashSet<string>
     {
         ".unity", ".prefab", ".asset", ".mat", ".controller", ".anim",
         ".overrideController", ".playable", ".shadergraph", ".shadersubgraph",
         ".renderTexture", ".physicMaterial", ".terrainlayer",
+        ".vfx", ".vfxoperator", ".vfxblock",
+        ".mask", ".mixer", ".spriteatlas", ".lighting",
     };
 
     /// <summary>Never copied: code would define the same types twice (CS0101/
