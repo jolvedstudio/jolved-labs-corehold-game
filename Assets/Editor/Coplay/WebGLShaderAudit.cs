@@ -92,10 +92,15 @@ public static class WebGLShaderAudit
         string path = AssetDatabase.GetAssetPath(shader);
         string name = shader.name;
 
-        if (string.IsNullOrEmpty(path) || path == "Resources/unity_builtin_extra" || path == "Library/unity default resources")
+        if (name.StartsWith("TextMeshPro/"))
         {
-            // Built-in shaders: only the sprite/UI families are SRP-compatible.
-            if (!(name.StartsWith("Sprites/") || name.StartsWith("UI/")))
+            verdict = null;   // TMP's CG shaders are SRP-agnostic — URP renders them
+        }
+        else if (string.IsNullOrEmpty(path) || path == "Resources/unity_builtin_extra" || path == "Library/unity default resources")
+        {
+            // Built-in shaders: the sprite/UI families and the skybox family
+            // are SRP-compatible (URP renders skyboxes with the built-ins).
+            if (!(name.StartsWith("Sprites/") || name.StartsWith("UI/") || name.StartsWith("Skybox/")))
                 verdict = "ERROR legacy built-in shader — renders MAGENTA under URP (editor included; " +
                           "swap the material to a Universal Render Pipeline/Particles shader).";
         }

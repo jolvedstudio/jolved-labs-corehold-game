@@ -440,6 +440,61 @@ public static class VendorLocalizer
         if (normalized > 0)
             AssetDatabase.Refresh();
 
+        // Repair DANGLING shader references in vendored materials by
+        // re-deriving from the pack mirror. A material whose m_Shader guid
+        // resolves to nothing renders magenta everywhere, and no localize
+        // run can fix it — a dangling guid resolves to no path, so it never
+        // appears as an external dependency to remap. The pack copy of the
+        // SAME material knows which shader it should be; for a
+        // custom-extension shader that is the BAKED .shader beside it.
+        // (This is what heals the 12 CFXR materials the early bake repoint
+        // missed.)
+        int repaired = 0;
+        var shaderRef = new System.Text.RegularExpressions.Regex(
+            "m_Shader: \\{fileID: -?\\d+, guid: ([0-9a-f]{32}), type: \\d+\\}");
+        foreach (string file in Directory.GetFiles(VendoredRoot, "*.mat", SearchOption.AllDirectories))
+        {
+            string path = file.Replace('\\', '/');
+            string text = File.ReadAllText(path);
+            var m = shaderRef.Match(text);
+            if (!m.Success)
+                continue;
+            if (!string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(m.Groups[1].Value)))
+                continue;   // resolves — not ours to touch
+            string packMat = "Assets/" + path.Substring(VendoredRoot.Length + 1);
+            if (!File.Exists(packMat))
+                continue;   // no source to derive from; the shader audit keeps naming it
+            var pm = shaderRef.Match(File.ReadAllText(packMat));
+            if (!pm.Success)
+                continue;
+            string packShaderPath = AssetDatabase.GUIDToAssetPath(pm.Groups[1].Value);
+            if (string.IsNullOrEmpty(packShaderPath))
+                continue;   // the pack material dangles too (e.g. an HDRP variant)
+
+            string replacement = null;
+            if (IsVendorPath(packShaderPath))
+            {
+                string dest = DestinationFor(packShaderPath);
+                if (Path.GetExtension(dest).ToLowerInvariant() == ".cfxrshader")
+                    dest = Path.ChangeExtension(dest, ".shader");   // the baked twin
+                if (File.Exists(dest))
+                    replacement = $"m_Shader: {{fileID: 4800000, guid: {AssetDatabase.AssetPathToGUID(dest)}, type: 3}}";
+            }
+            else
+            {
+                replacement = pm.Value;   // committed or package shader — share it verbatim
+            }
+            if (string.IsNullOrEmpty(replacement) || replacement == m.Value)
+                continue;
+
+            AssetDatabase.MakeEditable(path);
+            File.WriteAllText(path, text.Replace(m.Value, replacement));
+            repaired++;
+            log.AppendLine($"  localize: repaired dangling shader on {Path.GetFileName(path)} → {Path.GetFileName(packShaderPath)}");
+        }
+        if (repaired > 0)
+            AssetDatabase.Refresh();
+
         int stripped = 0;
         foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { VendoredRoot }))
         {
@@ -450,9 +505,9 @@ public static class VendorLocalizer
                 stripped += StripVendorScripts(path, log);
         }
 
-        if (deleted > 0 || stripped > 0 || normalized > 0)
+        if (deleted > 0 || stripped > 0 || normalized > 0 || repaired > 0)
             log.AppendLine($"  localize: healed {VendoredRoot} — {deleted} stray script file(s) deleted, " +
-                           $"{normalized} custom shader(s) baked, " +
+                           $"{normalized} custom shader(s) baked, {repaired} dangling material shader(s) repaired, " +
                            $"{stripped} vendor/missing script component(s) stripped from vendored prefabs.");
     }
 
