@@ -176,7 +176,7 @@ ModelImporter:
     hasTranslationDoF: 0
     hasExtraRoot: 0
     skeletonHasParents: 0
-  lastHumanDescriptionAvatarSource: {fileID: 9000000, guid: 2ddc52222e51efa44b7e832d285a6c13,
+  lastHumanDescriptionAvatarSource: {fileID: 9000000, guid: ffc606aa2eed4f149a6f2117a37f6761,
     type: 3}
   autoGenerateAvatarMappingIfUnspecified: 1
   animationType: 2

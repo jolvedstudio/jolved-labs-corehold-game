@@ -8,7 +8,7 @@ ModelImporter:
       type: UnityEngine:Material
       assembly: UnityEngine.CoreModule
       name: Sci-fi_Enemy
-    second: {fileID: 2100000, guid: 97f97021dc194de42bf19de481da1bf6, type: 2}
+    second: {fileID: 2100000, guid: 12200d85eba468c4a90aeffd71440038, type: 2}
   materials:
     materialImportMode: 2
     materialName: 0

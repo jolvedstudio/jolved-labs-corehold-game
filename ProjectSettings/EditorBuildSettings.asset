@@ -6,6 +6,21 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Campaign/main/Campaign_Welcome.unity
+    guid: c014c751c6ccb00458d01d043112b976
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Campaign/main/L01_Blueprint_SandyDesert_s619860.unity
+    guid: 5e6bcbfdc26420b43a1cb4dc453bc60e
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Campaign/main/Campaign_Closing.unity
+    guid: c5f6134cde8a23345904b257062e9719
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Campaign/Campaign_Welcome.unity
+    guid: aea15fb634e00914aadb642cde1be192
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Campaign/Campaign_Closing.unity
+    guid: 16b943786ad8e3247857737976a323bf
+  - enabled: 1
     path: Assets/_COREHOLD/Scenes/Campaign/sandy-desert-120/Campaign_Welcome.unity
     guid: 6e8e26b1ba013414998a1f5f7591e959
   - enabled: 1
@@ -17,12 +32,6 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s619860.unity
     guid: df6aca293a582f54987fbb117f158168
-  - enabled: 1
-    path: Assets/_COREHOLD/Scenes/Campaign/Campaign_Welcome.unity
-    guid: aea15fb634e00914aadb642cde1be192
-  - enabled: 1
-    path: Assets/_COREHOLD/Scenes/Campaign/Campaign_Closing.unity
-    guid: 16b943786ad8e3247857737976a323bf
   - enabled: 1
     path: Assets/_COREHOLD/Scenes/Campaign/sandy-desert-110/Campaign_Welcome.unity
     guid: 81e0b6166fb397844870b6c2dab1802e
@@ -78,17 +87,11 @@ EditorBuildSettings:
     path: Assets/_COREHOLD/Scenes/Campaign/sandy-desert-50/Campaign_Closing.unity
     guid: ea58d884bdfcb334ca8b71b8166183ec
   - enabled: 1
-    path: Assets/_COREHOLD/Scenes/Campaign/main/Campaign_Welcome.unity
-    guid: c014c751c6ccb00458d01d043112b976
-  - enabled: 1
     path: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s197954.unity
     guid: 2bc1a950ca5ff814787902a00c0ae464
   - enabled: 1
     path: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s865038.unity
     guid: 3106f999a0fb88443876ce9fd8727435
-  - enabled: 1
-    path: Assets/_COREHOLD/Scenes/Campaign/main/Campaign_Closing.unity
-    guid: c5f6134cde8a23345904b257062e9719
   - enabled: 1
     path: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s349300.unity
     guid: 207eb82c5b993164da28b4e150747315

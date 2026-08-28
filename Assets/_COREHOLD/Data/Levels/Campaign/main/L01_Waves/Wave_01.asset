@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc8344b9023536f4987abfd907b256b5, type: 3}
+  m_Name: Wave_01
+  m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WaveDefinition
+  groups:
+  - enemy: {fileID: 11400000, guid: bace912330cd4424bb4868f7a5bdfba9, type: 2}
+    count: 5
+    spawnGap: 5
+    startOffset: 0
+    spawnerIndex: 0
+  clearBonus: 78
+  mutators: 0
