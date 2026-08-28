@@ -93,6 +93,36 @@ namespace Corehold.Systems
         /// <summary>The active shaker, if one exists in the scene.</summary>
         public static CameraShake Instance => _instance;
 
+        // ---- Self-bootstrap (ticket 37 hardening) ---------------------------
+        // The shaker used to be wired into scenes by an editor tool, and scene
+        // rework silently dropped it: the live scenes shipped with NO shake,
+        // hit-stop or haptics (only GameBackup still carried the component,
+        // and every caller null-guards, so nothing ever complained). A feel
+        // system must not depend on per-scene wiring surviving — attach to the
+        // main camera on every scene load when absent. A scene that DOES carry
+        // a hand-tuned instance keeps it untouched; the code defaults on the
+        // fields above are the tuned values an auto-added instance runs with.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void Bootstrap()
+        {
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+            EnsureOnMainCamera();
+        }
+
+        private static void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene,
+                                          UnityEngine.SceneManagement.LoadSceneMode mode)
+            => EnsureOnMainCamera();
+
+        private static void EnsureOnMainCamera()
+        {
+            if (_instance != null)
+                return;
+            Camera cam = Camera.main;
+            if (cam != null && cam.GetComponent<CameraShake>() == null)
+                cam.gameObject.AddComponent<CameraShake>();
+        }
+
         // ----- Runtime -----
         private float _trauma;             // current shake energy (0..1)
         private float _lastShakeTime = -999f; // Time.unscaledTime of the last accepted shake
