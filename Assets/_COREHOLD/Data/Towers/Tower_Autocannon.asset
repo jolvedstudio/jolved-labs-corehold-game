@@ -45,8 +45,8 @@ MonoBehaviour:
     projectilePrefab: {fileID: 0}
     projectileSpeed: 0
     weaponVisualIndex: 0
-    muzzleVfx: {fileID: 8771972552311404799, guid: bbf9e36a48d6c5648a13889afab076fd, type: 3}
-    fireSfx: {fileID: 8300000, guid: 8fdcabd035384834882e425db462a5f3, type: 3}
+    muzzleVfx: {fileID: 8771972552311404799, guid: 625e544357374304e85d7495e8ee5d11, type: 3}
+    fireSfx: {fileID: 8300000, guid: 888789d76aac5234e90454b7827df3c1, type: 3}
     shieldHitPoints: 0
     shieldRegenPerSec: 0
     shieldRegenDelay: 0

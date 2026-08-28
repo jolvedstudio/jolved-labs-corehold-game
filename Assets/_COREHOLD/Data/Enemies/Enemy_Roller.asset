@@ -21,10 +21,10 @@ MonoBehaviour:
   moveSpeed: 11
   bounty: 20
   leakDamage: 2
-  fireSound: {fileID: 8300000, guid: 0dbe91efb8ee94e6695ef0f552d202ce, type: 3}
+  fireSound: {fileID: 8300000, guid: dd15937ab05ed404bbfd682dd8c0cf07, type: 3}
   fireVolume: 0.7
   firePitchSpread: 0.08
-  deathSound: {fileID: 8300000, guid: 1fd31868d68903d4f9e2c4a3b7ef98f3, type: 3}
+  deathSound: {fileID: 8300000, guid: 14828646610ee28499829297431f450b, type: 3}
   deathVolume: 0.8
   deathPitchSpread: 0.06
   isAir: 0

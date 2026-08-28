@@ -25,7 +25,7 @@ MonoBehaviour:
   overrideGroundTint: 1
   groundTint: {r: 0.88, g: 0.92, b: 1, a: 1}
   precipitation: 1
-  ambientLoop: {fileID: 8300000, guid: d15d2b8227cd57245ab3edf20dbcfaf7, type: 3}
+  ambientLoop: {fileID: 8300000, guid: e219adcbf3306e646bd14fb4cd716305, type: 3}
   ambientVolume: 0.4
   precipitationPrefab: {fileID: 0}
   precipitationRate: 260
