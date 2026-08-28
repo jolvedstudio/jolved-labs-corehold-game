@@ -813,10 +813,18 @@ namespace Corehold.Core
             if (spawner != null)
                 enemy.transform.rotation = spawner.transform.rotation;
 
-            // Materialisation flash (VFX Tier 1) — per unit, so staggered group
-            // spawns each read; silent until the SpawnFlash slot is wired.
+            // Materialisation flash (VFX Tier 1) — per unit, at the unit's
+            // GEOMETRIC CENTRE, not its feet: ground units stand ON spawnPos,
+            // so an unlifted flash sits half underground on any tall body. The
+            // body radius is the same size the traffic system trusts. Air units
+            // are already positioned at their centre.
             if (Corehold.Systems.VFXDirector.Instance != null)
-                Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(spawnPos);
+            {
+                Vector3 flashPos = spawnPos;
+                if (!def.isAir)
+                    flashPos += Vector3.up * enemy.BodyRadius;
+                Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(flashPos);
+            }
 
             // The unit has APPEARED — its spawner's portal may now fade if it
             // was the last one this portal was being held open for.
