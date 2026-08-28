@@ -565,14 +565,18 @@ namespace Corehold.Systems
         /// actually appeared). Null when the slot is unwired, like every slot; a
         /// looping vortex prefab is the intended pick here.
         /// </summary>
-        public PooledEffect PlaySpawnPortalOpen(Vector3 position, Vector3 forward)
+        public PooledEffect PlaySpawnPortalOpen(Vector3 position, Vector3 forward,
+            float sizeMultiplier = 1f, float pulseAmplitude = 0f, float pulseHz = 0f)
         {
             ParticleSystem ps = Play(Effect.SpawnPortal, position, forward);
             if (ps == null)
                 return null;
             PooledEffect fx = ps.GetComponentInParent<PooledEffect>();
             if (fx != null)
-                fx.Hold();
+            {
+                fx.SetSizeMultiplier(sizeMultiplier);
+                fx.Hold(pulseAmplitude, pulseHz);
+            }
             return fx;
         }
 
@@ -676,20 +680,32 @@ namespace Corehold.Systems
         private bool _held;
         private float _age;
 
+        // Authored (prefab) scale, captured once per pooled instance so plays can
+        // be sized RELATIVE to how the effect was authored and reuse re-baselines.
+        private Vector3 _authoredScale = Vector3.one;
+        private bool _authoredScaleCaptured;
+        private float _sizeMult = 1f;
+        private float _pulseAmplitude;
+        private float _pulseHz;
+
         /// <summary>True while a caller keeps this instance open via <see cref="Hold"/>.</summary>
         public bool IsHeld => _held;
 
         /// <summary>
         /// Keep this instance alive past the normal finished/timeout checks — for
         /// effects whose lifetime is OWNED by a system (the persistent spawn
-        /// portal, held open until its spawner's last unit appears). Pair with
+        /// portal, held open until its spawner's last unit appears). While held it
+        /// can PULSE: a sinusoidal breathing of the whole instance's scale at the
+        /// given amplitude (fraction of size) and rate (Hz); 0 disables. Pair with
         /// <see cref="EndHold"/>; a leaked hold is still force-released at
         /// <see cref="HeldSafetyTimeout"/>.
         /// </summary>
-        public void Hold()
+        public void Hold(float pulseAmplitude = 0f, float pulseHz = 0f)
         {
             _held = true;
             _age = 0f;
+            _pulseAmplitude = Mathf.Max(0f, pulseAmplitude);
+            _pulseHz = Mathf.Max(0f, pulseHz);
         }
 
         /// <summary>
@@ -703,10 +719,37 @@ namespace Corehold.Systems
                 return;
             _held = false;
             _age = 0f;   // a fresh window for the fade-out
+            _pulseAmplitude = 0f;
+            ApplyScale(0f);   // settle out of the pulse
             if (_systems != null)
                 for (int i = 0; i < _systems.Length; i++)
                     if (_systems[i] != null)
                         _systems[i].Stop(true, ParticleSystemStopBehavior.StopEmitting);
+        }
+
+        /// <summary>
+        /// Scale this instance to <paramref name="mult"/> × its AUTHORED size (a
+        /// held portal grows to fit the units emerging from it — callable while
+        /// live, so an open portal can widen for a bigger late group). Forces
+        /// Hierarchy scaling on the particle systems so root scale actually
+        /// reaches the particles; pooled reuse re-baselines in <see cref="Arm"/>.
+        /// </summary>
+        public void SetSizeMultiplier(float mult)
+        {
+            _sizeMult = Mathf.Max(0.01f, mult);
+            if (_systems != null && !Mathf.Approximately(_sizeMult, 1f))
+                for (int i = 0; i < _systems.Length; i++)
+                    if (_systems[i] != null)
+                    {
+                        var main = _systems[i].main;
+                        main.scalingMode = ParticleSystemScalingMode.Hierarchy;
+                    }
+            ApplyScale(0f);
+        }
+
+        private void ApplyScale(float pulse)
+        {
+            transform.localScale = _authoredScale * (_sizeMult * (1f + pulse));
         }
 
         /// <summary>
@@ -724,6 +767,18 @@ namespace Corehold.Systems
             _armed = true;
             _held = false;
             _age = 0f;
+
+            // Re-baseline scale for this play: capture the authored scale once,
+            // then clear any sizing a previous (portal) use applied.
+            if (!_authoredScaleCaptured)
+            {
+                _authoredScale = transform.localScale;
+                _authoredScaleCaptured = true;
+            }
+            _sizeMult = 1f;
+            _pulseAmplitude = 0f;
+            _pulseHz = 0f;
+            transform.localScale = _authoredScale;
         }
 
         private void LateUpdate()
@@ -737,6 +792,8 @@ namespace Corehold.Systems
             {
                 // Held instances skip the finished check (a burst prefab may sit
                 // invisible until the hold ends) and use the larger cap only.
+                if (_pulseAmplitude > 0f && _pulseHz > 0f)
+                    ApplyScale(_pulseAmplitude * Mathf.Sin(Time.time * _pulseHz * 2f * Mathf.PI));
                 if (_age < HeldSafetyTimeout)
                     return;
                 _held = false;
@@ -746,6 +803,8 @@ namespace Corehold.Systems
             {
                 _armed = false;
                 _held = false;
+                if (_authoredScaleCaptured)
+                    transform.localScale = _authoredScale;
                 if (_pool != null)
                     _pool.Release(_root != null ? _root : transform);
                 else

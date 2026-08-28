@@ -492,10 +492,22 @@ namespace Corehold.Core
         // spawner, opened as the wave starts and faded once the spawner's last
         // unit has ACTUALLY appeared (pending-queue admissions included).
         // Counts accumulate across chained waves that overlap, so a shared
-        // portal stays open until every emitting wave is through it.
+        // portal stays open until every emitting wave is through it. Sized to
+        // the widest unit emerging there and pulsing while held.
+        [Header("Spawn portals (VFX)")]
+        [Tooltip("[TUNE] World diameter (m) the authored SpawnPortal prefab covers at scale 1 — measure it once in the testbed. Sizing scales instances RELATIVE to this so the portal fits the unit stepping out of it.")]
+        [SerializeField] private float portalAuthoredDiameter = 2f;
+        [Tooltip("[TUNE] Portal diameter as a multiple of the widest emerging unit's body diameter. 1 = snug; ~1.7 reads as a gate the unit comes through. Never scales below the authored size.")]
+        [SerializeField] private float portalHeadroom = 1.7f;
+        [Tooltip("[TUNE] Pulse depth as a fraction of the portal's scale (0 = steady). The held portal breathes at this amplitude.")]
+        [Range(0f, 0.5f)] [SerializeField] private float portalPulseAmplitude = 0.08f;
+        [Tooltip("[TUNE] Pulse rate in cycles per second.")]
+        [Range(0f, 5f)] [SerializeField] private float portalPulseHz = 0.9f;
+
         private readonly Dictionary<int, Corehold.Systems.PooledEffect> _openPortals =
             new Dictionary<int, Corehold.Systems.PooledEffect>();
         private readonly Dictionary<int, int> _portalPending = new Dictionary<int, int>();
+        private readonly Dictionary<int, float> _portalMult = new Dictionary<int, float>();
 
         private void StartWaveGroups(WaveDefinition wave, int waveNumber)
         {
@@ -541,7 +553,7 @@ namespace Corehold.Core
                 // (Convoy), and a portal nothing emerges from reads as a bug.
                 // The portal is HELD open and fades in SpawnEnemy once this
                 // count drains to zero.
-                OpenPortal(spawnerIndex, group.count);
+                OpenPortal(spawnerIndex, group.count, group.enemy);
 
                 _activeSpawnGroups++;
                 _emittingWaves.Add(waveNumber);
@@ -551,14 +563,31 @@ namespace Corehold.Core
         }
 
         /// <summary>Open (or extend) the held portal at a spawner; the count is
-        /// how many more units must appear there before it may fade.</summary>
-        private void OpenPortal(int spawnerIndex, int unitCount)
+        /// how many more units must appear there before it may fade. The portal
+        /// is sized so the given group's units fit through it — an already-open
+        /// portal GROWS live when a wider late group joins, never shrinks.</summary>
+        private void OpenPortal(int spawnerIndex, int unitCount, EnemyDefinition enemy)
         {
             _portalPending.TryGetValue(spawnerIndex, out int pending);
             _portalPending[spawnerIndex] = pending + unitCount;
 
+            // Authored diameter × mult must cover the unit's body diameter with
+            // headroom; the authored size is the floor so small units still get
+            // a readable gate.
+            float mult = Mathf.Max(1f,
+                ResolvePrefabRadius(enemy) * 2f * portalHeadroom /
+                Mathf.Max(0.1f, portalAuthoredDiameter));
+
             if (_openPortals.TryGetValue(spawnerIndex, out var open) && open != null && open.IsHeld)
+            {
+                _portalMult.TryGetValue(spawnerIndex, out float current);
+                if (mult > current)
+                {
+                    _portalMult[spawnerIndex] = mult;
+                    open.SetSizeMultiplier(mult);
+                }
                 return;   // already open (overlapping chained wave) — counts stack
+            }
 
             if (Corehold.Systems.VFXDirector.Instance == null)
                 return;
@@ -566,9 +595,12 @@ namespace Corehold.Core
             if (sp == null)
                 return;
             var fx = Corehold.Systems.VFXDirector.Instance.PlaySpawnPortalOpen(
-                sp.Position, sp.transform.forward);
+                sp.Position, sp.transform.forward, mult, portalPulseAmplitude, portalPulseHz);
             if (fx != null)
+            {
                 _openPortals[spawnerIndex] = fx;
+                _portalMult[spawnerIndex] = mult;
+            }
         }
 
         /// <summary>One unit accounted for at a spawner (appeared, or provably
@@ -584,6 +616,7 @@ namespace Corehold.Core
                 return;
             }
             _portalPending.Remove(spawnerIndex);
+            _portalMult.Remove(spawnerIndex);
             if (_openPortals.TryGetValue(spawnerIndex, out var fx))
             {
                 _openPortals.Remove(spawnerIndex);
@@ -599,6 +632,7 @@ namespace Corehold.Core
                     kv.Value.EndHold();
             _openPortals.Clear();
             _portalPending.Clear();
+            _portalMult.Clear();
         }
 
         private void OnDisable()
