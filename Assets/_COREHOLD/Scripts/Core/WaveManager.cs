@@ -813,18 +813,15 @@ namespace Corehold.Core
             if (spawner != null)
                 enemy.transform.rotation = spawner.transform.rotation;
 
-            // Materialisation flash (VFX Tier 1) — per unit, at the unit's
-            // GEOMETRIC CENTRE, not its feet: ground units stand ON spawnPos,
-            // so an unlifted flash sits half underground on any tall body. The
-            // body radius is the same size the traffic system trusts. Air units
-            // are already positioned at their centre.
+            // Materialisation flash (VFX Tier 1) — per unit, at the unit's OWN
+            // aim anchor (HitPoint: the authored anchor, else the computed
+            // geometric centre — the exact point towers aim at). The enemy is
+            // already positioned, and an anchor is a transform, valid this
+            // frame — unlike renderer bounds. Lifting by the nav body radius
+            // under-lifted tall walkers (a WIDTH, not a half-height) and put
+            // half the flash underground.
             if (Corehold.Systems.VFXDirector.Instance != null)
-            {
-                Vector3 flashPos = spawnPos;
-                if (!def.isAir)
-                    flashPos += Vector3.up * enemy.BodyRadius;
-                Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(flashPos);
-            }
+                Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(enemy.HitPoint);
 
             // The unit has APPEARED — its spawner's portal may now fade if it
             // was the last one this portal was being held open for.
