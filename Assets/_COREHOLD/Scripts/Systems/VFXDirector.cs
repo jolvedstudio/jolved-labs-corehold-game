@@ -101,7 +101,8 @@ namespace Corehold.Systems
             public int prewarm;
         }
 
-        [Header("Effects (GDD §11) — assign any Shuriken-based effect prefabs")]
+        [Header("Effects — THIS scene's list is what plays (pools rebuild from it every run)")]
+        [Tooltip("The runtime source of truth for THIS scene: pools are built from this list in Awake, every run. The VFXDirectorConfig ASSET is only a design-time template that tools stamp into scenes (Tools → COREHOLD → VFX → Apply VFX Config To Open Scene(s)) — it is never read at runtime. To apply changes made DURING play: right-click this component's header → 'Rebuild Pools From Inspector'.")]
         [SerializeField]
         private EffectEntry[] effects =
         {
@@ -174,8 +175,19 @@ namespace Corehold.Systems
         {
             if (_instance != null && _instance != this)
             {
-                Destroy(this);
-                return;
+                if (_instance.gameObject.scene == gameObject.scene)
+                {
+                    // Two directors in ONE scene is a setup error; the first wins.
+                    Debug.LogWarning("[VFXDirector] Duplicate director in this scene — destroying the extra.", this);
+                    Destroy(this);
+                    return;
+                }
+                // A leftover from ANOTHER scene (a persistent object). The current
+                // scene's own inspector setup must rule — replace the old director.
+                Debug.LogWarning(
+                    $"[VFXDirector] Replacing leftover director from scene '{_instance.gameObject.scene.name}' — " +
+                    "this scene's own setup takes over.", this);
+                Destroy(_instance.gameObject);
             }
             _instance = this;
 
@@ -207,11 +219,26 @@ namespace Corehold.Systems
 
             if (effects != null)
             {
+                // LAST entry per id wins. The inspector's + button DUPLICATES an
+                // element, so "swap a slot's prefab" is naturally authored as a
+                // new row below the old one — and the previous first-wins skip
+                // silently ignored it, which read as "the scene's own setup does
+                // not apply". An override is called out loud instead.
+                var byId = new Dictionary<Effect, EffectEntry>();
                 foreach (var entry in effects)
                 {
-                    if (entry.prefab == null || _pools.ContainsKey(entry.id))
+                    if (entry.prefab == null)
                         continue;
+                    if (byId.TryGetValue(entry.id, out var prev) && prev.prefab != entry.prefab)
+                        Debug.LogWarning(
+                            $"[VFXDirector] Duplicate '{entry.id}' slot: using the LAST entry " +
+                            $"('{entry.prefab.name}'), ignoring '{prev.prefab.name}' — remove the stale row.",
+                            this);
+                    byId[entry.id] = entry;
+                }
 
+                foreach (var entry in byId.Values)
+                {
                     Transform prefabRoot = PreparePrefab(entry.prefab);
                     if (prefabRoot == null)
                     {
@@ -227,9 +254,14 @@ namespace Corehold.Systems
 
                     int prewarm = Mathf.Max(0, entry.prewarm);
                     var pool = new CoreholdPool<Transform>(prefabRoot, parentGo.transform, prewarm);
-                    _pools.Add(entry.id, pool);
+                    _pools[entry.id] = pool;
                 }
             }
+
+            // Provability: every run states whose setup built the pools, so "which
+            // list is live" is never a matter of inference again.
+            Debug.Log($"[VFXDirector] Pools built from scene '{gameObject.scene.name}' inspector setup: " +
+                      $"{_pools.Count} slot(s) live — {string.Join(", ", _pools.Keys)}.", this);
 
             BuildTracerPool();
         }
@@ -267,6 +299,19 @@ namespace Corehold.Systems
             var lights = root.GetComponentsInChildren<Light>(true);
             for (int i = 0; i < lights.Length; i++)
                 lights[i].enabled = false;
+        }
+
+        /// <summary>
+        /// Play-mode iteration: re-read THIS component's inspector list and rebuild
+        /// the effect pools from it (right-click the component header → this).
+        /// Old pool parents are deliberately kept so in-flight instances release
+        /// cleanly; all NEW plays come from the rebuilt pools.
+        /// </summary>
+        [ContextMenu("Rebuild Pools From Inspector")]
+        private void RebuildPoolsFromInspector()
+        {
+            _pools.Clear();
+            BuildPools();
         }
 
         private void BuildTracerPool()
