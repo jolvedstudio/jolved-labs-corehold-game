@@ -55,6 +55,14 @@ namespace Corehold.Systems
         private Color _baseFogColor;
         private float _baseFogDensity;
 
+        // ----- Sun (resolved once; every field the override writes is captured) --
+        private Light _sun;
+        private bool _sunResolved;
+        private Color _baseSunColor;
+        private float _baseSunIntensity;
+        private float _baseSunShadowStrength;
+        private bool _baseSunUseTemperature;
+
         private readonly List<Renderer> _resolvedTargets = new List<Renderer>();
         // Each target's own material colour, captured at resolve time. The tint is
         // MULTIPLICATIVE over this (as the preset tooltip promises): writing the
@@ -125,8 +133,46 @@ namespace Corehold.Systems
             _baseFogColor = RenderSettings.fogColor;
             _baseFogDensity = RenderSettings.fogDensity;
 
+            ResolveSun();
             EnsureGradeVolume();
             _baselineCaptured = true;
+        }
+
+        /// <summary>
+        /// Find the scene's sun and snapshot every field the sun override writes.
+        /// RenderSettings.sun (the Lighting window's explicit Sun Source) wins;
+        /// otherwise the brightest active directional light — the same light the
+        /// player is actually lit by.
+        /// </summary>
+        private void ResolveSun()
+        {
+            if (_sunResolved)
+                return;
+            _sunResolved = true;
+
+            _sun = RenderSettings.sun;
+            if (_sun == null || _sun.type != LightType.Directional || !_sun.isActiveAndEnabled)
+            {
+                _sun = null;
+                float best = float.MinValue;
+                foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
+                {
+                    if (l == null || l.type != LightType.Directional || !l.isActiveAndEnabled)
+                        continue;
+                    if (l.intensity > best)
+                    {
+                        _sun = l;
+                        best = l.intensity;
+                    }
+                }
+            }
+            if (_sun == null)
+                return;
+
+            _baseSunColor = _sun.color;
+            _baseSunIntensity = _sun.intensity;
+            _baseSunShadowStrength = _sun.shadowStrength;
+            _baseSunUseTemperature = _sun.useColorTemperature;
         }
 
         /// <summary>
@@ -163,6 +209,15 @@ namespace Corehold.Systems
             RenderSettings.fogMode = _baseFogMode;
             RenderSettings.fogColor = _baseFogColor;
             RenderSettings.fogDensity = _baseFogDensity;
+
+            if (_sun != null)
+            {
+                _sun.useColorTemperature = _baseSunUseTemperature;
+                _sun.color = _baseSunColor;
+                _sun.intensity = _baseSunIntensity;
+                _sun.shadowStrength = _baseSunShadowStrength;
+            }
+
             TintTargets(Color.white);
 
             // Stand the grade down entirely — weight 0 contributes nothing, so the
@@ -198,6 +253,24 @@ namespace Corehold.Systems
             {
                 RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
                 RenderSettings.ambientLight = next.ambientColor;
+            }
+
+            if (next.overrideSun && _sun != null)
+            {
+                // Compose filter × blackbody ourselves rather than leaning on
+                // Light.useColorTemperature: that flag's contribution depends on
+                // project graphics settings, and a sun ALREADY authored in
+                // temperature mode would double-compose its own Kelvin with the
+                // preset's. Forcing the flag off while the override is active
+                // makes the written colour the whole story; restore puts flag
+                // and colour back exactly. Intensity and shadow strength are
+                // MULTIPLIERS over the captured baseline — same doctrine as the
+                // ground tint — so dim-authored suns keep their identity.
+                _sun.useColorTemperature = false;
+                _sun.color = next.sunFilter *
+                             Mathf.CorrelatedColorTemperatureToRGB(next.sunTemperatureKelvin);
+                _sun.intensity = _baseSunIntensity * next.sunIntensityMult;
+                _sun.shadowStrength = _baseSunShadowStrength * next.sunShadowStrengthMult;
             }
 
             if (next.overrideFog)

@@ -34,6 +34,22 @@ namespace Corehold.Data
         [Tooltip("[TUNE] Flat ambient colour applied when overrideAmbient is on.")]
         [ColorUsage(false, true)] public Color ambientColor = new Color(0.32f, 0.35f, 0.42f, 1f);
 
+        [Header("Sun (directional light)")]
+        [Tooltip("[TUNE] Grade the sun: colour temperature + filter tint, with relative intensity and shadow strength. The applier resolves the sun at apply time (RenderSettings.sun, else the brightest active directional light) and restores it exactly on clear. Cosmetic only — Blackout's gameplay darkness is a wave mutator and stays out of here.")]
+        public bool overrideSun;
+
+        [Tooltip("[TUNE] Colour temperature in Kelvin; the final sun colour is filter × blackbody(kelvin). ~6500 is neutral daylight; lower is warmer (golden hour ~3500), higher is colder/bluer (overcast ~7500, storm light 8000+).")]
+        [Range(1500f, 20000f)] public float sunTemperatureKelvin = 6500f;
+
+        [Tooltip("[TUNE] Filter colour multiplied over the temperature. Leave white for a pure temperature shift; use it for non-blackbody looks (a green storm cast, dust-orange haze light).")]
+        public Color sunFilter = Color.white;
+
+        [Tooltip("[TUNE] MULTIPLIER on the authored sun intensity — relative, never absolute, so a dim-authored sun (R23 night variant) keeps its identity under any preset. 1 = unchanged; overcast reads right around 0.6.")]
+        [Range(0f, 2f)] public float sunIntensityMult = 1f;
+
+        [Tooltip("[TUNE] MULTIPLIER on the authored shadow strength. Diffuse overcast light wants faint shadows (~0.4); 1 = unchanged.")]
+        [Range(0f, 1f)] public float sunShadowStrengthMult = 1f;
+
         [Header("Distance fog")]
         [Tooltip("[TUNE] Override the fog baseline. R11 owns the baseline (it is solved from the camera and IS the null-preset look); a preset overrides it while active and the applier restores it on clear.")]
         public bool overrideFog;

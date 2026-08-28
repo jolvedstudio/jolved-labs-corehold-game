@@ -25,6 +25,14 @@ presets to the theme's `EnvPack.weatherPool` — the seed draws from there),
 and shield-shell tint/fresnel tuning (`ShieldShell`, colors bound by the
 color rule: blue = Shielded enemy, amber-green = friendly barrier).
 
+Weather presets can now also grade the **sun** (opt-in `overrideSun`):
+colour temperature in Kelvin × a filter tint, plus intensity and
+shadow-strength *multipliers* over the authored sun — relative on purpose,
+so one overcast preset reads correctly on a bright map and the R23 night
+variant alike. The applier resolves `RenderSettings.sun` (else the brightest
+active directional light), and restores every field exactly on clear.
+Cosmetic only, as ever — Blackout's gameplay darkness stays a wave mutator.
+
 ## Hard rules for the aesthetic lane
 
 1. **Never reference a vendor-pack prefab from a committed asset.** The packs
