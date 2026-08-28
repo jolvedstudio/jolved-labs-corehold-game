@@ -260,7 +260,7 @@ public static class VendorLocalizer
             // sub-object of the right asset.
             foreach (string bg in bakedShaderGuids)
                 updated = System.Text.RegularExpressions.Regex.Replace(
-                    updated, "\\{fileID: -?\\d+, guid: " + bg + ", type: \\d+\\}",
+                    updated, "\\{fileID: -?\\d+, guid: " + bg + ",\\s*type: \\d+\\}",
                     "{fileID: 4800000, guid: " + bg + ", type: 3}");
             if (!ReferenceEquals(updated, text) && updated != text)
             {
@@ -429,7 +429,7 @@ public static class VendorLocalizer
                     continue;
                 string text = File.ReadAllText(tp);
                 string updated = System.Text.RegularExpressions.Regex.Replace(
-                    text, "\\{fileID: -?\\d+, guid: " + oldGuid + ", type: \\d+\\}",
+                    text, "\\{fileID: -?\\d+, guid: " + oldGuid + ",\\s*type: \\d+\\}",
                     "{fileID: 4800000, guid: " + bakedGuid + ", type: 3}");
                 if (updated != text)
                 {
@@ -455,7 +455,7 @@ public static class VendorLocalizer
         // missed.)
         int repaired = 0;
         var shaderRef = new System.Text.RegularExpressions.Regex(
-            "m_Shader: \\{fileID: -?\\d+, guid: ([0-9a-f]{32}), type: \\d+\\}");
+            "m_Shader: \\{fileID: -?\\d+, guid: ([0-9a-f]{32}),\\s*type: \\d+\\}");
         foreach (string file in Directory.GetFiles(VendoredRoot, "*.mat", SearchOption.AllDirectories))
         {
             string path = file.Replace('\\', '/');

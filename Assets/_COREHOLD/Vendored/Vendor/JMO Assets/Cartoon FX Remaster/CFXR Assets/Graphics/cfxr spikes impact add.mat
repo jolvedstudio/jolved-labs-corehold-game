@@ -8,8 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: cfxr spikes impact add
-  m_Shader: {fileID: -6465566751694194690, guid: b778399c62ff249429f3ee90d697a43c,
-    type: 3}
+  m_Shader: {fileID: 4800000, guid: 16a9d4fb88ccf8b49ba5f019eeb9902f, type: 3}
   m_ValidKeywords:
   - _CFXR_ADDITIVE
   - _FADING_ON

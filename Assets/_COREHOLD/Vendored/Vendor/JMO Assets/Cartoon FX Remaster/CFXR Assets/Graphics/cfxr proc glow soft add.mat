@@ -8,8 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: cfxr proc glow soft add
-  m_Shader: {fileID: -6465566751694194690, guid: 408d4bc358435ac449a9858308257069,
-    type: 3}
+  m_Shader: {fileID: 4800000, guid: 6e0fa536b6b0745468b7150e2d342ddc, type: 3}
   m_ValidKeywords:
   - _FADING_ON
   m_InvalidKeywords:

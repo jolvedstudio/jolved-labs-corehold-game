@@ -8,8 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: cfxr proc ring hdr ab
-  m_Shader: {fileID: -6465566751694194690, guid: 061f40f3d2043514ba0402090e2a6a78,
-    type: 3}
+  m_Shader: {fileID: 4800000, guid: ecf550440823c6340b69a66098a3e352, type: 3}
   m_ValidKeywords:
   - _FADING_ON
   m_InvalidKeywords:
