@@ -129,6 +129,7 @@ public static class VendorLocalizer
 
         // ---- copy (or adopt an existing copy), building the guid map --------
         var guidMap = new Dictionary<string, string>();   // old -> new
+        var bakedShaderGuids = new HashSet<string>();     // refs need fileID surgery
         int copied = 0, reused = 0, scriptsSkipped = 0;
         long bytes = 0;
         foreach (string src in external)
@@ -140,6 +141,38 @@ public static class VendorLocalizer
             }
             string dest = DestinationFor(src);
             string oldGuid = AssetDatabase.AssetPathToGUID(src);
+
+            // CFXR ships its shaders as .cfxrshader — a custom extension that
+            // imports ONLY through the pack's own ScriptedImporter (an editor
+            // script inside the ignored pack). A verbatim copy therefore works
+            // on this machine and is a dead file on every clean clone. Bake it
+            // to a plain .shader instead, which the standard importer handles
+            // everywhere; the reference fileIDs are fixed after the remap.
+            if (Path.GetExtension(src).ToLowerInvariant() == ".cfxrshader")
+            {
+                string bakedDest = Path.ChangeExtension(dest, ".shader");
+                string bakedGuid = File.Exists(bakedDest) ? AssetDatabase.AssetPathToGUID(bakedDest) : null;
+                if (string.IsNullOrEmpty(bakedGuid))
+                {
+                    EnsureFolder(Path.GetDirectoryName(bakedDest).Replace('\\', '/'));
+                    CopyShaderSiblingIncludes(src, bakedDest);
+                    bakedGuid = BakeCustomShader(src, bakedDest, log);
+                    if (!string.IsNullOrEmpty(bakedGuid))
+                    {
+                        copied++;
+                        var bfi = new FileInfo(bakedDest);
+                        if (bfi.Exists) bytes += bfi.Length;
+                    }
+                }
+                if (!string.IsNullOrEmpty(bakedGuid) && !string.IsNullOrEmpty(oldGuid))
+                {
+                    guidMap[oldGuid] = bakedGuid;
+                    bakedShaderGuids.Add(bakedGuid);
+                    continue;
+                }
+                // Bake failed: fall through to the verbatim copy so this
+                // machine still works; the bake log line names the clone gap.
+            }
             // File.Exists, not AssetPathToGUID alone: AssetPathToGUID ALSO
             // answers for recently DELETED assets (its documented default),
             // which once made a wiped Vendored folder read as "79 already
@@ -162,7 +195,8 @@ public static class VendorLocalizer
                 // Shader include files travel by RELATIVE path, not GUID, so
                 // GetDependencies never lists them — copy the shader's sibling
                 // includes along so the copy compiles on a pack-less machine.
-                if (Path.GetExtension(dest).ToLowerInvariant() == ".shader")
+                string destExt = Path.GetExtension(dest).ToLowerInvariant();
+                if (destExt == ".shader" || destExt == ".cfxrshader")
                     CopyShaderSiblingIncludes(src, dest);
             }
             else
@@ -194,6 +228,14 @@ public static class VendorLocalizer
             string updated = text;
             foreach (var kv in guidMap)
                 updated = updated.Replace("guid: " + kv.Key, "guid: " + kv.Value);
+            // Baked shaders: a scripted import's main object carries a hashed
+            // fileID, a plain .shader's Shader object is always 4800000 — the
+            // guid swap alone would leave references pointing at a nonexistent
+            // sub-object of the right asset.
+            foreach (string bg in bakedShaderGuids)
+                updated = System.Text.RegularExpressions.Regex.Replace(
+                    updated, "\\{fileID: -?\\d+, guid: " + bg + ", type: \\d+\\}",
+                    "{fileID: 4800000, guid: " + bg + ", type: 3}");
             if (!ReferenceEquals(updated, text) && updated != text)
             {
                 AssetDatabase.MakeEditable(path);
@@ -299,6 +341,49 @@ public static class VendorLocalizer
         if (deleted > 0)
             AssetDatabase.Refresh();
 
+        // Normalize custom-extension shaders that are ALREADY vendored: a
+        // verbatim .cfxrshader copy imports only through the pack's own
+        // ScriptedImporter, so it works on this machine and is a dead file on
+        // every clean clone. Bake it to a plain .shader beside it, repoint
+        // every vendored reference (fileID 4800000 — see the remap note), and
+        // drop the custom copy. Prefers the pristine pack source when this
+        // machine still has it.
+        int normalized = 0;
+        foreach (string file in Directory.GetFiles(VendoredRoot, "*.cfxrshader", SearchOption.AllDirectories))
+        {
+            string path = file.Replace('\\', '/');
+            string packSrc = "Assets/" + path.Substring(VendoredRoot.Length + 1);
+            string bakeSrc = File.Exists(packSrc) ? packSrc : path;
+            string bakedDest = Path.ChangeExtension(path, ".shader");
+            CopyShaderSiblingIncludes(bakeSrc, bakedDest);
+            string oldGuid = AssetDatabase.AssetPathToGUID(path);
+            string bakedGuid = File.Exists(bakedDest) ? AssetDatabase.AssetPathToGUID(bakedDest)
+                                                      : BakeCustomShader(bakeSrc, bakedDest, log);
+            if (string.IsNullOrEmpty(bakedGuid) || string.IsNullOrEmpty(oldGuid))
+                continue;   // bake failed — the verbatim copy stays, log already says so
+
+            foreach (string tf in Directory.GetFiles(VendoredRoot, "*", SearchOption.AllDirectories))
+            {
+                string tp = tf.Replace('\\', '/');
+                if (!TextAssetExtensions.Contains(Path.GetExtension(tp).ToLowerInvariant()))
+                    continue;
+                string text = File.ReadAllText(tp);
+                string updated = System.Text.RegularExpressions.Regex.Replace(
+                    text, "\\{fileID: -?\\d+, guid: " + oldGuid + ", type: \\d+\\}",
+                    "{fileID: 4800000, guid: " + bakedGuid + ", type: 3}");
+                if (updated != text)
+                {
+                    AssetDatabase.MakeEditable(tp);
+                    File.WriteAllText(tp, updated);
+                }
+            }
+            AssetDatabase.DeleteAsset(path);
+            normalized++;
+            log.AppendLine($"  localize: normalized {Path.GetFileName(path)} → baked .shader; vendored references repointed.");
+        }
+        if (normalized > 0)
+            AssetDatabase.Refresh();
+
         int stripped = 0;
         foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { VendoredRoot }))
         {
@@ -309,8 +394,9 @@ public static class VendorLocalizer
                 stripped += StripVendorScripts(path, log);
         }
 
-        if (deleted > 0 || stripped > 0)
+        if (deleted > 0 || stripped > 0 || normalized > 0)
             log.AppendLine($"  localize: healed {VendoredRoot} — {deleted} stray script file(s) deleted, " +
+                           $"{normalized} custom shader(s) baked, " +
                            $"{stripped} vendor/missing script component(s) stripped from vendored prefabs.");
     }
 
@@ -366,6 +452,46 @@ public static class VendorLocalizer
             PrefabUtility.UnloadPrefabContents(root);
         }
         return removed;
+    }
+
+    /// <summary>
+    /// Bake a custom-extension shader (CFXR's .cfxrshader) into a plain
+    /// .shader asset. The source file is complete ShaderLab — the custom
+    /// extension exists for the pack's editor tooling — so the standard
+    /// importer compiles it on any machine, pack installed or not. The
+    /// declared shader name is prefixed "Vendored/" so it can never collide
+    /// with (or be found instead of) the pack's own. Returns the baked
+    /// asset's guid, or null when the result does not compile — in which
+    /// case the bake is deleted and the caller keeps the verbatim copy.
+    /// </summary>
+    private static string BakeCustomShader(string srcPath, string destShaderPath, StringBuilder log)
+    {
+        try
+        {
+            string source = File.ReadAllText(srcPath);
+            source = new System.Text.RegularExpressions.Regex("Shader\\s+\"([^\"]+)\"")
+                .Replace(source, m => $"Shader \"Vendored/{m.Groups[1].Value}\"", 1);
+            File.WriteAllText(destShaderPath, source);
+            AssetDatabase.ImportAsset(destShaderPath);
+
+            var shader = AssetDatabase.LoadAssetAtPath<Shader>(destShaderPath);
+            if (shader == null || ShaderUtil.ShaderHasError(shader))
+            {
+                AssetDatabase.DeleteAsset(destShaderPath);
+                log.AppendLine($"  localize: shader bake FAILED for {Path.GetFileName(srcPath)} — keeping the " +
+                               "pack-importer copy. It works on THIS machine; a clean clone has no importer for " +
+                               "it, so those effects need a committed replacement shader (aesthetic lane).");
+                return null;
+            }
+            log.AppendLine($"  localize: baked {Path.GetFileName(srcPath)} → plain .shader " +
+                           "(standard importer, compiles on any machine).");
+            return AssetDatabase.AssetPathToGUID(destShaderPath);
+        }
+        catch (System.Exception e)
+        {
+            log.AppendLine($"  localize: shader bake ERROR for {srcPath}: {e.Message}");
+            return null;
+        }
     }
 
     /// <summary>Copy a shader's sibling *.cginc / *.hlsl files next to its copy —
