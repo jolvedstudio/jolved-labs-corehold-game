@@ -225,7 +225,13 @@ namespace Corehold.Systems
         public void KickImpact(Vector3 worldFrom) => Kick(worldFrom, kickImpact);
 
         /// <summary>Kick for a Core hit (wired from VFXDirector.PlayCoreHit).</summary>
-        public void KickCoreHit(Vector3 worldFrom) => Kick(worldFrom, kickCoreHit);
+        public void KickCoreHit(Vector3 worldFrom)
+        {
+            Kick(worldFrom, kickCoreHit);
+            // The single strongest haptic beat the game has: the Core taking a
+            // hit. Intensity rides the same accessibility scale as the shake.
+            Haptics.Pulse(0.15f, 1f * Mathf.Clamp01(effectScale));
+        }
 
         /// <summary>
         /// Larger kick for a splash explosion (wired from VFXDirector.PlayExplosion),
@@ -240,6 +246,9 @@ namespace Corehold.Systems
             // shared cooldown, so chained explosions cannot stack into nausea,
             // and the global feedbackScale/accessibility scaling still applies.
             Shake(explosionTrauma);
+            // …and on WebGL the blast is FELT: a short rumble through the
+            // browser haptics bridge, on the same accessibility scale.
+            Haptics.Pulse(0.09f, 0.8f * Mathf.Clamp01(effectScale));
             if (enableHitStop && Corehold.Core.GameManager.Instance != null)
                 Corehold.Core.GameManager.Instance.TimeDip(hitStopScale, hitStopSeconds);
         }

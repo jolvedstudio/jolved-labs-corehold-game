@@ -128,10 +128,39 @@ existed twice — git-ignored packs still compile. Repair, in this order:
    machine.
 4. Commit the deletions together with the re-localized files.
 
-## Parked (systems lane, on request)
+## VFX Expansion Plan — closing status
 
-- Haptics: browser `.jslib` bridge (`vibrationActuator` / `navigator.vibrate`)
-  — Unity's `SetMotorSpeeds`/`Handheld.Vibrate` are no-ops on WebGL.
-- Ground danger telegraphs: waiting on an enemy mechanic worth telegraphing.
+Everything in the amended plan that had a real target is BUILT. Done, in
+plan order: shields (enemy + tower, modeled), explosion-by-type slots +
+fallback, weather (incl. sun channel), persistent sized/pulsing diegetic
+spawn portals + per-unit SpawnFlash (per-level toggle), status/impact/core
+reads, camera shake + hit-stop, **and haptics**:
+
+- **Haptics (was review blocker B) — DONE.** `Plugins/WebGL/CoreholdHaptics.jslib`
+  + `Corehold.Systems.Haptics.Pulse(seconds, intensity)`: `navigator.vibrate`
+  (phones) and gamepad `vibrationActuator` dual-rumble (Chrome/Edge), rate-
+  limited, no-op wherever unsupported. Wired to the two beats that earn it:
+  explosions (0.09 s @ 0.8) and Core hits (0.15 s @ 1.0), both scaled by
+  CameraShake's accessibility `effectScale`. `Haptics.Enabled` is the master
+  switch, ready for a Settings toggle (UI lane). Feelable only in a WebGL
+  build with a supporting browser — never in the editor.
+
+## Still parked (with reasons, not forgotten)
+
+- Ground danger telegraphs: **still no enemy mechanic to telegraph** (review
+  blocker D). The moment a ground-AoE enemy ability exists, the seam is a
+  small addition — do not build fictional targets ahead of it.
 - Model terms for utility towers (CryoNode slow, SalvageRig income) if
   generated maps ever field them.
+- Settings-screen toggle for `Haptics.Enabled` (UI lane).
+
+## Aesthetic wiring outstanding (Coplay lane)
+
+Slots that still play their fallbacks or nothing until a prefab is assigned
+— wire via the config asset + `Apply VFX Config To Open Scene(s)`, or the
+scene director directly (duplicate rows now resolve LAST-wins, loudly):
+
+- `ExplosionKinetic` / `ExplosionEnergy` / `ExplosionExplosive` (per-type
+  kill bursts; falls back to size-based explosions meanwhile).
+- `StrikeMarker` (friendly marker at the Strike Wing commit point — never a
+  warning colour).
