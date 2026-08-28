@@ -557,6 +557,25 @@ namespace Corehold.Systems
         public ParticleSystem PlaySpawnPortal(Vector3 position, Vector3 forward) =>
             Play(Effect.SpawnPortal, position, forward);
 
+        /// <summary>
+        /// Persistent spawn portal: play the SpawnPortal effect and HOLD it open —
+        /// the instance survives the pool's finished/timeout checks until the
+        /// returned handle's <see cref="PooledEffect.EndHold"/> fades it out
+        /// (WaveManager calls that once the spawner's last unit of the wave has
+        /// actually appeared). Null when the slot is unwired, like every slot; a
+        /// looping vortex prefab is the intended pick here.
+        /// </summary>
+        public PooledEffect PlaySpawnPortalOpen(Vector3 position, Vector3 forward)
+        {
+            ParticleSystem ps = Play(Effect.SpawnPortal, position, forward);
+            if (ps == null)
+                return null;
+            PooledEffect fx = ps.GetComponentInParent<PooledEffect>();
+            if (fx != null)
+                fx.Hold();
+            return fx;
+        }
+
         /// <summary>Friendly target marker at the Strike Wing's committed point (silent until wired).</summary>
         public ParticleSystem PlayStrikeMarker(Vector3 position) => Play(Effect.StrikeMarker, position);
 
@@ -645,11 +664,50 @@ namespace Corehold.Systems
         // so an accidentally-looping effect can never permanently drain the pool.
         private const float SafetyTimeout = 12f;
 
+        // A HELD instance (a spawn portal kept open while its wave emits) gets a
+        // far larger cap — spawn-in phases exceed 12 s routinely — but never NO
+        // cap: a leaked hold must still return to the pool eventually.
+        private const float HeldSafetyTimeout = 180f;
+
         private CoreholdPool<Transform> _pool;
         private Transform _root;
         private ParticleSystem[] _systems;
         private bool _armed;
+        private bool _held;
         private float _age;
+
+        /// <summary>True while a caller keeps this instance open via <see cref="Hold"/>.</summary>
+        public bool IsHeld => _held;
+
+        /// <summary>
+        /// Keep this instance alive past the normal finished/timeout checks — for
+        /// effects whose lifetime is OWNED by a system (the persistent spawn
+        /// portal, held open until its spawner's last unit appears). Pair with
+        /// <see cref="EndHold"/>; a leaked hold is still force-released at
+        /// <see cref="HeldSafetyTimeout"/>.
+        /// </summary>
+        public void Hold()
+        {
+            _held = true;
+            _age = 0f;
+        }
+
+        /// <summary>
+        /// End a hold: stop EMISSION only (live particles finish naturally, so a
+        /// looping portal FADES instead of blinking off) and hand the instance
+        /// back to the normal finished checks for release.
+        /// </summary>
+        public void EndHold()
+        {
+            if (!_held)
+                return;
+            _held = false;
+            _age = 0f;   // a fresh window for the fade-out
+            if (_systems != null)
+                for (int i = 0; i < _systems.Length; i++)
+                    if (_systems[i] != null)
+                        _systems[i].Stop(true, ParticleSystemStopBehavior.StopEmitting);
+        }
 
         /// <summary>
         /// Bind this instance to a pool so it can release itself when its particle
@@ -664,6 +722,7 @@ namespace Corehold.Systems
             if (_systems == null || _systems.Length == 0)
                 _systems = GetComponentsInChildren<ParticleSystem>(true);
             _armed = true;
+            _held = false;
             _age = 0f;
         }
 
@@ -674,9 +733,19 @@ namespace Corehold.Systems
 
             _age += Time.deltaTime;
 
+            if (_held)
+            {
+                // Held instances skip the finished check (a burst prefab may sit
+                // invisible until the hold ends) and use the larger cap only.
+                if (_age < HeldSafetyTimeout)
+                    return;
+                _held = false;
+            }
+
             if (!AnyAlive() || _age >= SafetyTimeout)
             {
                 _armed = false;
+                _held = false;
                 if (_pool != null)
                     _pool.Release(_root != null ? _root : transform);
                 else
