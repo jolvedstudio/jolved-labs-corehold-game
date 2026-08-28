@@ -361,7 +361,11 @@ public static class VendorLocalizer
                     guid == "0000000000000000f000000000000000" ||   // unity default resources
                     guid == "00000000000000000000000000000000")
                     continue;
-                if (string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(guid)))
+                // File.Exists on top of GUIDToAssetPath: the mapping serves
+                // stale paths for assets deleted in earlier sessions.
+                string resolved = AssetDatabase.GUIDToAssetPath(guid);
+                if (string.IsNullOrEmpty(resolved) ||
+                    (resolved.StartsWith("Assets/", System.StringComparison.Ordinal) && !File.Exists(resolved)))
                     dangling.Add(guid);
             }
         }
@@ -459,8 +463,15 @@ public static class VendorLocalizer
             var m = shaderRef.Match(text);
             if (!m.Success)
                 continue;
-            if (!string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(m.Groups[1].Value)))
-                continue;   // resolves — not ours to touch
+            // Ground truth, not GUIDToAssetPath: the guid→path mapping serves
+            // STALE paths for assets deleted in an earlier session, which made
+            // this pass skip genuinely broken materials as "resolving". The
+            // imported material cannot lie — a null/error shader IS dangling.
+            var matAsset = AssetDatabase.LoadAssetAtPath<Material>(path);
+            bool broken = matAsset == null || matAsset.shader == null ||
+                          matAsset.shader.name == "Hidden/InternalErrorShader";
+            if (!broken)
+                continue;   // renders with a real shader — not ours to touch
             string packMat = "Assets/" + path.Substring(VendoredRoot.Length + 1);
             if (!File.Exists(packMat))
                 continue;   // no source to derive from; the shader audit keeps naming it
