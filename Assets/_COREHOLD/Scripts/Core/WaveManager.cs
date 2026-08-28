@@ -488,27 +488,19 @@ namespace Corehold.Core
             return true;
         }
 
+        // ---- Persistent spawn portals (VFX): one HELD effect per RESOLVED
+        // spawner, opened as the wave starts and faded once the spawner's last
+        // unit has ACTUALLY appeared (pending-queue admissions included).
+        // Counts accumulate across chained waves that overlap, so a shared
+        // portal stays open until every emitting wave is through it.
+        private readonly Dictionary<int, Corehold.Systems.PooledEffect> _openPortals =
+            new Dictionary<int, Corehold.Systems.PooledEffect>();
+        private readonly Dictionary<int, int> _portalPending = new Dictionary<int, int>();
+
         private void StartWaveGroups(WaveDefinition wave, int waveNumber)
         {
             if (wave == null || wave.groups == null)
                 return;
-
-            // Spawn portals (VFX Tier 1): one gate effect per DISTINCT spawner
-            // this wave uses, at wave start. Silent until the SpawnPortal slot
-            // is wired; per-unit flashes cover the staggered spawns after it.
-            if (Corehold.Systems.VFXDirector.Instance != null)
-            {
-                var announced = new HashSet<int>();
-                foreach (var g in wave.groups)
-                {
-                    if (g.enemy == null || g.count <= 0 || !announced.Add(g.spawnerIndex))
-                        continue;
-                    Spawner sp = FindSpawner(g.spawnerIndex);
-                    if (sp != null)
-                        Corehold.Systems.VFXDirector.Instance.PlaySpawnPortal(
-                            sp.Position, sp.transform.forward);
-                }
-            }
 
             // Convoy (R20): every ground group of the wave funnels into ONE
             // approach — the first ground group's resolved spawner wins for all.
@@ -544,11 +536,75 @@ namespace Corehold.Core
                         spawnerIndex = convoySpawner;
                 }
 
+                // Spawn portal (VFX): opened on the RESOLVED spawner — the raw
+                // table index can be re-dealt (siege spread) or funnelled
+                // (Convoy), and a portal nothing emerges from reads as a bug.
+                // The portal is HELD open and fades in SpawnEnemy once this
+                // count drains to zero.
+                OpenPortal(spawnerIndex, group.count);
+
                 _activeSpawnGroups++;
                 _emittingWaves.Add(waveNumber);
                 Coroutine c = StartCoroutine(SpawnGroupRoutine(group, waveNumber, spawnerIndex));
                 _spawnRoutines.Add(c);
             }
+        }
+
+        /// <summary>Open (or extend) the held portal at a spawner; the count is
+        /// how many more units must appear there before it may fade.</summary>
+        private void OpenPortal(int spawnerIndex, int unitCount)
+        {
+            _portalPending.TryGetValue(spawnerIndex, out int pending);
+            _portalPending[spawnerIndex] = pending + unitCount;
+
+            if (_openPortals.TryGetValue(spawnerIndex, out var open) && open != null && open.IsHeld)
+                return;   // already open (overlapping chained wave) — counts stack
+
+            if (Corehold.Systems.VFXDirector.Instance == null)
+                return;
+            Spawner sp = FindSpawner(spawnerIndex);
+            if (sp == null)
+                return;
+            var fx = Corehold.Systems.VFXDirector.Instance.PlaySpawnPortalOpen(
+                sp.Position, sp.transform.forward);
+            if (fx != null)
+                _openPortals[spawnerIndex] = fx;
+        }
+
+        /// <summary>One unit accounted for at a spawner (appeared, or provably
+        /// never will) — fade the portal when its count reaches zero.</summary>
+        private void DrainPortal(int spawnerIndex)
+        {
+            if (!_portalPending.TryGetValue(spawnerIndex, out int pending))
+                return;
+            pending--;
+            if (pending > 0)
+            {
+                _portalPending[spawnerIndex] = pending;
+                return;
+            }
+            _portalPending.Remove(spawnerIndex);
+            if (_openPortals.TryGetValue(spawnerIndex, out var fx))
+            {
+                _openPortals.Remove(spawnerIndex);
+                if (fx != null && fx.IsHeld)
+                    fx.EndHold();
+            }
+        }
+
+        private void CloseAllPortals()
+        {
+            foreach (var kv in _openPortals)
+                if (kv.Value != null && kv.Value.IsHeld)
+                    kv.Value.EndHold();
+            _openPortals.Clear();
+            _portalPending.Clear();
+        }
+
+        private void OnDisable()
+        {
+            // Level teardown/defeat while holds are live: fade rather than leak.
+            CloseAllPortals();
         }
 
         /// <summary>
@@ -640,6 +696,7 @@ namespace Corehold.Core
             if (def == null || def.prefab == null)
             {
                 Debug.LogWarning($"[WaveManager] Spawn group has a null enemy/prefab; skipping.");
+                DrainPortal(spawnerIndex);   // this unit will never appear — do not hold the portal for it
                 return;
             }
 
@@ -662,6 +719,7 @@ namespace Corehold.Core
                 {
                     Debug.LogWarning($"[WaveManager] Prefab '{def.prefab.name}' has no Enemy component.");
                     Destroy(go);
+                    DrainPortal(spawnerIndex);   // never appears — see above
                     return;
                 }
             }
@@ -674,6 +732,10 @@ namespace Corehold.Core
             // spawns each read; silent until the SpawnFlash slot is wired.
             if (Corehold.Systems.VFXDirector.Instance != null)
                 Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(spawnPos);
+
+            // The unit has APPEARED — its spawner's portal may now fade if it
+            // was the last one this portal was being held open for.
+            DrainPortal(spawnerIndex);
 
             ConfigureSpawn(enemy, def, spawner, waveNumber);
             TrackEnemy(enemy);

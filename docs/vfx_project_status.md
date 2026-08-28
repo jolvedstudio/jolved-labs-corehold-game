@@ -17,7 +17,7 @@ Assign prefabs in `CombatVFX_Testbed`, then run
 |---|---|---|
 | `ExplosionKinetic/Energy/Explosive` | on kills by that damage type | falls back to size-based explosion; palette per `VFX_ColorLanguage_Rule.md` |
 | `SpawnFlash` | at each unit's spawn position | per-unit, works with staggered group spawns |
-| `SpawnPortal` | once per distinct spawner at wave start, facing the spawner | pairs with SpawnFlash |
+| `SpawnPortal` | PERSISTENT: opens at each RESOLVED spawner as its wave starts, stays open while its units appear (pending-queue admits included, chained waves stack), fades via StopEmitting after the last one | a LOOPING vortex prefab is the intended pick — it fades on close instead of cutting; 180 s leak cap |
 | `StrikeMarker` | at the Strike Wing's committed point, layered over the telegraph ring | FRIENDLY marker — never a danger/warning visual |
 
 Also aesthetic-lane: `WeatherPreset` content per biome (remember to add new
