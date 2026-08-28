@@ -333,19 +333,26 @@ namespace CoreholdEditor.Campaign
                      string.Join(", ", noIcon) + " — run Tools/COREHOLD/Art/Render Icons.");
 
             // ---- art that only exists on this machine ----
-            var vendorHits = new List<string>();
+            // A stage whose closure (scene + LevelDefinition) reaches into a
+            // git-ignored vendor pack builds fine HERE and ships dangling GUIDs
+            // from any other machine or CI — missing dressing at best, missing
+            // effects at worst. The fix is one click, so this BLOCKS: press
+            // 'Localize vendor assets (all stages)' in the Ship step (or
+            // regenerate the stage — generation now localizes itself), then
+            // commit Assets/_COREHOLD/Vendored alongside the remapped files.
             foreach (var stage in manifest.stages)
             {
                 if (string.IsNullOrEmpty(stage.scenePath) || !System.IO.File.Exists(stage.scenePath)) continue;
-                var deps = AssetDatabase.GetDependencies(stage.scenePath, true)
-                    .Where(d => d.StartsWith("Assets/Vendor/")).ToList();
-                if (deps.Count > 0)
-                    vendorHits.Add($"{System.IO.Path.GetFileName(stage.scenePath)} ({deps.Count})");
+                string defPath = authoring?.stages
+                    ?.FirstOrDefault(s => s.scenePath == stage.scenePath)?.levelDefPath;
+                var vendor = VendorLocalizer.FindExternalDependencies(new[] { stage.scenePath, defPath });
+                if (vendor.Count == 0) continue;
+                var sample = vendor.Take(3).Select(System.IO.Path.GetFileName);
+                Error($"stage '{stage.title}': {vendor.Count} referenced asset(s) live in git-ignored " +
+                      $"vendor packs (e.g. {string.Join(", ", sample)}) — the build only works on this " +
+                      "machine. Press 'Localize vendor assets (all stages)' in the Ship step, or " +
+                      "regenerate the stage, then commit Assets/_COREHOLD/Vendored.");
             }
-            if (vendorHits.Count > 0)
-                Warn($"scenes depending on git-ignored Assets/Vendor art: {string.Join(", ", vendorHits)}. " +
-                     "The build works HERE because the pack is on this machine; a fresh clone or CI " +
-                     "cannot reproduce it.");
 
             // ---- platform ----
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL)

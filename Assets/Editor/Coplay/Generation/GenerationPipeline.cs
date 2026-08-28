@@ -109,6 +109,7 @@ public static class GenerationPipeline
         new Stage { title = "Emit LevelDefinition",      ticket = "R30",     run = StEmitLevel },
         new Stage { title = "GATE 3 — model margins",    ticket = "R29/R30", run = StModelGate, gate = true },
         new Stage { title = "Save scene",                ticket = "R29",     run = StSave },
+        new Stage { title = "Localize vendor assets",    ticket = "SHIP",    run = StLocalize },
     };
 
     /// <summary>
@@ -1140,6 +1141,41 @@ public static class GenerationPipeline
 
         string build = RegisterInBuildSettings(ctx.scenePath);
         return StageResult.Ok($"{ctx.scenePath} — press Play to run it{build}");
+    }
+
+    /// <summary>
+    /// Self-containment (SHIP): copy every git-ignored vendor asset the saved
+    /// scene + emitted definition reference into the committed Vendored folder
+    /// and remap the references — so the level a fresh clone or CI builds is
+    /// the level the author saw, not one with dangling dressing. Runs AFTER
+    /// the save (the scene file is the thing being rewritten) and reloads the
+    /// open scene so the editor never holds stale pre-remap references.
+    /// </summary>
+    private static StageResult StLocalize(Context ctx)
+    {
+        // Never fails the run: the level is already certified and SAVED — a
+        // localization hiccup must warn, not discard a good scene (preflight
+        // re-detects anything left external before ship).
+        var log = new StringBuilder();
+        try
+        {
+            int copied = VendorLocalizer.Localize(
+                new[] { ctx.scenePath, ctx.levelAssetPath }, log);
+
+            if (copied > 0 && !string.IsNullOrEmpty(ctx.scenePath))
+            {
+                // The remap rewrote the scene FILE; reload so what is open in
+                // the editor matches disk (a later manual save must not revert it).
+                EditorSceneManager.OpenScene(ctx.scenePath, OpenSceneMode.Single);
+            }
+        }
+        catch (Exception ex)
+        {
+            return StageResult.Ok($"localize WARNED — {ex.GetType().Name}: {ex.Message} " +
+                                  "(scene kept; preflight will re-detect external refs)\n" +
+                                  log.ToString().Trim());
+        }
+        return StageResult.Ok(log.ToString().Trim());
     }
 
     /// <summary>

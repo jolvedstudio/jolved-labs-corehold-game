@@ -30,7 +30,10 @@ color rule: blue = Shielded enemy, amber-green = friendly barrier).
 1. **Never reference a vendor-pack prefab from a committed asset.** The packs
    are git-ignored. Copy the specific prefab + its materials/textures into
    `Assets/_COREHOLD/VFX/` first and reference the copy. (Dangling GUIDs from
-   ignored folders break every other machine and the build.)
+   ignored folders break every other machine and the build.) This is now
+   *enforced and repairable*: campaign preflight ERRORs on any stage whose
+   closure reaches a vendor pack, and `VendorLocalizer` copies the used subset
+   into `Assets/_COREHOLD/Vendored/` and remaps the references (see below).
 2. Embedded real-time `Light`s are auto-disabled by the director's pool
    (`DisableEmbeddedLights`) — still prefer light-free prefabs.
 3. Shuriken only. No VFX Graph on the WebGL target.
@@ -52,6 +55,36 @@ color rule: blue = Shielded enemy, amber-green = friendly barrier).
   trauma on `CameraShake` (`explosionTrauma`, cooldown-guarded).
 - `Assets/_Recovery/` (a committed Unity crash-recovery scene) removed and
   gitignored; `Eric VFX Studio` / `Free Slash VFX` untracked and gitignored.
+- **Weather tint & coverage fixed:** `WeatherApplier` now captures each
+  renderer's authored base colour and applies `groundTint` multiplicatively
+  (clearing a preset restores the exact authored look), and the tint reaches
+  the whole readable ground plane — Floor, `TerrainRelief` children, the
+  silhouette band and `PlacedProp`s in the Silhouette role — not just the
+  floor quad. Stale fog-authority comments corrected (LookStage bakes the
+  baseline; the applier saves/restores around presets).
+- **Vendor localization (`Assets/Editor/Coplay/VendorLocalizer.cs`):**
+  copies every git-ignored vendor asset a scene/definition/config actually
+  references into committed `Assets/_COREHOLD/Vendored/` (structure kept,
+  deduplicated) and remaps all GUIDs in the closure to the copies, so a fresh
+  clone builds what the author saw. Wired in four places:
+  1. the Level Generator runs a *Localize vendor assets* stage after Save;
+  2. Campaign Builder Generate + Adopt localize each accepted stage;
+  3. the Ship step has a **Localize vendor assets (all stages)** button for
+     already-generated campaigns (e.g. sandy-desert-110);
+  4. campaign preflight ERRORs (blocks Build) while any stage still
+     references a pack.
+
+## ACTION NEEDED on a machine that has the packs
+
+`VFXDirectorConfig.asset` at HEAD references machine-local Cartoon FX
+prefabs — on a fresh clone every effect slot dangles and a clean build ships
+with **no combat VFX**. On a machine where the packs exist, run
+**Tools → COREHOLD → VFX → Localize VFX Config (vendored copies)** once,
+then commit `Assets/_COREHOLD/Vendored/` plus the updated config. For the
+existing campaign, also press **Localize vendor assets (all stages)** in the
+Campaign Builder's Ship step and commit the result. (On a pack-less clone
+the tools report nothing to do — the GUIDs are unresolvable there; they must
+run where the sources exist.)
 
 ## Parked (systems lane, on request)
 

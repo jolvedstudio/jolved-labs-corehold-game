@@ -11,11 +11,14 @@ namespace Corehold.Systems
     /// Three properties this component is built around:
     ///
     ///   • <b>The baseline is captured before anything is touched</b>, and every
-    ///     channel is restored on <see cref="Clear"/>. R11 owns the fog baseline —
-    ///     it is solved from the camera and IS the null-preset look — so a preset
-    ///     borrows it and gives it back. Without that, applying and clearing a
-    ///     preset would silently leave the scene on the preset's fog and the
-    ///     "null preset is pixel-identical" requirement would quietly fail.
+    ///     channel is restored on <see cref="Clear"/>. The fog baseline is whatever
+    ///     the scene LOADED with — originally R11's camera-solved fog, and since
+    ///     M-d whatever LookStage baked from the theme (EnvPack fog/skybox); this
+    ///     applier deliberately captures the loaded state rather than assuming an
+    ///     owner, so a preset borrows the baseline and gives it back. Without
+    ///     that, applying and clearing a preset would silently leave the scene on
+    ///     the preset's fog and the "null preset is pixel-identical" requirement
+    ///     would quietly fail.
     ///
     ///   • <b>No per-object material instances.</b> Ground tinting goes through one
     ///     shared <see cref="MaterialPropertyBlock"/>; touching
@@ -53,6 +56,12 @@ namespace Corehold.Systems
         private float _baseFogDensity;
 
         private readonly List<Renderer> _resolvedTargets = new List<Renderer>();
+        // Each target's own material colour, captured at resolve time. The tint is
+        // MULTIPLICATIVE over this (as the preset tooltip promises): writing the
+        // preset tint verbatim — or literal white on restore — through the property
+        // block would OVERWRITE any authored non-white material colour, silently
+        // breaking the "null preset is pixel-identical" guarantee.
+        private readonly List<Color> _baseTints = new List<Color>();
         private MaterialPropertyBlock _block;
         private GameObject _precipitation;
         private Material _precipitationMaterial;
@@ -251,9 +260,15 @@ namespace Corehold.Systems
                 Renderer r = _resolvedTargets[i];
                 if (r == null)
                     continue;
+                // Multiplicative over the material's OWN colour — a white tint
+                // (the restore path) therefore reproduces the authored look
+                // exactly, whatever colour the material was authored with. The
+                // existing block is read first so the generator's ground-tiling
+                // properties survive on the same renderer.
+                Color composed = _baseTints[i] * tint;
                 r.GetPropertyBlock(_block);
-                _block.SetColor(BaseColorId, tint);
-                _block.SetColor(ColorId, tint);
+                _block.SetColor(BaseColorId, composed);
+                _block.SetColor(ColorId, composed);
                 r.SetPropertyBlock(_block);
             }
         }
@@ -266,19 +281,50 @@ namespace Corehold.Systems
             if (tintTargets != null && tintTargets.Length > 0)
             {
                 _resolvedTargets.AddRange(tintTargets);
-                return;
             }
-
-            var floor = GameObject.Find("Floor");
-            if (floor != null)
+            else
             {
-                var r = floor.GetComponent<Renderer>();
-                if (r != null) _resolvedTargets.Add(r);
+                var floor = GameObject.Find("Floor");
+                if (floor != null)
+                {
+                    var r = floor.GetComponent<Renderer>();
+                    if (r != null) _resolvedTargets.Add(r);
+                }
+
+                // Terrain maps (M-b): the relief mesh IS the visible ground over
+                // the design box — tinting only the flat floor under it painted
+                // the apron and left a seam at the relief's edge.
+                var relief = GameObject.Find("TerrainRelief");
+                if (relief != null)
+                    _resolvedTargets.AddRange(relief.GetComponentsInChildren<Renderer>(true));
+
+                // Shipped map: the R11 silhouette band object.
+                var band = GameObject.Find("SilhouetteBand");
+                if (band != null)
+                    _resolvedTargets.AddRange(band.GetComponentsInChildren<Renderer>(true));
+
+                // Generated maps: silhouettes are placed props under Dressing,
+                // marked with their EnvPack role — the band object never exists.
+                foreach (var prop in FindObjectsByType<PlacedProp>(FindObjectsSortMode.None))
+                    if (prop != null && prop.role == "Silhouette")
+                        _resolvedTargets.AddRange(prop.GetComponentsInChildren<Renderer>(true));
             }
 
-            var band = GameObject.Find("SilhouetteBand");
-            if (band != null)
-                _resolvedTargets.AddRange(band.GetComponentsInChildren<Renderer>(true));
+            // Capture each target's authored material colour once — the value the
+            // multiplicative tint composes over and the restore returns to.
+            _baseTints.Clear();
+            for (int i = 0; i < _resolvedTargets.Count; i++)
+            {
+                Renderer r = _resolvedTargets[i];
+                Color baseColor = Color.white;
+                Material m = r != null ? r.sharedMaterial : null;
+                if (m != null)
+                {
+                    if (m.HasProperty(BaseColorId)) baseColor = m.GetColor(BaseColorId);
+                    else if (m.HasProperty(ColorId)) baseColor = m.GetColor(ColorId);
+                }
+                _baseTints.Add(baseColor);
+            }
         }
 
         // ------------------------------------------------------ precipitation

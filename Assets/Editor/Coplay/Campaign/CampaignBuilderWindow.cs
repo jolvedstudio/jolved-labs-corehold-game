@@ -607,6 +607,27 @@ namespace CoreholdEditor.Campaign
             {
                 if (GUILayout.Button("Preflight (shippable?)", GUILayout.Width(180)))
                     ShowReport(CampaignShipTool.PreflightReport(_authoring, out _));
+                if (GUILayout.Button("Localize vendor assets (all stages)", GUILayout.Width(230)))
+                {
+                    // Repair path for campaigns BUILT BEFORE self-containment:
+                    // copies every vendor dependency of every stage into the
+                    // committed Vendored folder and remaps. Newly generated or
+                    // adopted stages do this automatically.
+                    var llog = new StringBuilder();
+                    llog.AppendLine("Vendor localization — all stages:");
+                    foreach (var st in _authoring.stages)
+                    {
+                        if (string.IsNullOrEmpty(st.scenePath)) continue;
+                        llog.AppendLine($"  {System.IO.Path.GetFileNameWithoutExtension(st.scenePath)}:");
+                        try { LocalizeStage(st, llog); }
+                        catch (System.Exception ex)
+                        { llog.AppendLine($"    FAILED — {ex.GetType().Name}: {ex.Message}"); }
+                    }
+                    AssetDatabase.SaveAssets();
+                    llog.AppendLine("\nRe-run Preflight — external-reference errors should be gone. " +
+                                    "Commit Assets/_COREHOLD/Vendored with the remapped scenes.");
+                    ShowReport(llog.ToString());
+                }
                 if (GUILayout.Button("BUILD shippable game (WebGL)", GUILayout.Height(24), GUILayout.Width(220)))
                 {
                     // Preflight runs inside and aborts on errors; the report
@@ -1046,7 +1067,40 @@ namespace CoreholdEditor.Campaign
             EditorUtility.SetDirty(_authoring);
             AssetDatabase.SaveAssets();
             log.AppendLine($"  seed {usedSeed} accepted → {stage.scenePath}");
+
+            // Self-containment: the committed stage must not reference
+            // git-ignored vendor assets, or the campaign builds broken on any
+            // other machine. Copy + remap, then reload the open scene so the
+            // editor matches the rewritten file. Best-effort — a hiccup here
+            // must not fail an accepted stage; preflight re-detects.
+            try
+            {
+                LocalizeStage(stage, log);
+            }
+            catch (System.Exception ex)
+            {
+                log.AppendLine($"  localize WARNED — {ex.GetType().Name}: {ex.Message} " +
+                               "(stage kept; preflight will re-detect external refs).");
+            }
             return true;
+        }
+
+        /// <summary>Copy every vendor dependency of a stage's scene + rules into
+        /// the committed Vendored folder and remap; reloads the scene when its
+        /// file was rewritten.</summary>
+        private void LocalizeStage(CampaignAuthoring.AuthoredStage stage, StringBuilder log)
+        {
+            if (string.IsNullOrEmpty(stage.scenePath))
+                return;
+            int copied = VendorLocalizer.Localize(
+                new[] { stage.scenePath, stage.levelDefPath }, log);
+            if (copied > 0)
+            {
+                var open = EditorSceneManager.GetActiveScene();
+                if (open.IsValid() && open.path == stage.scenePath)
+                    EditorSceneManager.OpenScene(stage.scenePath,
+                        UnityEditor.SceneManagement.OpenSceneMode.Single);
+            }
         }
 
         /// <summary>The recipe THIS stage synthesizes with: its own bespoke
@@ -1166,6 +1220,11 @@ namespace CoreholdEditor.Campaign
 
                 log.AppendLine($"  rules copied → {defDest}; {cloned} wave table(s) deep-cloned → {wavesFolder}.");
                 log.AppendLine("  stage is now campaign-owned — still manual, plays exactly the scene you accepted.");
+                // Self-containment for the adopted copy too. The additive copy
+                // is closed WITHOUT saving in the finally below, so rewriting
+                // its file here is safe — disk keeps the remap, memory is
+                // discarded.
+                VendorLocalizer.Localize(new[] { sceneDest, defDest }, log);
                 return true;
             }
             finally
