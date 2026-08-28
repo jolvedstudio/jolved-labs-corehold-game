@@ -48,6 +48,13 @@ Cosmetic only, as ever — Blackout's gameplay darkness stays a wave mutator.
 4. `VFX_ColorLanguage_Rule.md` governs every color choice.
 5. After wiring new textures, run the texture budget pass
    (`EnforceCrunchOnOverrides` / `WebGLBudgetPass`) and check `BuildSizeAudit`.
+6. **Any shader used only via `Shader.Find` must live under a `Resources/`
+   folder** — nothing serialized references it, so builds strip it while the
+   editor keeps working (the "opaque force field" incident;
+   `CoreholdShieldFresnel` now lives in `VFX/Resources/`). After shader or
+   material changes, run **Tools → COREHOLD → VFX → WebGL Shader Audit** —
+   it flags legacy built-in and non-URP shaders that render magenta only in
+   builds.
 
 ## Systems-side state (already done — do not redo)
 

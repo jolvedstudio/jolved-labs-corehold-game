@@ -237,14 +237,23 @@ public static class VendorLocalizer
         }
 
         int rewritten = 0;
+        // Replace guids as bare 32-hex TOKENS, not as "guid: x": YAML uses
+        // "guid: x", but VFX Graph serializes its node graph as embedded JSON
+        // strings where references appear as "guid":"x" — the prefixed replace
+        // skipped those and the graph kept its pack references forever. Any
+        // mention of a mapped pack asset's guid IS a reference to it; the
+        // hex-boundary guards keep longer hashes intact.
+        var guidToken = new System.Text.RegularExpressions.Regex(
+            "(?<![0-9a-fA-F])[0-9a-f]{32}(?![0-9a-fA-F])");
         foreach (string path in toRewrite.OrderBy(p => p, System.StringComparer.Ordinal))
         {
             if (!File.Exists(path))
                 continue;
             string text = File.ReadAllText(path);
             string updated = text;
-            foreach (var kv in guidMap)
-                updated = updated.Replace("guid: " + kv.Key, "guid: " + kv.Value);
+            if (guidMap.Count > 0)
+                updated = guidToken.Replace(updated,
+                    m => guidMap.TryGetValue(m.Value, out string nv) ? nv : m.Value);
             // Baked shaders: a scripted import's main object carries a hashed
             // fileID, a plain .shader's Shader object is always 4800000 — the
             // guid swap alone would leave references pointing at a nonexistent

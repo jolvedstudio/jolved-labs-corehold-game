@@ -194,14 +194,43 @@ namespace Corehold.VFX
             if (_materialsByColor.TryGetValue(color, out var mat) && mat != null)
                 return mat;
 
+            // The fresnel shader is found BY NAME — no serialized asset references
+            // it, every material here is created at runtime — so the shader file
+            // lives under a Resources/ folder: that is the only thing making the
+            // BUILD include it. When it lived outside Resources, players got the
+            // fallback below on every shell (Shader.Find null in the build, fine
+            // in the editor) — the "force field is an opaque sphere" bug.
             Shader shader = Shader.Find("COREHOLD/ShieldFresnel");
-            if (shader == null)
-                shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-
-            mat = new Material(shader) { name = $"COREHOLD_ShieldFresnel ({color})" };
-            if (mat.HasProperty("_RimColor")) mat.SetColor("_RimColor", color);
-            if (mat.HasProperty("_RimPower")) mat.SetFloat("_RimPower", RimPower);
-            if (mat.HasProperty("_Opacity")) mat.SetFloat("_Opacity", Opacity);
+            if (shader != null)
+            {
+                mat = new Material(shader) { name = $"COREHOLD_ShieldFresnel ({color})" };
+                mat.SetColor("_RimColor", color);
+                mat.SetFloat("_RimPower", RimPower);
+                mat.SetFloat("_Opacity", Opacity);
+            }
+            else
+            {
+                // Last-resort degrade: a see-through additive tint, never an opaque
+                // shell. The FULL transparent surface state is set explicitly — a
+                // material configured from code gets none of it from the shader GUI
+                // (same lesson as the weather precipitation material).
+                Shader unlit = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+                if (unlit == null) unlit = Shader.Find("Sprites/Default");
+                mat = new Material(unlit) { name = $"COREHOLD_ShieldFresnel-fallback ({color})" };
+                if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
+                if (mat.HasProperty("_SrcBlend"))
+                    mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (mat.HasProperty("_DstBlend"))
+                    mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+                mat.SetOverrideTag("RenderType", "Transparent");
+                mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+                Color tint = color;
+                tint.a = 0.28f;
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", tint);
+                else if (mat.HasProperty("_Color")) mat.SetColor("_Color", tint);
+            }
 
             _materialsByColor[color] = mat;
             return mat;
