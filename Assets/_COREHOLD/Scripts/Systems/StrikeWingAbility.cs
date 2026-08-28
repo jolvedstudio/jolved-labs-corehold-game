@@ -228,6 +228,11 @@ namespace Corehold.Systems
                 _router.ClearTapClaimant(_claimant);
 
             Ring().Show(_target, radius);
+            // Friendly TARGET marker layered over the telegraph ring (VFX plan —
+            // a marker, never a danger warning: warnings mean incoming threats,
+            // and this is the player's own strike). Silent until wired.
+            if (VFXDirector.Instance != null)
+                VFXDirector.Instance.PlayStrikeMarker(_target);
             if (AudioDirector.Instance != null)
                 AudioDirector.Instance.PlayUIClick();
             return true;

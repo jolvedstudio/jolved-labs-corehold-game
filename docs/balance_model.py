@@ -328,6 +328,17 @@ TOWER_HP_DEFAULT = 220.0
 # are 13-14 m), so return fire never discounts to zero. [TUNE]
 TOWER_LOSS_SURVIVAL_FLOOR = 0.15
 
+# Tower SHIELDS (authored per tier: shield/regen/delay — the VFX-Tier-1
+# barrier mechanic). Runtime truth (TowerHealth): the shield absorbs BEFORE
+# health with overflow carrying through; it regenerates at `regen`/s once the
+# turret has gone `delay` seconds without being hit; upgrades and rebuilds
+# refill it. Model mirror: shields refill BETWEEN waves when regen > 0 (the
+# build lull dwarfs authored delays), carry when regen == 0 (a one-time
+# buffer, like hp damage), and earn a during-fire regen credit of
+# regen × wave duration ONLY when delay is below the typical inter-hit gap —
+# a longer delay is reset by every hit and heals nothing under fire. [TUNE]
+SHIELD_REGEN_DELAY_SUPPRESS = 1.0   # delays above this heal nothing mid-fire
+
 # Full-model evaluations the counts-only tuner may spend (suggest_fix). Each
 # is one complete run (~0.2 s); the chunked cuts converge in a handful per
 # flagged wave, so this cap is a runaway stop, not a working budget.
@@ -734,8 +745,9 @@ def traverse_time(enemy: dict, route: Route) -> float:
 class TowerInstance:
     pad: str
     tower_id: str
-    tier: int = 0        # index into tiers (0 = tier 1)
-    hp_lost: float = 0.0  # return fire soaked so far — nothing repairs it
+    tier: int = 0          # index into tiers (0 = tier 1)
+    hp_lost: float = 0.0   # return fire soaked so far — nothing repairs hp
+    shield_now: float = 0.0  # current shield charge (refilled on build/upgrade)
 
 
 _value_cache: dict = {}
@@ -780,6 +792,9 @@ def run_build_phase(geom: Geometry, salvage: int, built: dict) -> int:
             cost = TOWERS[tower_id]["tiers"][0]["cost"]
             if salvage - cost >= SALVAGE_RESERVE:
                 built[pad] = TowerInstance(pad, tower_id, 0)
+                # A fresh build starts with its tier's shield fully charged
+                # (TowerHealth.OnEnable/ConfigureShield refill).
+                built[pad].shield_now = TOWERS[tower_id]["tiers"][0].get("shield", 0.0)
                 salvage -= cost
                 progressed = True
                 break
@@ -809,6 +824,10 @@ def run_build_phase(geom: Geometry, salvage: int, built: dict) -> int:
         if best is not None:
             _, pad, target, cost = best
             built[pad].tier = target
+            # An upgrade re-configures the shield to the NEW tier's maximum,
+            # fully charged (live ConfigureShield semantics).
+            built[pad].shield_now = \
+                TOWERS[built[pad].tower_id]["tiers"][target].get("shield", 0.0)
             salvage -= cost
             progressed = True
     return salvage
@@ -989,13 +1008,23 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
             if soak <= 0.0:
                 pad_uptime[pad] = 1.0
                 continue
+            # Authored tower shield (TowerHealth): absorbs before hp, with a
+            # during-fire regen credit only when the regen delay is short
+            # enough to keep flowing between hits.
+            tier = TOWERS[inst.tower_id]["tiers"][inst.tier]
+            regen = tier.get("regen", 0.0)
+            credit = (regen * wave_duration
+                      if regen > 0.0 and tier.get("delay", 0.0) <= SHIELD_REGEN_DELAY_SUPPRESS
+                      else 0.0)
+            shield_pool = inst.shield_now + credit
             remaining = max(0.0, TOWERS[inst.tower_id].get("hp", TOWER_HP_DEFAULT)
                             - inst.hp_lost)
-            if soak < remaining:
+            if soak < shield_pool + remaining:
                 pad_uptime[pad] = 1.0
-                pad_damage[pad] = soak
+                shield_spent = min(inst.shield_now, max(0.0, soak - credit))
+                pad_damage[pad] = (shield_spent, max(0.0, soak - shield_pool))
             else:
-                pad_uptime[pad] = remaining / soak if soak > 0.0 else 0.0
+                pad_uptime[pad] = (shield_pool + remaining) / soak
                 towers_lost.append(pad)
         # Pass 2 only when something actually went down — otherwise pass 1
         # already IS the answer, bit for bit.
@@ -1284,6 +1313,13 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
         wave_number = i + 1
         before = {p: (built[p].tower_id, built[p].tier) for p in built}
         salvage = run_build_phase(geom, salvage, built)
+
+        # Regenerating shields refill in the between-wave lull (it dwarfs the
+        # authored delays); a regen-0 shield is a one-time buffer and carries.
+        for inst in built.values():
+            t = TOWERS[inst.tower_id]["tiers"][inst.tier]
+            if t.get("regen", 0.0) > 0.0:
+                inst.shield_now = t.get("shield", 0.0)
         after = {p: (built[p].tower_id, built[p].tier) for p in built}
         changes = [f"{p}:{after[p][0]}@T{after[p][1] + 1}"
                    for p in after if before.get(p) != after[p]]
@@ -1294,11 +1330,13 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
         # Strike Wing cost (R22): a use is salvage the build phase never sees.
         income -= STRIKE_COST * result["strike_uses"]
 
-        # Tower loss: bank the soak on survivors, remove the dead. The next
+        # Tower loss: bank the soak on survivors — shield spend first, hp
+        # damage after (mirroring TowerHealth) — and remove the dead. The next
         # build phase re-buys a dead pad from tier 1 ("unbuilt pads first"),
         # which is exactly the salvage the player loses in play.
-        for pad, dmg in result.pop("_pad_damage").items():
-            built[pad].hp_lost += dmg
+        for pad, (shield_spent, hp_dmg) in result.pop("_pad_damage").items():
+            built[pad].shield_now = max(0.0, built[pad].shield_now - shield_spent)
+            built[pad].hp_lost += hp_dmg
         for pad in result["towers_lost"]:
             built.pop(pad, None)
 
@@ -1629,10 +1667,13 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
         w("Tower loss ON: enemies return fire (per-row gdps/grange) at the "
           "nearest built pad while walking, discounted to each group's alive "
           "fraction (out-delivered m-fold -> ~1/m of the walk, floor %.2f); "
-          "%d-HP turrets carry damage across waves (nothing repairs), die at 0 "
-          "(LOST(pad) markers) and cost a fresh tier-1 rebuild. "
+          "authored tower SHIELDS absorb first (refill between waves when "
+          "regenerating; mid-fire regen credited only at delay <= %.1f s); "
+          "%d-HP turrets carry damage across waves (nothing repairs hp), die "
+          "at 0 (LOST(pad) markers) and cost a fresh tier-1 rebuild. "
           "--tower-loss-off reproduces the pre-term report." % (
-              TOWER_LOSS_SURVIVAL_FLOOR, int(TOWER_HP_DEFAULT)))
+              TOWER_LOSS_SURVIVAL_FLOOR, SHIELD_REGEN_DELAY_SUPPRESS,
+              int(TOWER_HP_DEFAULT)))
     if R22["on"]:
         w("R22 terms ON: streak income +%.0f%%/+%.0f%% (dense>=%d), veterancy "
           "+%.0f%%/wave from w%d cap +%.0f%%, Strike Wing %s (+%.1f enemy-s to "
@@ -1872,6 +1913,12 @@ def main(argv=None) -> int:
                     for k in ("aura_radius", "aura_fire", "aura_range", "aura_dmg"):
                         if float(tr.get(k, 0.0)) > 0:
                             tier[k] = float(tr[k])
+                    # Authored tower shield (TowerHealth barrier): absorbed
+                    # before hp by the tower-loss term.
+                    if float(tr.get("shield", 0.0)) > 0:
+                        tier["shield"] = float(tr["shield"])
+                        tier["regen"] = max(0.0, float(tr.get("regen", 0.0)))
+                        tier["delay"] = max(0.0, float(tr.get("delay", 0.0)))
                     tiers.append(tier)
                 if not tiers:
                     raise ValueError(f"tower '{tid}': no tiers")

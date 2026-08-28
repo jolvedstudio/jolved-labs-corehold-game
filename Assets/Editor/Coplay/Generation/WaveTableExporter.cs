@@ -147,6 +147,12 @@ public static class WaveTableExporter
                 if (t > 0) sb.Append(',');
                 sb.Append($"{{\"cost\":{tier.cost},\"range\":{F(tier.range)}," +
                           $"\"min_range\":{F(tier.minRange)},\"dps\":{F(tier.TotalDps)}");
+                // Authored shield barrier (absorbs before hp; the model's
+                // tower-loss term mirrors TowerHealth's rules).
+                if (tier.shieldHitPoints > 0f)
+                    sb.Append($",\"shield\":{F(tier.shieldHitPoints)}," +
+                              $"\"regen\":{F(tier.shieldRegenPerSec)}," +
+                              $"\"delay\":{F(tier.shieldRegenDelay)}");
                 int chain = 0;
                 float falloff = 0f, splash = 0f;
                 foreach (TowerWeaponMount m in tier.Weapons)

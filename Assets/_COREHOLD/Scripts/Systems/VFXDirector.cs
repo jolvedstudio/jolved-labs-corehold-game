@@ -79,7 +79,13 @@ namespace Corehold.Systems
             /// <summary>Splash explosion tinted for an Energy weapon (VFX color-language rule). Optional; falls back to the size-based explosion when unassigned.</summary>
             ExplosionEnergy,
             /// <summary>Splash explosion tinted for an Explosive weapon (VFX color-language rule). Optional; falls back to the size-based explosion when unassigned.</summary>
-            ExplosionExplosive
+            ExplosionExplosive,
+            /// <summary>Per-unit materialisation flash at the spawn point (VFX plan Tier 1 — the per-spawn option of the portal item, which works with staggered group spawns). Optional; unassigned = no flash.</summary>
+            SpawnFlash,
+            /// <summary>One-shot portal/gate effect at each spawner a wave uses, played once at wave start. Optional; unassigned = no portal.</summary>
+            SpawnPortal,
+            /// <summary>Target marker at the Strike Wing's committed strike point, layered over the telegraph ring (a FRIENDLY marker — never a danger warning, per the VFX review). Optional; unassigned = ring only.</summary>
+            StrikeMarker
         }
 
         [System.Serializable]
@@ -117,6 +123,9 @@ namespace Corehold.Systems
             new EffectEntry { id = Effect.ExplosionKinetic,   prewarm = 4 },
             new EffectEntry { id = Effect.ExplosionEnergy,    prewarm = 4 },
             new EffectEntry { id = Effect.ExplosionExplosive, prewarm = 4 },
+            new EffectEntry { id = Effect.SpawnFlash,         prewarm = 6 },
+            new EffectEntry { id = Effect.SpawnPortal,        prewarm = 2 },
+            new EffectEntry { id = Effect.StrikeMarker,       prewarm = 1 },
         };
 
         [Header("Hitscan tracer (GDD §11) — Autocannon + Arc Node only")]
@@ -540,6 +549,16 @@ namespace Corehold.Systems
 
         /// <summary>Slow chill glow over a unit (R18). Pulsed the same way as the stun.</summary>
         public ParticleSystem PlaySlow(Vector3 position) => Play(Effect.Slow, position);
+
+        /// <summary>Per-unit materialisation flash at a spawn point (silent until wired).</summary>
+        public ParticleSystem PlaySpawnFlash(Vector3 position) => Play(Effect.SpawnFlash, position);
+
+        /// <summary>One-shot portal at a spawner, facing its route direction (silent until wired).</summary>
+        public ParticleSystem PlaySpawnPortal(Vector3 position, Vector3 forward) =>
+            Play(Effect.SpawnPortal, position, forward);
+
+        /// <summary>Friendly target marker at the Strike Wing's committed point (silent until wired).</summary>
+        public ParticleSystem PlayStrikeMarker(Vector3 position) => Play(Effect.StrikeMarker, position);
 
         /// <summary>
         /// Strike Wing EM burst (R19): the pooled effect scaled up to read at the

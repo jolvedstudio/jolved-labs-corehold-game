@@ -59,6 +59,11 @@ namespace Corehold.Systems
         [Tooltip("[TUNE] Kick distance (m) per splash explosion (PlayExplosion).")]
         [SerializeField] private float kickExplosion = 0.14f;
 
+        [Tooltip("[TUNE] Trauma (0..1) added per splash explosion so big blasts RUMBLE " +
+                 "rather than nudge (VFX plan Tier 4). Rides the standard Shake() path, " +
+                 "so the 1.5 s cooldown and the global feedback scale both apply.")]
+        [Range(0f, 1f)] [SerializeField] private float explosionTrauma = 0.22f;
+
         [Tooltip("[TUNE] Exponential decay rate (per unscaled second) back to the framed position — high = a sharp nudge that settles fast.")]
         [SerializeField] private float kickDecayPerSecond = 9f;
 
@@ -230,6 +235,11 @@ namespace Corehold.Systems
         public void KickExplosion(Vector3 worldFrom)
         {
             Kick(worldFrom, kickExplosion);
+            // A big blast RUMBLES, not just nudges (VFX plan Tier 4): a small
+            // trauma add rides the existing noise shake. Shake() honours the
+            // shared cooldown, so chained explosions cannot stack into nausea,
+            // and the global feedbackScale/accessibility scaling still applies.
+            Shake(explosionTrauma);
             if (enableHitStop && Corehold.Core.GameManager.Instance != null)
                 Corehold.Core.GameManager.Instance.TimeDip(hitStopScale, hitStopSeconds);
         }

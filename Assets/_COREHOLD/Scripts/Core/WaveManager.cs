@@ -493,6 +493,23 @@ namespace Corehold.Core
             if (wave == null || wave.groups == null)
                 return;
 
+            // Spawn portals (VFX Tier 1): one gate effect per DISTINCT spawner
+            // this wave uses, at wave start. Silent until the SpawnPortal slot
+            // is wired; per-unit flashes cover the staggered spawns after it.
+            if (Corehold.Systems.VFXDirector.Instance != null)
+            {
+                var announced = new HashSet<int>();
+                foreach (var g in wave.groups)
+                {
+                    if (g.enemy == null || g.count <= 0 || !announced.Add(g.spawnerIndex))
+                        continue;
+                    Spawner sp = FindSpawner(g.spawnerIndex);
+                    if (sp != null)
+                        Corehold.Systems.VFXDirector.Instance.PlaySpawnPortal(
+                            sp.Position, sp.transform.forward);
+                }
+            }
+
             // Convoy (R20): every ground group of the wave funnels into ONE
             // approach — the first ground group's resolved spawner wins for all.
             bool convoy = (MutatorsForWave(waveNumber) & WaveMutator.Convoy) != 0;
@@ -652,6 +669,11 @@ namespace Corehold.Core
             enemy.transform.position = spawnPos;
             if (spawner != null)
                 enemy.transform.rotation = spawner.transform.rotation;
+
+            // Materialisation flash (VFX Tier 1) — per unit, so staggered group
+            // spawns each read; silent until the SpawnFlash slot is wired.
+            if (Corehold.Systems.VFXDirector.Instance != null)
+                Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(spawnPos);
 
             ConfigureSpawn(enemy, def, spawner, waveNumber);
             TrackEnemy(enemy);
