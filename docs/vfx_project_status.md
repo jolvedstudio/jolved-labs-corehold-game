@@ -94,6 +94,25 @@ Campaign Builder's Ship step and commit the result. (On a pack-less clone
 the tools report nothing to do — the GUIDs are unresolvable there; they must
 run where the sources exist.)
 
+### If Unity fails to compile with CS0101/CS0111 duplicate-class errors
+
+(e.g. `ETFXLightFade` under `Assets/_COREHOLD/Vendored/.../Scripts/`): the
+FIRST localizer version copied pack `Scripts` folders, so every copied class
+existed twice — git-ignored packs still compile. Repair, in this order:
+
+1. Pull this branch (git works regardless of the compile state).
+2. In Explorer/Finder, delete every `.cs` file (typically whole `Scripts`
+   folders) under `Assets\_COREHOLD\Vendored\`. Unity recompiles clean on
+   the next focus. This manual step is unavoidable — the editor cannot run
+   menu tools while compile is broken.
+3. Re-run the localize actions. The localizer now NEVER copies code
+   (`.cs`/`.asmdef`/`.dll`), deletes any stray script copies it finds, and
+   strips vendor/missing script components from the vendored prefabs — the
+   director/pool owns effect lifecycle, lights and shake, so pack helper
+   scripts were redundant and the copies now behave identically on every
+   machine.
+4. Commit the deletions together with the re-localized files.
+
 ## Parked (systems lane, on request)
 
 - Haptics: browser `.jslib` bridge (`vibrationActuator` / `navigator.vibrate`)
