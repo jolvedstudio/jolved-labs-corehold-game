@@ -503,6 +503,10 @@ namespace Corehold.Core
         [Range(0f, 0.5f)] [SerializeField] private float portalPulseAmplitude = 0.08f;
         [Tooltip("[TUNE] Pulse rate in cycles per second.")]
         [Range(0f, 5f)] [SerializeField] private float portalPulseHz = 0.9f;
+        [Tooltip("[TUNE] Extra uniform multiplier on top of the computed unit-fit size — the fastest 'make it bigger' knob while the authored-diameter measurement is unset.")]
+        [SerializeField] private float portalScale = 1f;
+        [Tooltip("[TUNE] Euler offset applied AFTER facing the spawner's forward. Prefab authoring differs: a gate authored facing +Z needs (0,0,0); a GROUND-RING effect lying flat needs X=90 (or -90 if it faces away) to stand upright.")]
+        [SerializeField] private Vector3 portalEulerOffset = Vector3.zero;
 
         private readonly Dictionary<int, Corehold.Systems.PooledEffect> _openPortals =
             new Dictionary<int, Corehold.Systems.PooledEffect>();
@@ -573,10 +577,10 @@ namespace Corehold.Core
 
             // Authored diameter × mult must cover the unit's body diameter with
             // headroom; the authored size is the floor so small units still get
-            // a readable gate.
+            // a readable gate. portalScale rides on top as the direct knob.
             float mult = Mathf.Max(1f,
                 ResolvePrefabRadius(enemy) * 2f * portalHeadroom /
-                Mathf.Max(0.1f, portalAuthoredDiameter));
+                Mathf.Max(0.1f, portalAuthoredDiameter)) * Mathf.Max(0.01f, portalScale);
 
             if (_openPortals.TryGetValue(spawnerIndex, out var open) && open != null && open.IsHeld)
             {
@@ -594,8 +598,10 @@ namespace Corehold.Core
             Spawner sp = FindSpawner(spawnerIndex);
             if (sp == null)
                 return;
+            Quaternion rot = Quaternion.LookRotation(sp.transform.forward, Vector3.up) *
+                             Quaternion.Euler(portalEulerOffset);
             var fx = Corehold.Systems.VFXDirector.Instance.PlaySpawnPortalOpen(
-                sp.Position, sp.transform.forward, mult, portalPulseAmplitude, portalPulseHz);
+                sp.Position, rot, mult, portalPulseAmplitude, portalPulseHz);
             if (fx != null)
             {
                 _openPortals[spawnerIndex] = fx;
