@@ -24,6 +24,20 @@ Shader "COREHOLD/Terrain Lit"
         _DetailMap ("Detail (grayscale)", 2D) = "grey" {}
         _DetailScale ("Detail Scale", Float) = 9
         _DetailStrength ("Detail Strength", Range(0, 1)) = 0.35
+
+        // E2 second detail lane. The mesh bakes the substrate's ROCK WEIGHT
+        // into vertex ALPHA, and rocky ground wears this coarser, stronger
+        // breakup instead of the fine one — gravel reads differently from sand
+        // mostly by the size of its grain, not by its colour.
+        //
+        // _RockDetailBlend defaults to 0 on purpose: a scene baked before E2
+        // has alpha 1 across the whole mesh, so without this gate it would come
+        // back wearing gravel everywhere. Only a freshly generated material
+        // turns the lane on.
+        _RockDetailMap ("Rock Detail (grayscale)", 2D) = "grey" {}
+        _RockDetailScale ("Rock Detail Scale", Float) = 4
+        _RockDetailStrength ("Rock Detail Strength", Range(0, 1)) = 0.5
+        _RockDetailBlend ("Rock Detail Blend", Range(0, 1)) = 0
     }
 
     SubShader
@@ -37,12 +51,17 @@ Shader "COREHOLD/Terrain Lit"
         SAMPLER(sampler_BaseMap);
         TEXTURE2D(_DetailMap);
         SAMPLER(sampler_DetailMap);
+        TEXTURE2D(_RockDetailMap);
+        SAMPLER(sampler_RockDetailMap);
 
         CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
             half4 _BaseColor;
             float _DetailScale;
             half _DetailStrength;
+            float _RockDetailScale;
+            half _RockDetailStrength;
+            half _RockDetailBlend;
         CBUFFER_END
         ENDHLSL
 
@@ -95,11 +114,24 @@ Shader "COREHOLD/Terrain Lit"
                 half3 albedo = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv).rgb
                              * _BaseColor.rgb * input.color.rgb;
 
+                // E2: how stony this vertex's ground is, baked into vertex
+                // alpha by the terrain stage. The blend scalar is 0 on any
+                // material built before E2, which pins rock to 0 and leaves
+                // the fine-detail path below exactly as it was.
+                half rock = saturate(input.color.a) * _RockDetailBlend;
+
                 // Overlay-multiply the high-frequency detail: 0.5 is neutral,
                 // so strength 0 or the default grey texture changes nothing.
-                half detail = SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap,
-                                               input.uv * _DetailScale).r;
-                albedo *= lerp(1.0h, detail * 2.0h, _DetailStrength);
+                // Rocky ground crossfades to a coarser, stronger grain — the
+                // size of the grain is most of what separates gravel from sand
+                // at this camera distance.
+                half fine = SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap,
+                                             input.uv * _DetailScale).r;
+                half coarse = SAMPLE_TEXTURE2D(_RockDetailMap, sampler_RockDetailMap,
+                                               input.uv * _RockDetailScale).r;
+                half detail = lerp(fine, coarse, rock);
+                half strength = lerp(_DetailStrength, _RockDetailStrength, rock);
+                albedo *= lerp(1.0h, detail * 2.0h, strength);
 
                 half3 normalWS = normalize(input.normalWS);
                 float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);

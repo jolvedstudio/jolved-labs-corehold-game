@@ -131,6 +131,19 @@ namespace Corehold.Data
         [Tooltip("How many times denser than the base map the detail tiles.")]
         [Range(2f, 32f)] public float groundDetailScale = 9f;
 
+        [Tooltip("Coarse near-field detail for ROCKY ground (E2). Rocky ground wears a chunkier " +
+                 "breakup than soil does, which is most of what separates gravel from sand at this " +
+                 "camera distance. Empty = a generated coarse noise, which already works; assign a " +
+                 "real gravel texture to art-direct it. The terrain shader blends between this and " +
+                 "the fine detail by the substrate's rock weight, baked into the mesh's vertex alpha.")]
+        public Texture2D groundRockDetail;
+
+        [Tooltip("How strongly the SUBSTRATE zones show in the ground itself (E2): the rock/soil " +
+                 "tint split, the scuffed band along the routes, and the coarse-vs-fine detail " +
+                 "blend. Zoned props standing on an unzoned sheet only get half the effect — the " +
+                 "eye reads the ground first. 0 restores a single uniform ground.")]
+        [Range(0f, 1f)] public float groundZoneStrength = 0.6f;
+
         [Header("Dressing composition")]
 
         [Tooltip("Chance that a placed prop seeds a CLUSTER — a few smaller satellites dropped " +

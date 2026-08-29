@@ -94,17 +94,42 @@ unaffected; gate 2b (occlusion) runs after, and dressing's own self-repair plus
 the pipeline's reject-and-reseed absorb it. Scenes already baked on disk do not
 change — only new generations.
 
-## E2 — ground that is not one flat texture *(next)*
+## E2 — ground that is not one flat texture *(built)*
 
-The ground is currently a single material at a single tiling. Even perfectly
-zoned props sit on a uniform sheet, which halves the effect: the *ground* has to
-show the zones too.
+Zoned props standing on a uniform sheet only get half the effect. The eye reads
+the ground first, and a single flat texture tells it the whole field is one
+material no matter what is standing on it.
 
-Write the substrate fields into the terrain mesh's **vertex colours** (R = rock,
-G = scrub, B = disturbance), and blend 2–3 ground textures against them in a
-small URP shader. Vertex colours are free — the mesh builder already rasterises
-the field once — and one extra sampler is well inside the WebGL budget. Needs the
-desert ground texture set (sand / gravel / cracked pan).
+The relief mesh already baked vertex colours (valley darkening, slope
+desaturation) and already had a vertex-colour-aware shader,
+`COREHOLD/Terrain Lit` — so E2 extends both rather than adding a lane:
+
+- **Tint.** `TintAt` now multiplies in a substrate zone tint: cool grey where
+  the ground is stony, warm ochre where it is not, picked by the *same*
+  anti-correlated field the props obey. Everything can only darken (the tint
+  multiplies albedo and vertex colours clamp at 1), so the look pass's exposure
+  survives intact — "bleached" is expressed as darkening *less*.
+- **The worn band.** Disturbance pulls the tint back toward pale, drawing a
+  scuffed strip along every route. It is the prettiest part of this and the most
+  gameplay-legible: the corridor now reads as a road in the ground itself.
+- **Grain.** Vertex **alpha** carries the rock weight, and the shader crossfades
+  the near-field detail between the existing fine noise and a coarser, stronger
+  one. Grain size is most of what separates gravel from sand at this camera
+  distance, and the coarse map *generates* the same way the fine one always has
+  — so this needs no new art at all. `EnvPack.groundRockDetail` takes a real
+  gravel texture when one is bought.
+
+`EnvPack.groundZoneStrength` (default 0.6) scales all three per theme; 0 restores
+a single uniform ground.
+
+Safety: `_RockDetailBlend` defaults to **0** in the shader. A scene baked before
+E2 has vertex alpha 1 across the whole mesh, so without that gate it would come
+back wearing gravel everywhere. Only a freshly generated material turns the lane
+on, and old scenes render byte-identically.
+
+Limitation: this rides the relief mesh, and `TerrainStage` skips entirely when
+`terrainRelief` is off. Blueprints default it on, so this is the normal path —
+but a deliberately flat map still gets a single-material ground.
 
 ## E3 — terrain that reads from above *(advise first)*
 
