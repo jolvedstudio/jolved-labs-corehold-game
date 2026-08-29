@@ -231,6 +231,26 @@ namespace CoreholdEditor.Campaign
                     : "no CampaignManifest — press 'Emit manifest' in the Campaign Builder (or 'Create Test Manifest').");
                 return checks; // everything else reads the manifest
             }
+            // ---- WebGL render compatibility ----
+            // Ran HERE rather than left to a menu nobody is obliged to press: the
+            // soft-particle failure that emptied the screen of effects was invisible
+            // in the editor (PC quality tier, depth texture on) and only showed up
+            // in a shipped WebGL build (Mobile tier, no depth texture). A check that
+            // depends on remembering it protects only the person who remembers.
+            string audit = WebGLShaderAudit.Report(out int auditErrors, out int auditWarns);
+            if (auditErrors > 0)
+            {
+                Error($"WebGL Shader Audit: {auditErrors} error(s) — effects that will be MISSING or magenta " +
+                      "in the build while looking correct in the editor. Run Tools → COREHOLD → VFX → " +
+                      "WebGL Shader Audit for the per-material list.");
+                Debug.LogError(audit);
+            }
+            else if (auditWarns > 0)
+            {
+                Warn($"WebGL Shader Audit: {auditWarns} warning(s) — see the console for the list.");
+                Debug.Log(audit);
+            }
+
             if (manifest.LevelCount == 0)
                 Error("the manifest has no Level stages — generate at least one level.");
             if (manifest.StageOfKind(CampaignStageKind.Welcome) == null)

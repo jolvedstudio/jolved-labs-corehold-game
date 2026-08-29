@@ -29,6 +29,17 @@ public static class WebGLShaderAudit
     [MenuItem("Tools/COREHOLD/VFX/WebGL Shader Audit", false, 63)]
     public static void Run()
     {
+        string report = Report(out int errs, out _);
+        if (errs > 0) Debug.LogError(report); else Debug.Log(report);
+    }
+
+    /// <summary>
+    /// The audit as DATA, so callers other than the menu can gate on it — the
+    /// campaign preflight runs it before declaring a campaign shippable. A check
+    /// nobody is obliged to run only protects the person who remembers it.
+    /// </summary>
+    public static string Report(out int errorCount, out int warningCount)
+    {
         // ---- gather the material set: config + weather + all of _COREHOLD ----
         var roots = new List<string>();
         foreach (string guid in AssetDatabase.FindAssets("t:VFXDirectorConfig"))
@@ -121,10 +132,9 @@ public static class WebGLShaderAudit
         foreach (string w in warns) sb.AppendLine("  warn   " + w);
         sb.AppendLine("  Reminder: shaders used only via Shader.Find are invisible to this audit AND to the");
         sb.AppendLine("  build's dependency walk — they must live under a Resources/ folder to ship.");
-        if (errors.Count > 0)
-            Debug.LogError(sb.ToString());
-        else
-            Debug.Log(sb.ToString());
+        errorCount = errors.Count;
+        warningCount = warns.Count;
+        return sb.ToString();
     }
 
     /// <summary>null = fine; "ERROR ..." / "warn ..." otherwise. Cached per shader.</summary>
