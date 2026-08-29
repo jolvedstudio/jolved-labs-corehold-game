@@ -148,14 +148,74 @@ camera rather than at random, deliberate framing (sparser inside the action so
 the fight stays readable), and lane shoulders that make the corridor legible from
 the air. E1 supplies the fields these rules need; E4 is the art direction on top.
 
-## Asset dependencies
-
-Bought or being bought in parallel — nothing above is blocked on them except
-where noted:
-
-- Lowpoly mesa / desert rock packs → E3, plus better Landmark entries for E1.
-- Stylized rocks and cliffs → E3.
-- Desert ground texture set (sand, gravel, cracked pan) → E2's blend targets.
+## Asset intake
 
 Vendor packs stay git-ignored and machine-local; committed content is made
 self-contained through `VendorLocalizer`, as with every other pack.
+
+Four packs bought:
+
+| Pack | Feeds | Target risk |
+|---|---|---|
+| Lowpoly Environment — Mesa and Desert Rocks | E1 landmarks, E3 mesas | none — meshes |
+| Stylized Rocks and Rockscape — Low Poly | E1 landmarks/mid-field, E3 | none — meshes |
+| Stylized Grass Shader (Unity 6) | E1 scrub, E2 ground | **verify** — see below |
+| Stylized Water 3 | ABYSS world, water features | **Desktop-tier** — see below |
+
+The two mesh packs need no work at all: E1 infers substrate affinity from the
+prefab name, and `mesa`, `rock`, `rockscape`, `cliff`, `boulder`, `outcrop` and
+`sandstone` are all in the Rock token list, `grass` in the Scrub list. Drop them
+into an EnvPack, run the metadata measure, and they zone themselves.
+
+### The two shader packs are a target decision, not a bug
+
+`Mobile_RPAsset` — the tier WebGL runs (`WebGL: 0`) — has
+`RequireDepthTexture: 0` **and** `RequireOpaqueTexture: 0`. `PC_RPAsset`
+(tier 1, what Standalone runs) has both. That single difference decides both
+packs:
+
+- **Stylized Water 3** reads the opaque texture for refraction and the depth
+  texture for shore blending. On Desktop it works as sold. On WebGL it renders
+  wrong while looking perfect in the editor — the editor runs the PC tier. This
+  is the exact asymmetry that hid the invisible-particle bug for days.
+- **Stylized grass** shaders commonly reach for a geometry stage or an indirect
+  compute draw. GLES 3.0 has neither, so if this one does, it renders *nothing*
+  in the browser — the same reason the VFX Graph had to go. Unknown until the
+  pack is imported and the audit is run.
+
+So a **Desktop build is the natural home for both**, and the seam already
+exists: the two quality tiers are configured, so a Desktop-only visual tier
+costs no new architecture — only the discipline of not making gameplay depend
+on anything the WebGL tier cannot render.
+
+The alternative for water on WebGL is to turn on Require Depth/Opaque Texture
+for the Mobile tier. That is a real bandwidth cost — an extra full-screen copy
+per frame at RenderScale 0.8 — and it should be measured, not assumed.
+
+### The gate that answers this automatically
+
+`WebGLShaderAudit` now resolves each target's quality tier and its render
+pipeline asset, and reports per target rather than pass/fail:
+
+```
+WebGL: quality tier 'Mobile' → Mobile_RPAsset (depth OFF, opaque OFF)
+Standalone: quality tier 'PC' → PC_RPAsset (depth on, opaque on)
+```
+
+Findings are graded by how provable they are:
+
+- **ERROR** — a pipeline STAGE the target does not have (`#pragma geometry`,
+  hull/domain, `#pragma kernel`, a reachable `.compute`). Provable from source,
+  no material setting can change it, blocks preflight.
+- **warn** — a shipped shader that references a screen texture the tier does not
+  render. *Not* provable: vendored CFXR mentions both textures inside keyword
+  guards, and whether a material lights those keywords is a per-material fact a
+  text scan cannot see. Erroring on it would block every ship over a feature
+  nothing enables, and a gate that cries wolf gets switched off. The exact
+  per-material soft-particle check stays the blocking one.
+- **intake** — the same findings for shaders that are *present but not yet used*,
+  grouped by pack. This is the one to read right after importing a purchase: it
+  says which packs are safe to build content on before the authoring time is
+  spent.
+
+Adding Desktop to the shipped set is one line — `ShipTargets` in that file.
