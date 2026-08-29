@@ -52,6 +52,10 @@ namespace Corehold.UI
         [SerializeField] private float railChipSize = 76f;        // [TUNE]
         [Tooltip("Gap from the top screen edge to the rail, in canvas units.")]
         [SerializeField] private float railTopInset = 8f;         // [TUNE]
+        [Tooltip("Top span reserved LEFT of the rail for the integrity panel, canvas units. The rail centres in what remains and shrinks its chips to fit.")]
+        [SerializeField] private float railReservedLeft = 500f;   // [TUNE]
+        [Tooltip("Top span reserved RIGHT of the rail for the salvage panel, canvas units.")]
+        [SerializeField] private float railReservedRight = 340f;  // [TUNE]
 
         [Header("PANIC auto-deploy (rail)")]
         [Tooltip("Times per level the PANIC button may fire. Each press spends the PLAYER'S salvage on certified turrets — assistance, not free power.")]
@@ -97,7 +101,8 @@ namespace Corehold.UI
                                              : GetComponentInParent<Canvas>(true);
                 if (canvas != null)
                     _rail = RosterRail.Create(this, theme, canvas.rootCanvas.transform,
-                                              _turrets, railChipSize, railTopInset);
+                                              _turrets, railChipSize, railTopInset,
+                                              railReservedLeft, railReservedRight);
             }
         }
 

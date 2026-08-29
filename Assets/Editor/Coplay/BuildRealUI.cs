@@ -242,21 +242,25 @@ namespace CoreholdEditor
             SetAnchors(integVal.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-16, -50));
             integVal.rectTransform.pivot = new Vector2(1f, 0.5f);   // same overflow, right edge (shipped value)
 
-            // ---- Bottom-left, above pause: wave + preview ----
-            // Demoted from top-centre (screen rationalization): the top edge
-            // belongs to the roster rail alone; wave info is glance data, small,
-            // in the corner. Height 190 leaves room for the runtime second queue
-            // row (R-UI-4) to stack above the first without touching the label.
+            // ---- Bottom STRIP: wave info inline, right of pause ----
+            // One line for everything at the bottom (occlusion feedback): a
+            // short wide panel — label at the left, next-wave cells beside it;
+            // the runtime second queue row (R-UI-4) docks to ITS right, dimmer.
             var tc = MakePanel(canvas.transform, "WavePanel",
-                new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 104), new Vector2(560, 190), theme.panel);
+                new Vector2(0, 0), new Vector2(0, 0), new Vector2(104, 24), new Vector2(640, 84), theme.panel);
             tc.pivot = Vector2.zero;
-            tc.localScale = Vector3.one * 0.72f;
-            var waveLbl = MakeText(tc, "WaveLabel", "WAVE 1 / 10", _large, TextAlignmentOptions.Top,
-                new Vector2(0, -8), new Vector2(540, 40));
+            var waveLbl = MakeText(tc, "WaveLabel", "WAVE 1 / 10", _small, TextAlignmentOptions.MidlineLeft,
+                new Vector2(16, 0), new Vector2(130, 60));
             waveLbl.color = Cyan;
-            var previewRow = MakeRect(tc, "PreviewRow", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 12), new Vector2(540, 70));
+            SetAnchors(waveLbl.rectTransform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(16, 0));
+            waveLbl.rectTransform.pivot = new Vector2(0f, 0.5f);
+            waveLbl.enableAutoSizing = true;
+            waveLbl.fontSizeMin = 12f;
+            waveLbl.fontSizeMax = _small;
+            var previewRow = MakeRect(tc, "PreviewRow", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(150, 0), new Vector2(280, 70));
+            previewRow.pivot = new Vector2(0f, 0.5f);
             var prow = previewRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            prow.spacing = 10; prow.childAlignment = TextAnchor.MiddleCenter; prow.childControlWidth = false; prow.childControlHeight = false;
+            prow.spacing = 10; prow.childAlignment = TextAnchor.MiddleLeft; prow.childControlWidth = false; prow.childControlHeight = false;
             var previewCell = BuildPreviewCellTemplate(previewRow, theme);
 
             // ---- Top-right: salvage ----
@@ -268,21 +272,21 @@ namespace CoreholdEditor
             var salVal = MakeText(tr, "Value", "300", _large, TextAlignmentOptions.Right,
                 new Vector2(-16, -52), new Vector2(260, 44));
 
-            // ---- Bottom-right: the ACTION COLUMN (screen rationalization) ----
-            // Every button that changes the run's state lives in one stack:
-            // speed at the corner, Start above it, Strike Wing on top.
+            // ---- Bottom STRIP, right side: Strike · speed · START, one line ----
+            // Everything at the bottom shares ONE ~84 px band (occlusion
+            // feedback): pause, wave panel, then the action buttons inline.
             var startBtn = MakeButton(canvas.transform, "StartWaveButton", "START WAVE 1", theme,
-                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 96), new Vector2(300, 84));
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 24), new Vector2(300, 84));
             var speedBtn = MakeButton(canvas.transform, "SpeedButton", "1×", theme,
-                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 24), new Vector2(140, 64));
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-332, 34), new Vector2(140, 64));
 
             // ---- Bottom-left: pause (the one system button on the field) ----
             var pauseBtn = MakeIconButton(canvas.transform, "PauseButton", theme.pauseIcon, theme,
                 new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 24), new Vector2(72, 72));
 
-            // ---- Strike Wing (R19): top of the action column ----
+            // ---- Strike Wing (R19): left end of the action buttons ----
             var strikeBtn = MakeButton(canvas.transform, "StrikeWingButton", "STRIKE 120", theme,
-                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 188), new Vector2(190, 76));
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-480, 28), new Vector2(190, 76));
             // Radial cooldown sweep over the face; the label re-tops it below.
             var strikeCd = MakeRect(strikeBtn, "CooldownFill", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             strikeCd.offsetMin = Vector2.zero; strikeCd.offsetMax = Vector2.zero;

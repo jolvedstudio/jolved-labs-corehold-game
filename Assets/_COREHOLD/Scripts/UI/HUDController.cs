@@ -211,15 +211,38 @@ namespace Corehold.UI
 
             if (panel != null)
             {
+                // ONE-LINE bottom strip (occlusion feedback): a short wide panel
+                // right of the pause button — label at the left, next-wave cells
+                // beside it, the runtime second row docking to their right. Same
+                // numbers Build Real UI now bakes natively, so old and rebuilt
+                // scenes converge.
                 panel.anchorMin = panel.anchorMax = Vector2.zero;
                 panel.pivot = Vector2.zero;
-                // Lifted clear of the pause button's corner (24..96 px).
-                panel.anchoredPosition = wavePanelInset + Vector2.up * 94f;
+                panel.anchoredPosition = new Vector2(wavePanelInset.x + 90f, wavePanelInset.y + 14f);
+                panel.sizeDelta = new Vector2(640f, 84f);
                 panel.localScale = Vector3.one * Mathf.Clamp(wavePanelScale, 0.4f, 1f);
-                // Room for the second queue row to stack INSIDE, above row one,
-                // without touching the label pinned to the panel's top.
-                if (panel.sizeDelta.y < 190f)
-                    panel.sizeDelta = new Vector2(panel.sizeDelta.x, 190f);
+
+                if (waveLabel != null)
+                {
+                    var lrt = waveLabel.rectTransform;
+                    lrt.anchorMin = lrt.anchorMax = new Vector2(0f, 0.5f);
+                    lrt.pivot = new Vector2(0f, 0.5f);
+                    lrt.anchoredPosition = new Vector2(16f, 0f);
+                    lrt.sizeDelta = new Vector2(130f, 60f);
+                    waveLabel.alignment = TextAlignmentOptions.MidlineLeft;
+                    waveLabel.enableAutoSizing = true;
+                    waveLabel.fontSizeMin = 12f;
+                    waveLabel.fontSizeMax = theme != null ? theme.fontSizeSmall : 22f;
+                }
+
+                previewRow.anchorMin = previewRow.anchorMax = new Vector2(0f, 0.5f);
+                previewRow.pivot = new Vector2(0f, 0.5f);
+                previewRow.anchoredPosition = new Vector2(150f, 0f);
+                previewRow.sizeDelta = new Vector2(280f, 70f);
+                previewRow.localScale = Vector3.one;
+                var hlg = previewRow.GetComponent<HorizontalLayoutGroup>();
+                if (hlg != null)
+                    hlg.childAlignment = TextAnchor.MiddleLeft;
                 return;
             }
 
@@ -775,12 +798,22 @@ namespace Corehold.UI
             _previewRow2.anchorMax = previewRow.anchorMax;
             _previewRow2.pivot = previewRow.pivot;
             _previewRow2.sizeDelta = previewRow.sizeDelta;
-            float drop = Mathf.Max(24f, previewRow.rect.height) + 4f;
-            // Stack AWAY from the nearest screen edge: below the row when it lives
-            // up top (authored layout), above it when demoted to the bottom.
-            bool nearBottom = previewRow.anchorMin.y < 0.5f;
-            _previewRow2.anchoredPosition = previewRow.anchoredPosition +
-                (nearBottom ? Vector2.up : Vector2.down) * drop * previewRow.localScale.y;
+            // In the one-line bottom strip (middle-left anchored row) the future
+            // row docks to the RIGHT of the current one; the stacked fallback
+            // (top/bottom-anchored rows) keeps stacking away from its edge.
+            bool strip = Mathf.Abs(previewRow.anchorMin.y - 0.5f) < 0.01f;
+            if (strip)
+            {
+                _previewRow2.anchoredPosition = previewRow.anchoredPosition +
+                    Vector2.right * (previewRow.sizeDelta.x + 8f);
+            }
+            else
+            {
+                float drop = Mathf.Max(24f, previewRow.rect.height) + 4f;
+                bool nearBottom = previewRow.anchorMin.y < 0.5f;
+                _previewRow2.anchoredPosition = previewRow.anchoredPosition +
+                    (nearBottom ? Vector2.up : Vector2.down) * drop * previewRow.localScale.y;
+            }
             _previewRow2.localScale = previewRow.localScale * 0.72f;
 
             // Mirror the first row's layout behaviour so cells arrange the same way.

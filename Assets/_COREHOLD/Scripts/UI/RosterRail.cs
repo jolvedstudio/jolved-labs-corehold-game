@@ -60,14 +60,14 @@ namespace Corehold.UI
         }
 
         public static RosterRail Create(BuildMenu owner, UITheme theme, Transform canvasRoot,
-                                        TowerDefinition[] roster, float chipSize, float topInset)
+                                        TowerDefinition[] roster, float chipSize, float topInset,
+                                        float reservedLeft, float reservedRight)
         {
             var go = new GameObject("RosterRail", typeof(RectTransform));
             var rt = (RectTransform)go.transform;
             rt.SetParent(canvasRoot, false);
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
             rt.pivot = new Vector2(0.5f, 1f);
-            rt.anchoredPosition = new Vector2(0f, -Mathf.Max(0f, topInset));
             rt.sizeDelta = Vector2.zero;
 
             var rail = go.AddComponent<RosterRail>();
@@ -77,12 +77,31 @@ namespace Corehold.UI
             rail._canvas = canvasRoot.GetComponentInParent<Canvas>();
             rail._canvasRect = rail._canvas != null ? (RectTransform)rail._canvas.transform : null;
 
+            // The rail lives BETWEEN the top-corner panels (integrity left,
+            // salvage right), never over them: it centres in the free span and
+            // shrinks its chips when the roster would not fit (user report: the
+            // rail overlapped Core Integrity on narrower viewports).
+            float offsetX = 0f;
+            if (rail._canvasRect != null)
+            {
+                float w = rail._canvasRect.rect.width;
+                float avail = w - reservedLeft - reservedRight;
+                if (avail > 120f)
+                {
+                    offsetX = (reservedLeft - reservedRight) * 0.5f;
+                    rail._availableWidth = avail;
+                }
+            }
+            rt.anchoredPosition = new Vector2(offsetX, -Mathf.Max(0f, topInset));
+
             int layer = LayerMask.NameToLayer("Hardpoint");
             rail._hardpointMask = layer >= 0 ? 1 << layer : ~0;
 
             rail.BuildChips(roster, chipSize);
             return rail;
         }
+
+        private float _availableWidth = float.PositiveInfinity;
 
         private void OnEnable()
         {
@@ -119,6 +138,16 @@ namespace Corehold.UI
 
             // One extra slot on the right: the PANIC button (auto-deploy).
             int totalSlots = buildable.Count + 1;
+
+            // Fit inside the free top span: shrink chips before ever overlapping
+            // the corner panels. 44 px is the readability floor — below that the
+            // roster itself is the problem, not the rail.
+            float needed = totalSlots * (chipW + gap) - gap + 20f;
+            if (needed > _availableWidth)
+            {
+                chipW = Mathf.Max(44f, (_availableWidth - 20f - (totalSlots - 1) * gap) / totalSlots);
+                chipH = chipW * 1.2f;
+            }
 
             // Container plate: one quiet backdrop that groups the chips into a
             // single read (feedback: the bare chips floated). Never a raycast
