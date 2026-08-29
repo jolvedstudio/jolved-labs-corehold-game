@@ -154,6 +154,24 @@ namespace Corehold.Systems
         [Tooltip("Copies of the tracer prewarmed into its pool (shared by both factions).")]
         [SerializeField] private int tracerPrewarm = 8;
 
+        [Header("Apparent size")]
+        [Tooltip("Global multiplier on every pooled one-shot effect, on top of the prefab's authored scale. 1 = as authored.")]
+        [Range(0.25f, 4f)]
+        [SerializeField] private float effectScale = 1f;                    // [TUNE]
+
+        [Tooltip("Keep effects the same APPARENT size wherever the camera sits. A burst authored to read at " +
+                 "the reference distance is a handful of pixels when the camera pulls back to frame a wide " +
+                 "map (measured: 130-150 m on a lanes map), which is why impacts vanished while portals — " +
+                 "big and held — stayed visible. Scale then rises with distance/reference, clamped.")]
+        [SerializeField] private bool autoScaleWithCameraDistance = true;   // [TUNE]
+
+        [Tooltip("Distance (m) at which authored effect sizes read correctly. Below it, effects keep their authored size (never shrunk).")]
+        [SerializeField] private float referenceCameraDistance = 60f;       // [TUNE]
+
+        [Tooltip("Ceiling on the distance compensation. Raising this costs OVERDRAW on a fill-rate-bound WebGL target — a 3x effect covers ~9x the pixels.")]
+        [Range(1f, 4f)]
+        [SerializeField] private float maxAutoScale = 3f;                   // [TUNE]
+
         [Header("Diagnostics")]
         [Tooltip("Log ONE line the first time each effect slot plays: how many particles it actually spawned, " +
                  "how many renderers are enabled, its world scale, where it landed, whether that point is on " +
@@ -555,13 +573,30 @@ namespace Corehold.Systems
             // particle system has finished (provider-agnostic — no CFXR dependency).
             // The requested scale rides ALONG so Arm can apply it over the authored
             // scale instead of overwriting both with a stale baseline.
-            watcher.Arm(pool, t, systems, scale);
+            watcher.Arm(pool, t, systems, scale * effectScale * AutoScaleAt(position));
 
             if (logFirstPlayPerEffect && _diagnosed.Add(effect))
                 StartCoroutine(ReportFirstPlay(effect, t, systems));
 
             // Return the root particle system as a convenience handle for callers.
             return systems.Length > 0 ? systems[0] : null;
+        }
+
+        /// <summary>
+        /// Apparent-size constancy: a burst's world size grows with the camera's
+        /// distance so it covers the same share of the screen wherever the map's
+        /// framing puts the camera. Never shrinks below the authored size (a close
+        /// camera keeps the authoring), and is clamped so overdraw stays sane.
+        /// </summary>
+        private float AutoScaleAt(Vector3 position)
+        {
+            if (!autoScaleWithCameraDistance)
+                return 1f;
+            Camera cam = Camera.main;
+            if (cam == null)
+                return 1f;
+            float d = Vector3.Distance(cam.transform.position, position);
+            return Mathf.Clamp(d / Mathf.Max(5f, referenceCameraDistance), 1f, Mathf.Max(1f, maxAutoScale));
         }
 
         /// <summary>
@@ -1017,11 +1052,15 @@ namespace Corehold.Systems
             // play touched it) times what this call asked for, clearing any sizing
             // a previous (portal) use applied.
             CaptureAuthoredScale();
-            _sizeMult = 1f;
             _pulseAmplitude = 0f;
             _pulseHz = 0f;
-            transform.localScale = _authoredScale *
-                (requestedScale > 0.0001f ? requestedScale : 1f);
+
+            // Through SetSizeMultiplier, not a raw localScale write: scaling a
+            // pooled root does NOTHING to particle SIZES unless every system is
+            // switched to Hierarchy scaling (Unity's default, Local, reads only a
+            // system's own transform). That switch is exactly why portals could be
+            // resized while every one-shot effect ignored the same treatment.
+            SetSizeMultiplier(requestedScale > 0.0001f ? requestedScale : 1f);
         }
 
         private void LateUpdate()
