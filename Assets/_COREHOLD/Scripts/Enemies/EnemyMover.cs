@@ -217,7 +217,14 @@ namespace Corehold.Enemies
         private void OnEnable()
         {
             ResetToStart();
-            RouteTraffic.Instance.Register(this);
+
+            // A POOLED ground unit is enabled before Configure() hands it a route,
+            // so registering here would be refused — and would warn, loudly and
+            // wrongly, on every single pooled spawn. Configure registers it the
+            // moment it has a route; air units have none by design and register
+            // straight away.
+            if (_isAir || route != null)
+                RouteTraffic.Instance.Register(this);
         }
 
         private void OnDisable()

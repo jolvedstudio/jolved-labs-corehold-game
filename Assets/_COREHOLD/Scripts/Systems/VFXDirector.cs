@@ -154,6 +154,16 @@ namespace Corehold.Systems
         [Tooltip("Copies of the tracer prewarmed into its pool (shared by both factions).")]
         [SerializeField] private int tracerPrewarm = 8;
 
+        [Header("Diagnostics")]
+        [Tooltip("Log ONE line the first time each effect slot plays: how many particles it actually spawned, " +
+                 "how many renderers are enabled, its world scale, where it landed, whether that point is on " +
+                 "screen, and which shader(s) it draws with. This is the only way to answer \"the effect did " +
+                 "not appear\" in a BUILD, where there is no inspector to look at. Silent after each slot's " +
+                 "first play (at most one line per slot, per run).")]
+        [SerializeField] private bool logFirstPlayPerEffect = true;
+
+        private readonly HashSet<Effect> _diagnosed = new HashSet<Effect>();
+
         [Header("Friendly tracer (tower fire)")]
         [Tooltip("Friendly (tower) tracer line width in metres.")]
         [SerializeField] private float friendlyTracerWidth = 0.08f;
@@ -499,8 +509,26 @@ namespace Corehold.Systems
             if (t == null)
                 return null;
 
+            // The watcher must exist BEFORE localScale is touched: it captures the
+            // prefab's AUTHORED scale once, and capturing it after the line below
+            // would record whatever this call asked for instead. That inversion is
+            // why authored effect sizes were being replaced by a flat 1 (and any
+            // caller-requested scale silently dropped on every later play).
+            var watcher = t.GetComponent<PooledEffect>();
+            if (watcher == null)
+            {
+                // First time this pooled instance is played. CFXR's GlobalDisableLights
+                // only muzzles CFXR effects; the agnostic pool clones ANY prefab, and
+                // packs like Epic Toon FX embed real-time Lights that would otherwise put
+                // per-pixel lights back on the (WebGL, fill-rate-bound) target. Strip them
+                // once here — the PooledEffect persists across releases, so this never runs
+                // again for the same instance.
+                DisableEmbeddedLights(t);
+                watcher = t.gameObject.AddComponent<PooledEffect>();
+                watcher.CaptureAuthoredScale();
+            }
+
             t.SetPositionAndRotation(position, rotation);
-            t.localScale = Mathf.Approximately(scale, 1f) ? Vector3.one : Vector3.one * scale;
 
             // If this happens to be a Cartoon FX effect, neutralise its own clear
             // pass so pooling owns the lifetime (otherwise CFXR would Destroy or
@@ -525,22 +553,61 @@ namespace Corehold.Systems
 
             // Arm the watcher that returns this instance to its pool once every
             // particle system has finished (provider-agnostic — no CFXR dependency).
-            var watcher = t.GetComponent<PooledEffect>();
-            if (watcher == null)
-            {
-                // First time this pooled instance is played. CFXR's GlobalDisableLights
-                // only muzzles CFXR effects; the agnostic pool clones ANY prefab, and
-                // packs like Epic Toon FX embed real-time Lights that would otherwise put
-                // per-pixel lights back on the (WebGL, fill-rate-bound) target. Strip them
-                // once here — the PooledEffect persists across releases, so this never runs
-                // again for the same instance.
-                DisableEmbeddedLights(t);
-                watcher = t.gameObject.AddComponent<PooledEffect>();
-            }
-            watcher.Arm(pool, t, systems);
+            // The requested scale rides ALONG so Arm can apply it over the authored
+            // scale instead of overwriting both with a stale baseline.
+            watcher.Arm(pool, t, systems, scale);
+
+            if (logFirstPlayPerEffect && _diagnosed.Add(effect))
+                StartCoroutine(ReportFirstPlay(effect, t, systems));
 
             // Return the root particle system as a convenience handle for callers.
             return systems.Length > 0 ? systems[0] : null;
+        }
+
+        /// <summary>
+        /// One-shot per-slot report, taken a frame AFTER the play so the particle
+        /// count is real. Everything a "nothing appeared" bug can hide behind is
+        /// in the line: particles spawned, renderers enabled, world scale (a zero
+        /// or micro scale is invisible), position + on-screen test (an effect
+        /// played off-camera is not a rendering bug), and the shader actually
+        /// bound (a stripped shader shows up here as the error shader).
+        /// </summary>
+        private System.Collections.IEnumerator ReportFirstPlay(Effect effect, Transform t, ParticleSystem[] systems)
+        {
+            yield return null;
+            if (t == null)
+                yield break;
+
+            int alive = 0;
+            for (int i = 0; i < systems.Length; i++)
+                if (systems[i] != null) alive += systems[i].particleCount;
+
+            var renderers = t.GetComponentsInChildren<Renderer>(true);
+            int enabled = 0;
+            var shaders = new List<string>();
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i].enabled) enabled++;
+                var mat = renderers[i].sharedMaterial;
+                string s = mat == null ? "NO MATERIAL"
+                    : mat.shader == null ? "NO SHADER" : mat.shader.name;
+                if (!shaders.Contains(s)) shaders.Add(s);
+            }
+
+            Camera cam = Camera.main;
+            float dist = cam != null ? Vector3.Distance(cam.transform.position, t.position) : -1f;
+            bool onScreen = false;
+            if (cam != null)
+            {
+                Vector3 vp = cam.WorldToViewportPoint(t.position);
+                onScreen = vp.z > 0f && vp.x > -0.1f && vp.x < 1.1f && vp.y > -0.1f && vp.y < 1.1f;
+            }
+
+            Debug.Log($"[VFXDirector] first play '{effect}': {alive} particle(s) after 1 frame across " +
+                      $"{systems.Length} system(s); {enabled}/{renderers.Length} renderer(s) enabled; " +
+                      $"world scale {t.lossyScale.x:0.###}; at ({t.position.x:0.#}, {t.position.y:0.#}, " +
+                      $"{t.position.z:0.#}), {dist:0.#} m from the camera, on screen: {onScreen}; " +
+                      $"shader(s): {string.Join(" | ", shaders)}");
         }
 
         // ---- Convenience wrappers for gameplay call sites ----
@@ -921,7 +988,21 @@ namespace Corehold.Systems
         /// systems have all finished. The systems array is supplied by the caller
         /// (already gathered when it restarted them) to avoid a second traversal.
         /// </summary>
-        public void Arm(CoreholdPool<Transform> pool, Transform root, ParticleSystem[] systems)
+        /// <summary>
+        /// Record the prefab's authored scale. MUST be called before anything
+        /// writes localScale on a fresh instance — the director calls it the
+        /// moment it adds this component, straight out of the pool.
+        /// </summary>
+        public void CaptureAuthoredScale()
+        {
+            if (_authoredScaleCaptured)
+                return;
+            _authoredScale = transform.localScale;
+            _authoredScaleCaptured = true;
+        }
+
+        public void Arm(CoreholdPool<Transform> pool, Transform root, ParticleSystem[] systems,
+                        float requestedScale = 1f)
         {
             _pool = pool;
             _root = root;
@@ -932,17 +1013,15 @@ namespace Corehold.Systems
             _held = false;
             _age = 0f;
 
-            // Re-baseline scale for this play: capture the authored scale once,
-            // then clear any sizing a previous (portal) use applied.
-            if (!_authoredScaleCaptured)
-            {
-                _authoredScale = transform.localScale;
-                _authoredScaleCaptured = true;
-            }
+            // Re-baseline for this play: the AUTHORED scale (captured before any
+            // play touched it) times what this call asked for, clearing any sizing
+            // a previous (portal) use applied.
+            CaptureAuthoredScale();
             _sizeMult = 1f;
             _pulseAmplitude = 0f;
             _pulseHz = 0f;
-            transform.localScale = _authoredScale;
+            transform.localScale = _authoredScale *
+                (requestedScale > 0.0001f ? requestedScale : 1f);
         }
 
         private void LateUpdate()
