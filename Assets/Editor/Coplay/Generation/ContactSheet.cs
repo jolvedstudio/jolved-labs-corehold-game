@@ -13,8 +13,8 @@ using UnityEngine.SceneManagement;
 /// <summary>
 /// R31 — the human's map-selection surface. Runs seeds through the FULL
 /// generation gate (the same <see cref="GenerationPipeline.RunAll"/> the
-/// Generator window uses) until NINE pass, captures a top-down orthographic
-/// shot of each passing map, and writes:
+/// Generator window uses) until NINE pass, captures a shot of each passing
+/// map, and writes:
 ///
 ///   • a 3×3 grid PNG (each cell stamped in-world with its seed + theme, so
 ///     the label survives inside the pixels), and
@@ -31,12 +31,32 @@ using UnityEngine.SceneManagement;
 /// Run on the SELECTED LevelBlueprint (falls back to the first blueprint in
 /// the project). Seeds tried are blueprint.randomSeed, +1, +2, … capped at
 /// MaxAttempts so a hostile blueprint refuses honestly instead of spinning.
+///
+/// TWO VIEWS, and the default changed for a reason.
+///
+/// This tool used to shoot only an orthographic plan from 150 m up — the one
+/// view the player never sees. That mattered more than it sounds: the whole
+/// generator reasons about maps as PLANS (every gate is a top-down constraint),
+/// and its review surface reasoned in plans too, so nothing in the loop ever
+/// looked at the thing the player actually stares at for fifteen minutes. A
+/// fixed-camera game is one composed shot per map; you cannot judge a shot from
+/// a floor plan.
+///
+/// So the default is now the GAME VIEW, rendered through the scene's own
+/// gameplay camera — real pitch, real distance, real post, real fog. The plan
+/// stays available on its own menu item, because reading route topology at a
+/// glance is a genuinely different job.
 /// </summary>
 public static class ContactSheet
 {
     private const int GridCols = 3;
     private const int GridRows = 3;
-    private const int CellPx = 512;
+
+    /// <summary>Game-view cells are 16:9 because that is the shape of the thing
+    /// being judged. A square crop of a wide shot is a different composition.</summary>
+    private const int GameCellW = 512, GameCellH = 288;
+    private const int PlanCellPx = 512;
+
     private const int MaxAttempts = 36;
     private const string OutDir = "Assets/_COREHOLD/Docs/ContactSheets";
 
@@ -50,11 +70,17 @@ public static class ContactSheet
         public string padMix;      // "3P/2S/2R/1O"
         public int maxLive;
         public float hpGrowth;
+        public string camPose;     // "38° pitch, 142 m back" — anchors a composition judgement
         public Texture2D shot;     // null when failed
     }
 
     [MenuItem("Tools/COREHOLD/Level/Contact Sheet (9 seeds)", false, 62)]
-    public static void Run()
+    public static void RunGameView() => Run(planView: false);
+
+    [MenuItem("Tools/COREHOLD/Level/Contact Sheet (9 seeds, plan view)", false, 63)]
+    public static void RunPlanView() => Run(planView: true);
+
+    private static void Run(bool planView)
     {
         var blueprint = Selection.activeObject as LevelBlueprint;
         if (blueprint == null)
@@ -132,7 +158,7 @@ public static class ContactSheet
                 continue;
             }
 
-            records.Add(CaptureCurrent(seed));
+            records.Add(CaptureCurrent(seed, planView));
             passes++;
         }
 
@@ -142,17 +168,17 @@ public static class ContactSheet
         else
             EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
-        WriteOutputs(bpName, startSeed, records, passes);
+        WriteOutputs(bpName, startSeed, records, passes, planView);
     }
 
     // ------------------------------------------------------------ capture
 
     /// <summary>
     /// The active scene is a freshly generated, gate-passing map. Read its
-    /// stats, stamp an in-world label, shoot it top-down, then DELETE its
-    /// artifacts so the picker leaves the project exactly as it found it.
+    /// stats, stamp a label, shoot it, then DELETE its artifacts so the picker
+    /// leaves the project exactly as it found it.
     /// </summary>
-    private static SeedRecord CaptureCurrent(int seed)
+    private static SeedRecord CaptureCurrent(int seed, bool planView)
     {
         var rec = new SeedRecord { seed = seed, passed = true };
 
@@ -188,7 +214,28 @@ public static class ContactSheet
             }
         }
 
-        rec.shot = ShootTopDown(seed, rec.theme);
+        // The gameplay camera is the one the generator itself consults for its
+        // sight-line gates, so the sheet judges the map through exactly the
+        // frame the gates were protecting.
+        Camera gameCam = SceneQuery.FirstInActiveScene<Camera>();
+        if (gameCam != null && !gameCam.orthographic)
+        {
+            // Height and pitch define a fixed-camera framing on their own, so
+            // the pose is read off the transform alone — no dependency on
+            // finding the Core, which is an untyped Transform in this scene.
+            float pitch = gameCam.transform.eulerAngles.x;
+            float height = gameCam.transform.position.y;
+            float reach = pitch > 1f && pitch < 89f
+                ? height / Mathf.Tan(pitch * Mathf.Deg2Rad)
+                : 0f;
+            rec.camPose = $"{pitch:0}° pitch, {height:0} m up, {reach:0} m out, {gameCam.fieldOfView:0}° FOV";
+        }
+
+        // Fall back to the plan when there is no perspective camera to borrow —
+        // a blank cell would hide the map instead of showing it badly.
+        rec.shot = planView || gameCam == null || gameCam.orthographic
+            ? ShootTopDown(seed, rec.theme)
+            : ShootGameView(gameCam, seed, rec.theme);
 
         // Leave nothing behind: close the scene, then delete scene + level
         // assets and the Build Settings entry StSave registered.
@@ -203,6 +250,68 @@ public static class ContactSheet
             AssetDatabase.DeleteAsset(levelPath);
 
         return rec;
+    }
+
+    /// <summary>
+    /// Shoot the map THROUGH the scene's own gameplay camera: its pitch, its
+    /// distance, its FOV, its post stack, its fog and its sky. Nothing is
+    /// reconstructed, because a reconstruction is a second opinion about the
+    /// frame and the whole point is to see the first one.
+    ///
+    /// The camera is borrowed and handed back: its target texture is restored
+    /// even though the scene is deleted moments later, since a capture that
+    /// quietly mutates the thing it measures is how measurement tools start
+    /// lying.
+    /// </summary>
+    private static Texture2D ShootGameView(Camera cam, int seed, string theme)
+    {
+        // The label rides ON the camera, two metres in front, so it lands in
+        // the same corner of every cell at the same size regardless of how the
+        // map's camera solve placed the rig. The flat world-space label the
+        // plan view uses would be nearly edge-on at a gameplay pitch.
+        // Clear of the near plane, whatever this map's camera solve chose for it.
+        float dist = Mathf.Max(2f, cam.nearClipPlane * 2f);
+        float visH = 2f * dist * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        float visW = visH * (GameCellW / (float)GameCellH);
+
+        var labelGo = new GameObject("ContactSheetLabel");
+        var tmp = labelGo.AddComponent<TextMeshPro>();
+        tmp.text = $"s{seed}  {theme}";
+        // World-space TMP measures a line at roughly fontSize/10 world units at
+        // scale 1, so this targets ~9% of the frame height. fontSize is the
+        // knob if the stamp reads too small or too large in the sheet.
+        tmp.fontSize = Mathf.Max(0.5f, visH * 0.9f);
+        tmp.color = new Color(0.3f, 0.95f, 1f, 1f);
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.alignment = TextAlignmentOptions.TopLeft;
+        tmp.rectTransform.sizeDelta = new Vector2(visW * 0.9f, visH * 0.25f);
+        tmp.rectTransform.pivot = new Vector2(0f, 1f);
+        labelGo.transform.SetParent(cam.transform, false);
+        // Identity rotation under the camera = the label's forward matches the
+        // camera's, which is the orientation TMP renders readable from.
+        labelGo.transform.localRotation = Quaternion.identity;
+        labelGo.transform.localPosition =
+            new Vector3(-visW * 0.45f, visH * 0.45f, dist);
+
+        var rt = new RenderTexture(GameCellW, GameCellH, 24);
+        var shot = new Texture2D(GameCellW, GameCellH, TextureFormat.RGB24, false);
+        RenderTexture previousTarget = cam.targetTexture;
+        try
+        {
+            cam.targetTexture = rt;
+            cam.Render();
+            RenderTexture.active = rt;
+            shot.ReadPixels(new Rect(0, 0, GameCellW, GameCellH), 0, 0);
+            shot.Apply();
+        }
+        finally
+        {
+            RenderTexture.active = null;
+            cam.targetTexture = previousTarget;
+            Object.DestroyImmediate(rt);
+            Object.DestroyImmediate(labelGo);
+        }
+        return shot;
     }
 
     private static Texture2D ShootTopDown(int seed, string theme)
@@ -240,14 +349,14 @@ public static class ContactSheet
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0.03f, 0.04f, 0.06f, 1f);
 
-        var rt = new RenderTexture(CellPx, CellPx, 24);
-        var shot = new Texture2D(CellPx, CellPx, TextureFormat.RGB24, false);
+        var rt = new RenderTexture(PlanCellPx, PlanCellPx, 24);
+        var shot = new Texture2D(PlanCellPx, PlanCellPx, TextureFormat.RGB24, false);
         try
         {
             cam.targetTexture = rt;
             cam.Render();
             RenderTexture.active = rt;
-            shot.ReadPixels(new Rect(0, 0, CellPx, CellPx), 0, 0);
+            shot.ReadPixels(new Rect(0, 0, PlanCellPx, PlanCellPx), 0, 0);
             shot.Apply();
         }
         finally
@@ -264,27 +373,43 @@ public static class ContactSheet
     // ------------------------------------------------------------ outputs
 
     private static void WriteOutputs(string blueprintName, int startSeed,
-        List<SeedRecord> records, int passes)
+        List<SeedRecord> records, int passes, bool planView)
     {
         if (!AssetDatabase.IsValidFolder(OutDir))
             AssetDatabase.CreateFolder("Assets/_COREHOLD/Docs", "ContactSheets");
 
-        string baseName = $"ContactSheet_{GenerationPipeline.Sanitise(blueprintName)}_from{startSeed}";
+        string view = planView ? "plan" : "game";
+        string baseName = $"ContactSheet_{GenerationPipeline.Sanitise(blueprintName)}_from{startSeed}_{view}";
         string pngPath = $"{OutDir}/{baseName}.png";
         string mdPath = $"{OutDir}/{baseName}.md";
 
-        // 3×3 grid, row-major from the top-left, dark filler for empty cells.
-        var sheet = new Texture2D(GridCols * CellPx, GridRows * CellPx, TextureFormat.RGB24, false);
-        var filler = Enumerable.Repeat(new Color(0.06f, 0.07f, 0.09f, 1f), CellPx * CellPx).ToArray();
+        // Cells take the shape of the view: 16:9 for the game frame, square for
+        // the plan. A shot captured in one shape and pasted into the other is
+        // a different composition, which defeats the point of looking.
         var shots = records.Where(r => r.passed && r.shot != null).ToList();
+        int cellW = planView ? PlanCellPx : GameCellW;
+        int cellH = planView ? PlanCellPx : GameCellH;
+        if (shots.Count > 0)
+        {
+            cellW = shots[0].shot.width;
+            cellH = shots[0].shot.height;
+        }
+
+        // 3×3 grid, row-major from the top-left, dark filler for empty cells.
+        var sheet = new Texture2D(GridCols * cellW, GridRows * cellH, TextureFormat.RGB24, false);
+        var filler = Enumerable.Repeat(new Color(0.06f, 0.07f, 0.09f, 1f), cellW * cellH).ToArray();
         for (int cell = 0; cell < GridCols * GridRows; cell++)
         {
-            int cx = (cell % GridCols) * CellPx;
-            int cy = (GridRows - 1 - cell / GridCols) * CellPx;   // row 0 at the TOP
-            if (cell < shots.Count)
-                sheet.SetPixels(cx, cy, CellPx, CellPx, shots[cell].shot.GetPixels());
+            int cx = (cell % GridCols) * cellW;
+            int cy = (GridRows - 1 - cell / GridCols) * cellH;   // row 0 at the TOP
+            // A fallback shot can differ in shape from the sheet's cells (no
+            // gameplay camera in that one scene); the filler keeps the grid
+            // aligned rather than throwing on a size mismatch.
+            if (cell < shots.Count &&
+                shots[cell].shot.width == cellW && shots[cell].shot.height == cellH)
+                sheet.SetPixels(cx, cy, cellW, cellH, shots[cell].shot.GetPixels());
             else
-                sheet.SetPixels(cx, cy, CellPx, CellPx, filler);
+                sheet.SetPixels(cx, cy, cellW, cellH, filler);
         }
         sheet.Apply();
         File.WriteAllBytes(pngPath, sheet.EncodeToPNG());
@@ -296,24 +421,49 @@ public static class ContactSheet
         var md = new StringBuilder();
         md.AppendLine($"# Contact sheet — {blueprintName}, seeds from {startSeed}");
         md.AppendLine();
+        md.AppendLine(planView
+            ? "**Plan view** — orthographic from above, for reading route topology at a glance. " +
+              "This is not what the player sees; use the game view to judge composition."
+            : "**Game view** — shot through each map's own gameplay camera: real pitch, distance, " +
+              "post and fog. This is the frame the player looks at for the length of a level.");
+        md.AppendLine();
         md.AppendLine($"{passes}/{GridCols * GridRows} passing seeds in " +
                       $"{records.Count} attempt(s). Grid reads row-major from the top-left.");
         md.AppendLine();
-        md.AppendLine("| cell | seed | verdict | theme | routes (m) | pads | maxLive | hpGrowth |");
-        md.AppendLine("|-----:|-----:|---------|-------|------------|------|--------:|---------:|");
+        md.AppendLine("| cell | seed | verdict | theme | routes (m) | pads | maxLive | hpGrowth | camera |");
+        md.AppendLine("|-----:|-----:|---------|-------|------------|------|--------:|---------:|--------|");
         int cellNo = 0;
         foreach (var r in records.Where(r => r.passed))
         {
             cellNo++;
             md.AppendLine($"| {cellNo} | {r.seed} | PASS | {r.theme} | {r.routes} " +
-                          $"| {r.padMix} | {r.maxLive} | {r.hpGrowth:0.###} |");
+                          $"| {r.padMix} | {r.maxLive} | {r.hpGrowth:0.###} | {r.camPose ?? "—"} |");
         }
         foreach (var r in records.Where(r => !r.passed))
-            md.AppendLine($"| — | {r.seed} | FAIL @ {r.failStage} | | | | | |");
+            md.AppendLine($"| — | {r.seed} | FAIL @ {r.failStage} | | | | | | |");
         md.AppendLine();
         md.AppendLine("Pick a (seed, theme), set the seed on the blueprint in the Generator " +
                       "window, and generate it for real — the sheet deleted every artifact " +
                       "it produced.");
+        if (!planView)
+        {
+            md.AppendLine();
+            md.AppendLine("## Reading the game view");
+            md.AppendLine();
+            md.AppendLine("Things worth judging here that a plan cannot show:");
+            md.AppendLine();
+            md.AppendLine("- **Is there a foreground?** Anything near the lens that frames the shot " +
+                          "and creates depth, or does the field start at the middle distance?");
+            md.AppendLine("- **Is the Core the subject?** It should be the most contrasted and most " +
+                          "led-to thing on screen. The routes are the strongest lines in the image.");
+            md.AppendLine("- **Do depth bands separate?** Foreground, stage and horizon should differ " +
+                          "in value and saturation, not just in distance.");
+            md.AppendLine("- **Would a unit read against this?** Dressing has a second job: to lose " +
+                          "gracefully to the things the player must track. Props the size of an " +
+                          "enemy, at an enemy's contrast, are a readability cost.");
+            md.AppendLine("- **Is the flat band obvious?** Relief is masked to zero inside the play " +
+                          "corridor, so the part the eye lives in is the flattest part of the map.");
+        }
         File.WriteAllText(mdPath, md.ToString());
 
         AssetDatabase.Refresh();

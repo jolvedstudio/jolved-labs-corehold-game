@@ -399,8 +399,10 @@ namespace CoreholdEditor.Campaign
                         {
                             // ContactSheet works on the selected blueprint; the
                             // PNG it writes shows 9 passing seeds to choose from.
+                            // GAME view, because "by eye" means judging the frame
+                            // the player will sit in front of, not a floor plan.
                             Selection.activeObject = s.blueprint;
-                            ContactSheet.Run();
+                            ContactSheet.RunGameView();
                             _report = "Contact sheet rendering — check the console for the PNG path, " +
                                       "then put the seed you like into this stage's Seed override.";
                         }
