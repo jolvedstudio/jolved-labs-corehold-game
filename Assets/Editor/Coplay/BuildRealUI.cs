@@ -242,26 +242,10 @@ namespace CoreholdEditor
             SetAnchors(integVal.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-16, -50));
             integVal.rectTransform.pivot = new Vector2(1f, 0.5f);   // same overflow, right edge (shipped value)
 
-            // ---- Bottom STRIP: wave info inline, right of pause ----
-            // One line for everything at the bottom (occlusion feedback): a
-            // short wide panel — label at the left, next-wave cells beside it;
-            // the runtime second queue row (R-UI-4) docks to ITS right, dimmer.
-            var tc = MakePanel(canvas.transform, "WavePanel",
-                new Vector2(0, 0), new Vector2(0, 0), new Vector2(104, 24), new Vector2(640, 84), theme.panel);
-            tc.pivot = Vector2.zero;
-            var waveLbl = MakeText(tc, "WaveLabel", "WAVE 1 / 10", _small, TextAlignmentOptions.MidlineLeft,
-                new Vector2(16, 0), new Vector2(130, 60));
-            waveLbl.color = Cyan;
-            SetAnchors(waveLbl.rectTransform, new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(16, 0));
-            waveLbl.rectTransform.pivot = new Vector2(0f, 0.5f);
-            waveLbl.enableAutoSizing = true;
-            waveLbl.fontSizeMin = 12f;
-            waveLbl.fontSizeMax = _small;
-            var previewRow = MakeRect(tc, "PreviewRow", new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(150, 0), new Vector2(280, 70));
-            previewRow.pivot = new Vector2(0f, 0.5f);
-            var prow = previewRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            prow.spacing = 10; prow.childAlignment = TextAnchor.MiddleLeft; prow.childControlWidth = false; prow.childControlHeight = false;
-            var previewCell = BuildPreviewCellTemplate(previewRow, theme);
+            // (The old top-centre/bottom WavePanel is GONE — user question
+            // "ça sert à quoi?" answered by relocation: the wave COUNT folds
+            // into the Start button's label, and the next-wave composition
+            // docks just above that button, built right after it below.)
 
             // ---- Top-right: salvage ----
             var tr = MakePanel(canvas.transform, "SalvagePanel",
@@ -287,6 +271,19 @@ namespace CoreholdEditor
             // ---- Strike Wing (R19): left end of the action buttons ----
             var strikeBtn = MakeButton(canvas.transform, "StrikeWingButton", "STRIKE 120", theme,
                 new Vector2(1, 0), new Vector2(1, 0), new Vector2(-480, 28), new Vector2(190, 76));
+
+            // ---- Next-wave composition: ABOVE the Start button ----
+            // The info lives where the decision happens: what is coming sits
+            // over the button that lets it come. The HUD shows it only while
+            // that button is live and stacks the wave-after row above at
+            // runtime; no plate, no label — the count is in the button text.
+            var previewRow = MakeRect(canvas.transform, "PreviewRow",
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 116), new Vector2(300, 70));
+            previewRow.pivot = new Vector2(1f, 0f);
+            previewRow.localScale = Vector3.one * 0.72f;
+            var prow = previewRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+            prow.spacing = 10; prow.childAlignment = TextAnchor.MiddleRight; prow.childControlWidth = false; prow.childControlHeight = false;
+            var previewCell = BuildPreviewCellTemplate(previewRow, theme);
             // Radial cooldown sweep over the face; the label re-tops it below.
             var strikeCd = MakeRect(strikeBtn, "CooldownFill", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             strikeCd.offsetMin = Vector2.zero; strikeCd.offsetMax = Vector2.zero;
@@ -334,7 +331,6 @@ namespace CoreholdEditor
             SetRef(so, "integritySegments", segRoot);
             SetRef(so, "integrityValue", integVal);
             SetRef(so, "integritySegmentPrefabSource", segImg);
-            SetRef(so, "waveLabel", waveLbl);
             SetRef(so, "previewRow", previewRow);
             SetRef(so, "salvageValue", salVal);
             SetRef(so, "startWaveButton", startBtn.GetComponent<Button>());

@@ -85,13 +85,11 @@ namespace Corehold.UI
         [Tooltip("[TUNE] An enemy with base health at or above this marks its wave as a BOSS wave in banners and the queue (matches the Colossus class).")]
         [SerializeField] private float bossPreviewHpThreshold = 1000f;
 
-        [Header("Wave panel placement")]
-        [Tooltip("Demote the wave label + queue to a small bottom-left cluster at runtime (feedback: the top panel was big and mostly idle). Off = the scene's authored layout.")]
+        [Header("Wave info placement")]
+        [Tooltip("Retire the authored wave panel at runtime: the wave count folds into the Start button's label and the composition rows dock above that button, shown only while it is. Off = the scene's authored layout.")]
         [SerializeField] private bool demoteWavePanel = true;      // [TUNE]
-        [Tooltip("Bottom-left inset of the demoted wave cluster, canvas units.")]
-        [SerializeField] private Vector2 wavePanelInset = new Vector2(14f, 10f); // [TUNE]
-        [Tooltip("Scale applied to the wave preview rows when demoted.")]
-        [SerializeField] private float wavePanelScale = 0.8f;      // [TUNE]
+        [Tooltip("Scale applied to the composition rows docked over the Start button.")]
+        [SerializeField] private float wavePanelScale = 0.72f;     // [TUNE]
 
         [Header("Salvage pips (R-UI-5)")]
         [Tooltip("[TUNE] Max salvage pips in flight at once — kills beyond this just tick the counter (never queue).")]
@@ -182,25 +180,22 @@ namespace Corehold.UI
         }
 
         /// <summary>
-        /// Move the wave info to a small bottom-left cluster above the pause
-        /// button (user feedback on R-UI-4: the top panel was oversized for what
-        /// it says — and it collided with the roster rail).
-        ///
-        /// The builder parents label + preview INSIDE one "WavePanel" — the
-        /// first version of this moved the CHILDREN, which repositioned them
-        /// inside a panel that stayed put (caught by the user: "vérifier que le
-        /// wave panel a été vraiment déplacé"). When that shared panel exists,
-        /// move THE PANEL; the loose-element path remains as a fallback for
-        /// scenes authored without one. Scenes rebuilt by Build Real UI are
-        /// already bottom-left natively; re-applying here is harmless.
+        /// The wave panel is GONE (user: "ça sert à quoi?"). Its two facts moved
+        /// to where they are used: the wave COUNT lives in the Start button's
+        /// own label, and the next-wave composition docks right ABOVE that
+        /// button — visible only while the button is (the info exists exactly
+        /// when the start/chain decision does). For scenes still carrying the
+        /// old authored WavePanel, the composition row is pulled OUT and the
+        /// panel + label are disabled; rebuilt scenes bake this layout natively
+        /// and re-applying is harmless.
         /// </summary>
         private void DemoteWavePanel()
         {
-            if (!demoteWavePanel)
+            if (!demoteWavePanel || previewRow == null)
                 return;
 
             RectTransform panel = null;
-            if (waveLabel != null && previewRow != null &&
+            if (waveLabel != null &&
                 waveLabel.rectTransform.parent == previewRow.parent &&
                 previewRow.parent is RectTransform shared &&
                 shared != (RectTransform)transform &&
@@ -209,64 +204,26 @@ namespace Corehold.UI
                 panel = shared;
             }
 
-            if (panel != null)
+            var startRt = startWaveButton != null ? (RectTransform)startWaveButton.transform : null;
+            if (startRt != null)
             {
-                // ONE-LINE bottom strip (occlusion feedback): a short wide panel
-                // right of the pause button — label at the left, next-wave cells
-                // beside it, the runtime second row docking to their right. Same
-                // numbers Build Real UI now bakes natively, so old and rebuilt
-                // scenes converge.
-                panel.anchorMin = panel.anchorMax = Vector2.zero;
-                panel.pivot = Vector2.zero;
-                panel.anchoredPosition = new Vector2(wavePanelInset.x + 90f, wavePanelInset.y + 14f);
-                panel.sizeDelta = new Vector2(640f, 84f);
-                panel.localScale = Vector3.one * Mathf.Clamp(wavePanelScale, 0.4f, 1f);
-
-                if (waveLabel != null)
-                {
-                    var lrt = waveLabel.rectTransform;
-                    lrt.anchorMin = lrt.anchorMax = new Vector2(0f, 0.5f);
-                    lrt.pivot = new Vector2(0f, 0.5f);
-                    lrt.anchoredPosition = new Vector2(16f, 0f);
-                    lrt.sizeDelta = new Vector2(130f, 60f);
-                    waveLabel.alignment = TextAlignmentOptions.MidlineLeft;
-                    waveLabel.enableAutoSizing = true;
-                    waveLabel.fontSizeMin = 12f;
-                    waveLabel.fontSizeMax = theme != null ? theme.fontSizeSmall : 22f;
-                }
-
-                previewRow.anchorMin = previewRow.anchorMax = new Vector2(0f, 0.5f);
-                previewRow.pivot = new Vector2(0f, 0.5f);
-                previewRow.anchoredPosition = new Vector2(150f, 0f);
-                previewRow.sizeDelta = new Vector2(280f, 70f);
-                previewRow.localScale = Vector3.one;
+                previewRow.SetParent(startRt.parent, false);
+                previewRow.anchorMin = startRt.anchorMin;
+                previewRow.anchorMax = startRt.anchorMax;
+                previewRow.pivot = startRt.pivot;
+                previewRow.sizeDelta = new Vector2(300f, 70f);
+                previewRow.anchoredPosition = startRt.anchoredPosition +
+                    Vector2.up * (startRt.sizeDelta.y + 8f);
+                previewRow.localScale = Vector3.one * Mathf.Clamp(wavePanelScale, 0.4f, 1f);
                 var hlg = previewRow.GetComponent<HorizontalLayoutGroup>();
                 if (hlg != null)
-                    hlg.childAlignment = TextAnchor.MiddleLeft;
-                return;
+                    hlg.childAlignment = TextAnchor.MiddleRight;
             }
 
-            // Loose elements (no shared panel): place them directly.
-            if (waveLabel != null)
-            {
-                var rt = waveLabel.rectTransform;
-                rt.anchorMin = rt.anchorMax = Vector2.zero;
-                rt.pivot = Vector2.zero;
-                rt.anchoredPosition = wavePanelInset;
-                waveLabel.alignment = TextAlignmentOptions.BottomLeft;
-                float small = theme != null ? theme.fontSizeSmall : 22f;
-                if (waveLabel.fontSize > small)
-                    waveLabel.fontSize = small;
-            }
-
-            if (previewRow != null)
-            {
-                previewRow.anchorMin = previewRow.anchorMax = Vector2.zero;
-                previewRow.pivot = Vector2.zero;
-                float labelH = waveLabel != null ? Mathf.Max(20f, waveLabel.fontSize + 6f) : 26f;
-                previewRow.anchoredPosition = wavePanelInset + Vector2.up * labelH;
-                previewRow.localScale = Vector3.one * Mathf.Clamp(wavePanelScale, 0.4f, 1f);
-            }
+            if (panel != null)
+                panel.gameObject.SetActive(false);
+            else if (waveLabel != null)
+                waveLabel.gameObject.SetActive(false);
         }
 
         // ----- Initial full refresh -----
@@ -844,6 +801,15 @@ namespace Corehold.UI
 
             bool hasNext = waveManager != null && waveManager.HasNextWave;
             startWaveButton.gameObject.SetActive(hasNext);
+
+            // The composition rows live and die with the button they inform.
+            if (demoteWavePanel && previewRow != null)
+            {
+                previewRow.gameObject.SetActive(hasNext);
+                if (_previewRow2 != null)
+                    _previewRow2.gameObject.SetActive(hasNext);
+            }
+
             if (!hasNext)
                 return;
 
@@ -871,11 +837,12 @@ namespace Corehold.UI
                 }
                 else
                 {
-                    // e1: an armed countdown says so on the button itself — the
-                    // early tap stays the skill lever, the timer is the pressure.
+                    // The wave TOTAL rides here since the wave panel's removal —
+                    // and an armed countdown (e1) says so on the button itself.
+                    int total = waveManager.WaveCount;
                     startWaveLabel.text = _shownAutoSec > 0
-                        ? $"START WAVE {nextNum}\nAUTO IN {_shownAutoSec}s"
-                        : $"START WAVE {nextNum}";
+                        ? $"START WAVE {nextNum}/{total}\nAUTO IN {_shownAutoSec}s"
+                        : $"START WAVE {nextNum}/{total}";
                 }
             }
         }
