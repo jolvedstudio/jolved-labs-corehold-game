@@ -791,8 +791,11 @@ namespace Corehold.UI
 
             // Single-map runs: the integrity record only exists after a VICTORY
             // on this map at this difficulty (ResultScreen submits it then).
+            // Fully qualified: Core and Data both declare a Difficulty enum, and
+            // this file imports both namespaces (GameManager + SaveData speak
+            // Core's).
             string map = waveManager != null ? waveManager.LevelId : "default";
-            Difficulty diff = _gm != null ? _gm.Difficulty : Difficulty.Normal;
+            Corehold.Core.Difficulty diff = _gm != null ? _gm.Difficulty : Corehold.Core.Difficulty.Normal;
             return SaveData.GetRecord(map, diff, "integrity") > 0;
         }
 
