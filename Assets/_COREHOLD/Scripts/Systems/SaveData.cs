@@ -132,6 +132,42 @@ namespace Corehold.Systems
             set { PlayerPrefs.SetInt(SettingsPrefix + "radial", value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
+        // ----- Field-guide sighting flags (R-UI-7) -----
+        //
+        // corehold.seen.<kind>.<id> = 1 once the player has met a unit: an enemy
+        // on its first spawn, a turret when a level first offers it. The in-memory
+        // cache exists because enemies spawn every few seconds — without it every
+        // spawn would hit PlayerPrefs.Save (an IndexedDB write on WebGL).
+
+        private const string SeenPrefix = "corehold.seen.";
+        private static readonly System.Collections.Generic.HashSet<string> _seenCache =
+            new System.Collections.Generic.HashSet<string>();
+
+        /// <summary>True once <see cref="MarkSeen"/> recorded this unit (kind: "enemy"/"turret").</summary>
+        public static bool IsSeen(string kind, string id)
+        {
+            if (string.IsNullOrEmpty(id))
+                return false;
+            string key = SeenPrefix + kind + "." + id;
+            if (_seenCache.Contains(key))
+                return true;
+            bool seen = PlayerPrefs.GetInt(key, 0) != 0;
+            if (seen)
+                _seenCache.Add(key);
+            return seen;
+        }
+
+        /// <summary>Record a first sighting. Cheap when already recorded (no disk write).</summary>
+        public static void MarkSeen(string kind, string id)
+        {
+            if (string.IsNullOrEmpty(id) || IsSeen(kind, id))
+                return;
+            string key = SeenPrefix + kind + "." + id;
+            _seenCache.Add(key);
+            PlayerPrefs.SetInt(key, 1);
+            PlayerPrefs.Save();
+        }
+
         // ----- Per-map + per-difficulty personal records (R4) -----
         //
         // Same store, new keys: corehold.record.<map>.<difficulty>.<stat>. The

@@ -21,6 +21,7 @@ namespace Corehold.UI
         [SerializeField] private Button menuButton;
         [SerializeField] private Button muteButton;
         [SerializeField] private TMP_Text muteLabel;
+        [SerializeField] private Button almanacButton;
 
         [Tooltip("Separate title scene, if the build has one. EMPTY (the single-scene build) sends Main Menu " +
                  "back through this level's own title overlay. Retry ignores this — it always reloads the " +
@@ -40,6 +41,7 @@ namespace Corehold.UI
             if (retryButton != null) retryButton.onClick.AddListener(Retry);
             if (menuButton != null) menuButton.onClick.AddListener(MainMenu);
             if (muteButton != null) muteButton.onClick.AddListener(ToggleMute);
+            if (almanacButton != null) almanacButton.onClick.AddListener(OpenAlmanac);
         }
 
         private void OnDisable()
@@ -48,6 +50,7 @@ namespace Corehold.UI
             if (retryButton != null) retryButton.onClick.RemoveListener(Retry);
             if (menuButton != null) menuButton.onClick.RemoveListener(MainMenu);
             if (muteButton != null) muteButton.onClick.RemoveListener(ToggleMute);
+            if (almanacButton != null) almanacButton.onClick.RemoveListener(OpenAlmanac);
         }
 
         public void Show()
@@ -113,6 +116,14 @@ namespace Corehold.UI
             // 3. Single-scene build: reload, which comes back on its own title
             //    overlay (Retry ignores all of this — it always reloads).
             Corehold.Core.GameFlow.RestartCurrentLevel();
+        }
+
+        private void OpenAlmanac()
+        {
+            if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+            var canvas = root != null ? root.GetComponentInParent<Canvas>() : GetComponentInParent<Canvas>();
+            if (canvas != null)
+                AlmanacScreen.Toggle(canvas.rootCanvas.transform);
         }
 
         private void ToggleMute()

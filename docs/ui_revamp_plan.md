@@ -116,9 +116,24 @@ flagged, not assumed.
   iconography — via BuildMenu's radial [TUNE] knobs and UITheme. Settings
   panels in existing scenes show the new toggle after *Build real UI*
   regenerates them.
-- **P3 (systems + user sign-off on gating):** R-UI-2 rail + per-level turret
-  introductions (progression change), R-UI-7 almanac.
-- **P4 (design call):** R-UI-8 speed stops.
+- **P3 (systems): BUILT (user approved gating).** R-UI-2: `RosterRail`
+  (runtime-built by BuildMenu, [TUNE] knobs) — always-visible top chips,
+  live-dimmed by affordability; tap arms a chip (every empty pad's standing
+  pulse boosts via `TowerHardpoint.BuildAttention`), pad tap builds; drag
+  chip→pad builds in one motion with range preview. Introductions:
+  `CampaignAuthoring.AuthoredStage.rosterCount` → Campaign Builder writes
+  `LevelDefinition.roster` (first N buildable, menu order; 0 = all) →
+  BuildMenu filters every surface (sheet/radial/rail); an unseen turret's
+  chip slides in with a NEW tag. R-UI-7: `AlmanacScreen` (FIELD GUIDE) —
+  enemies + turrets, portrait/role/pip/one-sentence description (the
+  definitions' own `description` fields; enemy sentences authored, counters
+  match the damage table), silhouettes until met
+  (`SaveData.IsSeen/MarkSeen`: enemies on first spawn, turrets when first
+  offered). Opens from pause (builder row) and a build-phase HUD "?" button.
+- **P4 (design call): BUILT (user approved).** R-UI-8: speed cycles
+  1×→2×→3×, where 3× only offers itself on cleared content — campaign best
+  score exists, or a victory record on this map+difficulty. First runs keep
+  the certified pacing.
 
 Acceptance bar (all phases): 907×510 legibility over sand/night/rain; no new
 element blocks input or covers the path; build ≤ +1 MB; skin-driven colours

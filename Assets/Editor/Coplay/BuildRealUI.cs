@@ -188,6 +188,7 @@ namespace CoreholdEditor
             // Tools/COREHOLD/Scene Setup/Assign Tower Menu Order once to seed
             // orders on pre-registry definitions.
             theme.turrets = RosterRegistry.AllTowersOrdered();
+            theme.enemies = RosterRegistry.AllEnemiesOrdered();
 
             theme.damageTable = AssetDatabase.LoadAssetAtPath<DamageTable>("Assets/_COREHOLD/Data/DamageTable.asset");
 
@@ -708,12 +709,13 @@ namespace CoreholdEditor
             var root = MakeFullscreenDim(canvas.transform, "PauseScreen");
             var comp = canvas.gameObject.AddComponent<PauseScreen>();
 
-            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 480), theme.popup);
+            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 560), theme.popup);
             MakeText(panel, "Title", "PAUSED", _large, TextAlignmentOptions.Top, new Vector2(0, -20), new Vector2(480, 44)).color = Cyan;
             var resume = MakeButton(panel, "Resume", "RESUME", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -90), new Vector2(400, 70));
             var retry = MakeButton(panel, "Retry", "RETRY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -172), new Vector2(400, 70));
             var menu = MakeButton(panel, "Menu", "MAIN MENU", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -254), new Vector2(400, 70));
             var mute = MakeButton(panel, "Mute", "SOUND: ON", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -336), new Vector2(400, 70));
+            var almanac = MakeButton(panel, "Almanac", "FIELD GUIDE", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -418), new Vector2(400, 70));
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -722,6 +724,7 @@ namespace CoreholdEditor
             SetRef(so, "menuButton", menu.GetComponent<Button>());
             SetRef(so, "muteButton", mute.GetComponent<Button>());
             SetRef(so, "muteLabel", mute.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "almanacButton", almanac.GetComponent<Button>());
             so.ApplyModifiedPropertiesWithoutUndo();
 
             root.gameObject.SetActive(false);

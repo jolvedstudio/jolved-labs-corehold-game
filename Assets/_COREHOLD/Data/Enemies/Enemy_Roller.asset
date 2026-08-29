@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: roller
   displayName: Roller
+  description: 'No armour at all, just speed - stop it early or watch it cross the map in seconds.'
   icon: {fileID: 21300000, guid: 272f6f3056d0fea4ebf7821bb8a5be31, type: 3}
   prefab: {fileID: 1724637743901847039, guid: 2485b48d75002bd428762ab529d59a66, type: 3}
   baseHealth: 150

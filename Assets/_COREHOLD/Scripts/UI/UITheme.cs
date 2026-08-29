@@ -48,6 +48,10 @@ namespace Corehold.UI
         [Header("Catalogues")]
         [Tooltip("The five turret definitions in menu order (GDD §7.2).")]
         public TowerDefinition[] turrets;
+        [Tooltip("Every enemy definition, weakest first — the field guide's catalogue (R-UI-7). " +
+                 "Wired by Build Real UI from the Data/Enemies folder; scenes built before that " +
+                 "rerun fall back to the current level's wave tables.")]
+        public EnemyDefinition[] enemies;
         [Tooltip("The damage-vs-armour table shown on the tower panel (GDD §7.1).")]
         public DamageTable damageTable;
 

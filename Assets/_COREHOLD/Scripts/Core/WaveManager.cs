@@ -185,6 +185,9 @@ namespace Corehold.Core
         /// <summary>Stable id of the level driving this manager — the LevelDefinition asset name (R4 records are keyed per map).</summary>
         public string LevelId => level != null ? level.name : "default";
 
+        /// <summary>This level's turret roster (R-UI-2). Null/empty = the full roster.</summary>
+        public TowerDefinition[] LevelRoster => level != null ? level.roster : null;
+
         /// <summary>Number of enemies waiting for a free slot under the 14-cap.</summary>
         public int PendingCount => _pending.Count;
 
@@ -828,6 +831,9 @@ namespace Corehold.Core
             // half the flash underground.
             if (Corehold.Systems.VFXDirector.Instance != null)
                 Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(enemy.HitPoint);
+
+            // First sighting unlocks this unit's field-guide card (R-UI-7).
+            Corehold.Systems.SaveData.MarkSeen("enemy", def.id);
 
             // The unit has APPEARED — its spawner's portal may now fade if it
             // was the last one this portal was being held open for.

@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: wasp
   displayName: Wasp
+  description: 'Almost too fast to track - catch it early, before it clears your gun line.'
   icon: {fileID: 21300000, guid: 981432943546c1949bd45a6ecf50eb63, type: 3}
   prefab: {fileID: 962232795528168992, guid: f6f7b47478ef97a44a0de783a2ccea31, type: 3}
   baseHealth: 70

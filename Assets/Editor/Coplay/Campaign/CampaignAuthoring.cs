@@ -49,6 +49,11 @@ namespace CoreholdEditor.Campaign
             public string title = "Operation";
             [TextArea] public string briefing = "";
 
+            [Tooltip("How many turrets (menu order, buildable only) this stage's roster offers. " +
+                     "0 = the full roster. 3 on stage one and +1 per stage is the PvZ-style " +
+                     "introduction curve (R-UI-2); the rail slides the newcomer in with a NEW tag.")]
+            public int rosterCount;
+
             [Tooltip("The recipe this stage's map is generated from.")]
             public LevelBlueprint blueprint;
 

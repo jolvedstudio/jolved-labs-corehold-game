@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: scuttler
   displayName: Scuttler
+  description: 'Cheap, quick and never alone - splash weapons clear whole packs at once.'
   icon: {fileID: 21300000, guid: 0e6f0f32f9972fa47a6968720619ef13, type: 3}
   prefab: {fileID: 543174937331609184, guid: b4d83ef9621d564469e426a007981705, type: 3}
   baseHealth: 45

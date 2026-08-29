@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: colossus_c
   displayName: Colossus Sentinel
+  description: 'The heaviest thing the machines send - slow, shielded, and unstoppable without kinetic batteries waiting.'
   icon: {fileID: 21300000, guid: 2235fe80d5f2ae344a956934d72fd168, type: 3}
   prefab: {fileID: 3244346257169291824, guid: 6056c620189708141b4bf73f991a8576, type: 3}
   baseHealth: 3200

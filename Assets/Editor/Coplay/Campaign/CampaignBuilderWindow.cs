@@ -335,6 +335,11 @@ namespace CoreholdEditor.Campaign
                     }
 
                     s.briefing = EditorGUILayout.TextField("Briefing", s.briefing);
+                    s.rosterCount = EditorGUILayout.IntField(
+                        new GUIContent("Roster count", "Turrets this stage offers (menu order, buildable " +
+                            "only). 0 = full roster. Written into the LevelDefinition on Generate/Adopt " +
+                            "(R-UI-2 per-level introductions)."),
+                        s.rosterCount);
                     if (s.blueprint != null)
                     {
                         s.seedOverride = EditorGUILayout.IntField(
@@ -1212,6 +1217,7 @@ namespace CoreholdEditor.Campaign
                     cloned++;
                 }
                 defSo.ApplyModifiedPropertiesWithoutUndo();
+                ApplyStageRoster(stage, defCopy, log);
                 EditorUtility.SetDirty(defCopy);
 
                 wmSo.FindProperty("level").objectReferenceValue = defCopy;
@@ -1321,6 +1327,7 @@ namespace CoreholdEditor.Campaign
                 for (int w = 0; w < synth.waves.Length; w++)
                     wavesProp.GetArrayElementAtIndex(w).objectReferenceValue = synth.waves[w];
                 defSo.ApplyModifiedPropertiesWithoutUndo();
+                ApplyStageRoster(stage, def, log);
                 EditorUtility.SetDirty(def);
                 AssetDatabase.SaveAssets();
 
@@ -1351,6 +1358,7 @@ namespace CoreholdEditor.Campaign
                 cloned++;
             }
             defSo.ApplyModifiedPropertiesWithoutUndo();
+            ApplyStageRoster(stage, def, log);
             EditorUtility.SetDirty(def);
             AssetDatabase.SaveAssets();
 
@@ -1359,6 +1367,26 @@ namespace CoreholdEditor.Campaign
             stage.wavesFolder = wavesFolder;
             log.AppendLine($"  relocated to campaign folders; {cloned} wave tables deep-cloned (shipped assets untouched).");
             return true;
+        }
+
+        /// <summary>
+        /// Write the stage's turret roster (R-UI-2) into its LevelDefinition:
+        /// the first N buildable turrets in menu order, or null (= full roster)
+        /// when the count is 0 or covers everything. Runs at every point a
+        /// stage's definition is finalized, so re-generating re-applies it.
+        /// </summary>
+        private static void ApplyStageRoster(CampaignAuthoring.AuthoredStage stage,
+                                             LevelDefinition def, StringBuilder log)
+        {
+            if (def == null)
+                return;
+            var pool = RosterRegistry.BuildableTowersOrdered();
+            int n = stage != null ? stage.rosterCount : 0;
+            def.roster = n > 0 && n < pool.Length ? pool.Take(n).ToArray() : null;
+            EditorUtility.SetDirty(def);
+            if (def.roster != null)
+                log.AppendLine($"  roster gated to first {def.roster.Length} turret(s): " +
+                               string.Join(", ", def.roster.Select(t => t.displayName)) + ".");
         }
 
         private void DeleteStageOutputs(CampaignAuthoring.AuthoredStage stage, StringBuilder log)

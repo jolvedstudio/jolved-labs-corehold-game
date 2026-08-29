@@ -185,6 +185,8 @@ namespace Corehold.UI
             RefreshWave();
             RefreshStartButton();
             RefreshSpeed();
+            if (_gm != null)
+                RefreshGuideButton(_gm.State);
         }
 
         // ----- Salvage (animated counter, unscaled) -----
@@ -309,6 +311,81 @@ namespace Corehold.UI
         private void HandleStateChanged(GameState state)
         {
             RefreshStartButton();
+            RefreshGuideButton(state);
+        }
+
+        // ----- Field guide access (R-UI-7): a small button, build phase only -----
+
+        private GameObject _guideButton;
+
+        private void RefreshGuideButton(GameState state)
+        {
+            // Between waves only — mid-wave the book would be one more thing to
+            // mis-tap; pause still offers it any time.
+            bool show = state == GameState.Build;
+            if (!show)
+            {
+                if (_guideButton != null) _guideButton.SetActive(false);
+                return;
+            }
+            EnsureGuideButton();
+            if (_guideButton != null) _guideButton.SetActive(true);
+        }
+
+        private void EnsureGuideButton()
+        {
+            if (_guideButton != null || pauseButton == null)
+                return;
+
+            // Ride under the pause button: same size and anchors, one slot down —
+            // the one corner guaranteed free of field, banners and the rail.
+            var src = (RectTransform)pauseButton.transform;
+            _guideButton = new GameObject("GuideButton", typeof(RectTransform), typeof(Image), typeof(Button));
+            var rt = (RectTransform)_guideButton.transform;
+            rt.SetParent(src.parent, false);
+            rt.anchorMin = src.anchorMin;
+            rt.anchorMax = src.anchorMax;
+            rt.pivot = src.pivot;
+            rt.sizeDelta = src.sizeDelta;
+            rt.anchoredPosition = src.anchoredPosition
+                + Vector2.down * (Mathf.Max(30f, src.sizeDelta.y) + 10f);
+
+            var img = _guideButton.GetComponent<Image>();
+            var srcImg = pauseButton.GetComponent<Image>();
+            if (srcImg != null && srcImg.sprite != null)
+            {
+                img.sprite = srcImg.sprite;
+                img.type = srcImg.type;
+                img.color = srcImg.color;
+            }
+            else
+            {
+                img.color = new Color(0.12f, 0.18f, 0.22f, 0.9f);
+            }
+
+            var txtGo = new GameObject("Label", typeof(RectTransform));
+            var txtRt = (RectTransform)txtGo.transform;
+            txtRt.SetParent(rt, false);
+            txtRt.anchorMin = Vector2.zero;
+            txtRt.anchorMax = Vector2.one;
+            txtRt.offsetMin = txtRt.offsetMax = Vector2.zero;
+            var txt = txtGo.AddComponent<TextMeshProUGUI>();
+            txt.text = "?";
+            txt.alignment = TextAlignmentOptions.Center;
+            txt.fontStyle = FontStyles.Bold;
+            txt.fontSize = theme != null ? theme.fontSizeSmall : 22f;
+            txt.color = theme != null ? theme.cyan : Color.cyan;
+            txt.raycastTarget = false;
+            if (theme != null && theme.font != null)
+                txt.font = theme.font;
+
+            _guideButton.GetComponent<Button>().onClick.AddListener(() =>
+            {
+                if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+                var canvas = GetComponentInParent<Canvas>();
+                if (canvas != null)
+                    AlmanacScreen.Toggle(canvas.rootCanvas.transform);
+            });
         }
 
         // ----- Close call (R3) -----
@@ -686,14 +763,37 @@ namespace Corehold.UI
         private void RefreshSpeed()
         {
             if (speedLabel != null)
-                speedLabel.text = Time.timeScale > 1.5f ? "2×" : "1×";
+                speedLabel.text = Time.timeScale > 2.5f ? "3×" : Time.timeScale > 1.5f ? "2×" : "1×";
         }
 
+        /// <summary>
+        /// Speed stops (GDD §9.6 + R-UI-8): 1× → 2× always; a third 3× stop only
+        /// on CLEARED content — a level (or campaign) the player has already
+        /// beaten at this difficulty. First runs keep the certified pacing;
+        /// replays get to be brisk (the Defender's Quest lesson: difficulty
+        /// should live in decisions, not in waiting).
+        /// </summary>
         private void OnToggleSpeed()
         {
             if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
-            Time.timeScale = Time.timeScale > 1.5f ? 1f : 2f;
+            float cur = Time.timeScale;
+            if (cur > 2.5f) Time.timeScale = 1f;
+            else if (cur > 1.5f) Time.timeScale = SpeedThreeUnlocked() ? 3f : 1f;
+            else Time.timeScale = 2f;
             RefreshSpeed();
+        }
+
+        private bool SpeedThreeUnlocked()
+        {
+            var cm = CampaignManager.Instance;
+            if (cm != null && cm.HasActiveCampaign)
+                return SaveData.GetCampaignBestScore(cm.Active.campaignId) > 0;
+
+            // Single-map runs: the integrity record only exists after a VICTORY
+            // on this map at this difficulty (ResultScreen submits it then).
+            string map = waveManager != null ? waveManager.LevelId : "default";
+            Difficulty diff = _gm != null ? _gm.Difficulty : Difficulty.Normal;
+            return SaveData.GetRecord(map, diff, "integrity") > 0;
         }
 
         // ----- Pause -----

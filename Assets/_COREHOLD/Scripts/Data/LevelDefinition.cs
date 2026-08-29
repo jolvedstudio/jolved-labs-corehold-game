@@ -14,6 +14,13 @@ namespace Corehold.Data
         [Tooltip("Ordered wave sequence for this level (GDD §8.1).")]
         public WaveDefinition[] waves;
 
+        [Header("Roster (R-UI-2 — per-level turret introductions)")]
+        [Tooltip("Turrets buildable ON THIS LEVEL, in menu order. EMPTY = the full roster (every " +
+                 "buildable TowerDefinition), which is the shipped behaviour. Written by the Campaign " +
+                 "Builder from the stage's roster count so early campaign levels introduce turrets " +
+                 "one at a time (the PvZ model).")]
+        public TowerDefinition[] roster;
+
         [Header("Economy & rules")]
         [Tooltip("Salvage the player starts the run with.")]
         public int startingSalvage;
