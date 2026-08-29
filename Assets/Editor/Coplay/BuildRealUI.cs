@@ -242,9 +242,15 @@ namespace CoreholdEditor
             SetAnchors(integVal.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-16, -50));
             integVal.rectTransform.pivot = new Vector2(1f, 0.5f);   // same overflow, right edge (shipped value)
 
-            // ---- Top-centre: wave + preview ----
+            // ---- Bottom-left, above pause: wave + preview ----
+            // Demoted from top-centre (screen rationalization): the top edge
+            // belongs to the roster rail alone; wave info is glance data, small,
+            // in the corner. Height 190 leaves room for the runtime second queue
+            // row (R-UI-4) to stack above the first without touching the label.
             var tc = MakePanel(canvas.transform, "WavePanel",
-                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -18), new Vector2(560, 132), theme.panel);
+                new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 104), new Vector2(560, 190), theme.panel);
+            tc.pivot = Vector2.zero;
+            tc.localScale = Vector3.one * 0.72f;
             var waveLbl = MakeText(tc, "WaveLabel", "WAVE 1 / 10", _large, TextAlignmentOptions.Top,
                 new Vector2(0, -8), new Vector2(540, 40));
             waveLbl.color = Cyan;
@@ -262,19 +268,21 @@ namespace CoreholdEditor
             var salVal = MakeText(tr, "Value", "300", _large, TextAlignmentOptions.Right,
                 new Vector2(-16, -52), new Vector2(260, 44));
 
-            // ---- Bottom-right: start wave + speed ----
+            // ---- Bottom-right: the ACTION COLUMN (screen rationalization) ----
+            // Every button that changes the run's state lives in one stack:
+            // speed at the corner, Start above it, Strike Wing on top.
             var startBtn = MakeButton(canvas.transform, "StartWaveButton", "START WAVE 1", theme,
                 new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 96), new Vector2(300, 84));
             var speedBtn = MakeButton(canvas.transform, "SpeedButton", "1×", theme,
                 new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 24), new Vector2(140, 64));
 
-            // ---- Bottom-left: pause ----
+            // ---- Bottom-left: pause (the one system button on the field) ----
             var pauseBtn = MakeIconButton(canvas.transform, "PauseButton", theme.pauseIcon, theme,
                 new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 24), new Vector2(72, 72));
 
-            // ---- Bottom-left, above pause: Strike Wing ability (R19) ----
+            // ---- Strike Wing (R19): top of the action column ----
             var strikeBtn = MakeButton(canvas.transform, "StrikeWingButton", "STRIKE 120", theme,
-                new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 112), new Vector2(190, 76));
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 188), new Vector2(190, 76));
             // Radial cooldown sweep over the face; the label re-tops it below.
             var strikeCd = MakeRect(strikeBtn, "CooldownFill", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             strikeCd.offsetMin = Vector2.zero; strikeCd.offsetMax = Vector2.zero;

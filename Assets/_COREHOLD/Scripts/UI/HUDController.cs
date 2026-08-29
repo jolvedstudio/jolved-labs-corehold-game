@@ -182,17 +182,48 @@ namespace Corehold.UI
         }
 
         /// <summary>
-        /// Move the wave label + preview rows to a small bottom-left cluster
-        /// (user feedback on R-UI-4: the top panel was oversized for what it
-        /// says). Done at runtime so every existing and generated scene gets it
-        /// with no scene edits; the second queue row follows automatically
-        /// because it copies the first row's layout at creation.
+        /// Move the wave info to a small bottom-left cluster above the pause
+        /// button (user feedback on R-UI-4: the top panel was oversized for what
+        /// it says — and it collided with the roster rail).
+        ///
+        /// The builder parents label + preview INSIDE one "WavePanel" — the
+        /// first version of this moved the CHILDREN, which repositioned them
+        /// inside a panel that stayed put (caught by the user: "vérifier que le
+        /// wave panel a été vraiment déplacé"). When that shared panel exists,
+        /// move THE PANEL; the loose-element path remains as a fallback for
+        /// scenes authored without one. Scenes rebuilt by Build Real UI are
+        /// already bottom-left natively; re-applying here is harmless.
         /// </summary>
         private void DemoteWavePanel()
         {
             if (!demoteWavePanel)
                 return;
 
+            RectTransform panel = null;
+            if (waveLabel != null && previewRow != null &&
+                waveLabel.rectTransform.parent == previewRow.parent &&
+                previewRow.parent is RectTransform shared &&
+                shared != (RectTransform)transform &&
+                shared.GetComponent<Canvas>() == null)
+            {
+                panel = shared;
+            }
+
+            if (panel != null)
+            {
+                panel.anchorMin = panel.anchorMax = Vector2.zero;
+                panel.pivot = Vector2.zero;
+                // Lifted clear of the pause button's corner (24..96 px).
+                panel.anchoredPosition = wavePanelInset + Vector2.up * 94f;
+                panel.localScale = Vector3.one * Mathf.Clamp(wavePanelScale, 0.4f, 1f);
+                // Room for the second queue row to stack INSIDE, above row one,
+                // without touching the label pinned to the panel's top.
+                if (panel.sizeDelta.y < 190f)
+                    panel.sizeDelta = new Vector2(panel.sizeDelta.x, 190f);
+                return;
+            }
+
+            // Loose elements (no shared panel): place them directly.
             if (waveLabel != null)
             {
                 var rt = waveLabel.rectTransform;
@@ -383,8 +414,9 @@ namespace Corehold.UI
             if (_guideButton != null || pauseButton == null)
                 return;
 
-            // Ride under the pause button: same size and anchors, one slot down —
-            // the one corner guaranteed free of field, banners and the rail.
+            // Ride beside the pause button, stacking AWAY from its screen edge
+            // (pause sits at the bottom in the shipped layout — riding "down"
+            // from there would leave the screen).
             var src = (RectTransform)pauseButton.transform;
             _guideButton = new GameObject("GuideButton", typeof(RectTransform), typeof(Image), typeof(Button));
             var rt = (RectTransform)_guideButton.transform;
@@ -394,7 +426,8 @@ namespace Corehold.UI
             rt.pivot = src.pivot;
             rt.sizeDelta = src.sizeDelta;
             rt.anchoredPosition = src.anchoredPosition
-                + Vector2.down * (Mathf.Max(30f, src.sizeDelta.y) + 10f);
+                + (src.anchorMin.y < 0.5f ? Vector2.up : Vector2.down)
+                  * (Mathf.Max(30f, src.sizeDelta.y) + 10f);
 
             var img = _guideButton.GetComponent<Image>();
             var srcImg = pauseButton.GetComponent<Image>();
