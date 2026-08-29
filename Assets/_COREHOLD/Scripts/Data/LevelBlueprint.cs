@@ -254,6 +254,14 @@ namespace Corehold.Data
         /// <summary>Pads this map will have. The mix is the authority; this is its sum.</summary>
         public int HardpointCount => classMix.Total;
 
+        [Header("Presentation")]
+        [Tooltip("Camera pitch in degrees, solved by the framing stage against the generated content. " +
+                 "38 is the shipped corridor look. WIDE SHALLOW maps (Lanes) framed at 38 push the " +
+                 "camera far back to cover their width, and the distance reads as dead outfield above " +
+                 "and below — steeper (~50) fills the frame with ground, the PvZ read. The framing " +
+                 "keeps its margins and no-scroll guarantees at any value here.")]
+        [Range(30f, 60f)] public float cameraPitchDegrees = 38f;
+
         [Header("Terrain (M-b)")]
         [Tooltip("Sculpt the map: a gentle rolling band under routes and pads, real hills outside " +
                  "the play corridor, sight-line gated and deterministic from the seed like everything " +

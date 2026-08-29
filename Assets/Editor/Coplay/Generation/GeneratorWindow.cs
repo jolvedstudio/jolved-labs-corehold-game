@@ -305,6 +305,9 @@ public class GeneratorWindow : EditorWindow
         bp.topology = _newMapTopology;
         bp.routeLengthTarget = (_newMapTopology == LevelBlueprint.ApproachTopology.Lanes
             ? LanePaceMetres : PaceMetres)[_newMapPace];
+        // Lanes are wide and shallow: a steeper camera fills the frame with
+        // ground instead of dead outfield (the PvZ read). Other shapes keep 38.
+        bp.cameraPitchDegrees = _newMapTopology == LevelBlueprint.ApproachTopology.Lanes ? 50f : 38f;
         bp.foldWidth = 12f;
         bp.airCorridor = true;
         bp.playfieldSize = new Vector2(130f, 75f);

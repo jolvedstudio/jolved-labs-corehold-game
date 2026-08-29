@@ -526,7 +526,8 @@ public static class GenerationPipeline
 
     private static StageResult StCamera(Context ctx)
     {
-        string log = CameraFramingSetup.Run();
+        float pitch = ctx.blueprint != null ? ctx.blueprint.cameraPitchDegrees : 38f;
+        string log = CameraFramingSetup.Run(pitch);
         return StageResult.Ok(Summarise(log, "camera framed against generated content"));
     }
 

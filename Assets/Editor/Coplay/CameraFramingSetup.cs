@@ -23,14 +23,29 @@ namespace CoreholdEditor
     /// </summary>
     public static class CameraFramingSetup
     {
-        const float Pitch = 38f;           // degrees looking down
+        // Pitch is a PARAMETER now (blueprint.cameraPitchDegrees): the shipped
+        // corridor keeps 38°, but a WIDE SHALLOW topology (Lanes) framed at 38°
+        // pushes the camera far back to cover its width, and that distance
+        // shows as dead outfield above and below. Steeper (~50°) fills the
+        // frame with ground — the PvZ read. Solved per map by the pipeline.
+        static float Pitch = 38f;          // degrees looking down (set per Run)
         const float VFov = 35f;            // vertical FOV degrees
         const float TopMargin = 0.12f;     // fraction of screen height empty at top
         const float BottomMargin = 0.18f;  // fraction of screen height empty at bottom
 
         [MenuItem("Tools/COREHOLD/Look/Fix Camera Framing", false, 61)]
-        public static string Run()
+        public static void RunFromMenu()
         {
+            // Manual re-frames keep the scene's CURRENT pitch (a lanes map
+            // re-framed from the menu must not snap back to the corridor's 38).
+            var cam = Object.FindFirstObjectByType<Camera>();
+            float current = cam != null ? cam.transform.eulerAngles.x : 38f;
+            Run(current > 5f && current < 85f ? current : 38f);
+        }
+
+        public static string Run(float pitchDegrees = 38f)
+        {
+            Pitch = Mathf.Clamp(pitchDegrees, 25f, 65f);
             var cam = Object.FindFirstObjectByType<Camera>();
             if (cam == null) return "No camera found in the active scene.";
 
