@@ -110,34 +110,55 @@ public static class PropPlacer
         // identical inputs (seed purpose, flat route samples, pads, core, air
         // lane) ⇒ identical field — so placement can settle props onto slopes
         // it KNOWS are coming and seek interesting relief, even though the
-        // mesh does not exist yet. Null on flat maps: every terrain-aware step
-        // simply skips.
-        TerrainField field = null;
-        if (blueprint.terrainRelief)
+        // mesh does not exist yet.
+        //
+        // Built UNCONDITIONALLY (it is analytic — a few polylines and a hash,
+        // no mesh, no allocation worth counting) because the substrate fields
+        // below need its corridor-distance query on FLAT maps too, and flat
+        // maps are exactly the ones that read most lifeless today. The `field`
+        // handle below is the RELIEF-using one and stays null without relief,
+        // so every height-aware step behaves precisely as before.
+        var polylines = new List<Vector3[]>();
+        foreach (PathRoute route in routes)
         {
-            var polylines = new List<Vector3[]>();
-            foreach (PathRoute route in routes)
-            {
-                int n = Mathf.Max(2, Mathf.CeilToInt(route.Length / 2f) + 1);
-                var pts = new Vector3[n];
-                for (int i = 0; i < n; i++)
-                    pts[i] = route.SamplePosition(route.Length * i / (n - 1f), out _);
-                polylines.Add(pts);
-            }
-            if (blueprint.airCorridor)
-                polylines.Add(new[] { airSpawn, corePos });
-            var padPositions = new Vector3[pads.Length];
-            for (int i = 0; i < pads.Length; i++)
-                padPositions[i] = pads[i].transform.position;
-            field = new TerrainField((int)GenerationPipeline.Fnv1a(blueprint.randomSeed, "terrain"),
-                                     polylines, padPositions, corePos);
+            int n = Mathf.Max(2, Mathf.CeilToInt(route.Length / 2f) + 1);
+            var pts = new Vector3[n];
+            for (int i = 0; i < n; i++)
+                pts[i] = route.SamplePosition(route.Length * i / (n - 1f), out _);
+            polylines.Add(pts);
         }
+        if (blueprint.airCorridor)
+            polylines.Add(new[] { airSpawn, corePos });
+        var padPositions = new Vector3[pads.Length];
+        for (int i = 0; i < pads.Length; i++)
+            padPositions[i] = pads[i].transform.position;
+        var corridorField = new TerrainField(
+            (int)GenerationPipeline.Fnv1a(blueprint.randomSeed, "terrain"),
+            polylines, padPositions, corePos);
+
+        TerrainField field = blueprint.terrainRelief ? corridorField : null;
+
+        // SUBSTRATE (E1): what the ground under each square metre IS — rock vs
+        // scrub (anti-correlated, so zones read as zones), clearings, corridor
+        // disturbance, slope. Placement below is weighted by it, which is what
+        // turns uniform scatter into a place with reasons. Its own seed stream,
+        // so changing the dressing composition cannot move the terrain.
+        var substrate = new SubstrateField(
+            (int)GenerationPipeline.Fnv1a(blueprint.randomSeed, "substrate"),
+            corridorField, blueprint.terrainRelief);
 
         // Satellite pool for clusters: the pack's small stuff.
         var clutterPool = theme.entries?.Where(e => e.prefab != null && e.role == EnvPack.PropRole.Clutter)
             .OrderBy(e => e.prefab.name, System.StringComparer.Ordinal).ToList();
 
         int tinted = 0;
+
+        // Substrate bookkeeping. The split is the diagnostic that says whether
+        // the fields are actually composing: "N on preferred ground" should be
+        // the clear majority, and a collapse toward "relaxed" means the map is
+        // too crowded for the zoning to have any room to work.
+        int onPreferred = 0, onRelaxed = 0;
+        float pendingAffinity = 1f;
 
         // Per-instance size: the entry's authored band, then the pack's jitter
         // damped by role — landmarks are navigation anchors and stay near
@@ -152,6 +173,39 @@ public static class PropPlacer
                 rng.Range(0f, 1f));
             float j = theme.scaleJitter * RoleScaleJitter(entry.role);
             return baseScale * (1f + rng.Range(-1f, 1f) * j);
+        }
+
+        // SUBSTRATE TEST (E1) — the one place uniform scatter becomes composed
+        // ground. Two terms, with deliberately different authority:
+        //
+        //   AFFINITY is a soft preference and RELAXES as a slot burns through
+        //   its attempts (quadratically, so most attempts stay picky and only
+        //   the last few will take any site at all). That is what makes the
+        //   zoning FREE: the early attempts do the composition, the late ones
+        //   guarantee the fill, and placement counts hold at roughly what the
+        //   uniform sampler gave. Composition that cost props would just trade
+        //   one kind of empty map for another.
+        //
+        //   OPENNESS does NOT relax. A clearing is a decision, and an attempt
+        //   budget that eventually fills it in would erase the only genuinely
+        //   empty ground on the map — which is most of why maps read as busy
+        //   mush. Props refused by a clearing land in the dressable 3/4
+        //   instead, so the same count arrives as thicker cover plus real
+        //   open pans, which is the look we are after.
+        bool SubstrateAccepts(EnvPack.Entry entry, Vector3 pos, int attempt, int maxAttempts,
+                              bool keepClearings)
+        {
+            float affinity = substrate.Affinity(entry, pos.x, pos.z);
+            float t = maxAttempts > 1 ? attempt / (float)(maxAttempts - 1) : 1f;
+            float relaxed = Mathf.Lerp(affinity, 1f, t * t);
+            float gate = 1f;
+            if (keepClearings)
+                gate = Mathf.Lerp(substrate.Openness(pos.x, pos.z), 1f,
+                                  SubstrateField.ClearingTolerance(entry.role));
+            if (rng.Range(0f, 1f) > relaxed * gate)
+                return false;
+            pendingAffinity = affinity;
+            return true;
         }
 
         // The camera is FIXED (38° pitch), so whether a prop hides a pad from the
@@ -228,6 +282,15 @@ public static class PropPlacer
                         ? new Vector3(rng.Range(-halfW, halfW), 0f, rng.Range(-halfD, halfD))
                         : new Vector3(rng.Range(-halfW * 1.2f, halfW * 1.2f), 0f,
                                       blueprint.playfieldSize.y * 0.5f + rng.Range(8f, 22f));
+
+                    // Silhouettes get the ZONING (a horizon of evenly mixed
+                    // rock and scrub is exactly the sameness we are removing)
+                    // but not the CLEARINGS: a hole punched in the far band
+                    // reads as a gap in the world, not as open ground.
+                    if (!SubstrateAccepts(entry, pos, attempt, MaxAttemptsPerProp,
+                                          keepClearings: inField))
+                        continue;
+
                     float yaw = rng.Range(0f, 360f);
 
                     // Silhouettes keep the LITE checks (far band, outside every
@@ -308,6 +371,13 @@ public static class PropPlacer
                     // have no field; uniform scatter as before.)
                     if (field != null && field.Relief(pos.x, pos.z) < 0.4f &&
                         rng.Range(0f, 1f) > 0.35f)
+                        continue;
+
+                    // …and the substrate on top of it: the apron is the biggest
+                    // surface on screen and the one where uniform scatter is
+                    // most obvious, so it gets both zoning and clearings.
+                    if (!SubstrateAccepts(entry, pos, attempt, MaxAttemptsPerProp,
+                                          keepClearings: true))
                         continue;
 
                     float yaw = rng.Range(0f, 360f);
@@ -412,6 +482,13 @@ public static class PropPlacer
             placed.Add(data);
             placedObjects.Add((go, data));
 
+            // Bucket the site the substrate test approved. Counted HERE, at the
+            // single accept point every lane funnels through, so a candidate
+            // that passed the substrate and then failed clearance is not
+            // credited to ground it never occupied.
+            if (pendingAffinity >= 0.6f) onPreferred++; else onRelaxed++;
+            pendingAffinity = 1f;
+
             // Spend the budget only on an accepted placement — a rejected
             // candidate must not charge the map for route it never hid.
             foreach (int idx in pendingHidden)
@@ -449,6 +526,15 @@ public static class PropPlacer
                     scale *= Mathf.Lerp(1f, 0.85f, (extra - 0.4f) / 2.6f);
                     float dist = anchorRadius + entry.footprintRadius * scale + extra;
                     Vector3 pos = anchorPos + new Vector3(Mathf.Cos(ang) * dist, 0f, Mathf.Sin(ang) * dist);
+
+                    // Satellites are zoned so a rocky anchor does not sprout a
+                    // ring of shrubs, but they ignore clearings: the anchor has
+                    // already earned this spot, and a cluster spilling over a
+                    // clearing edge is what a real thicket boundary looks like.
+                    if (!SubstrateAccepts(entry, pos, attempt, SatelliteAttempts,
+                                          keepClearings: false))
+                        continue;
+
                     float yaw = anchorYaw + rng.Range(-45f, 45f);
 
                     if (TryPlaceProp(entry, pos, yaw, scale, $"{anchorName}_Sat{done + 1}",
@@ -584,6 +670,41 @@ public static class PropPlacer
             ? $"  occlusion re-run: {removed} prop(s) removed to keep sight lines; " +
               (stillBlocked.Count == 0 ? "all pads recovered" : $"{stillBlocked.Count} pad(s) STILL short")
             : "  occlusion re-run: no pad lost a span to dressing");
+
+        // What the PACK resolved to. This is the line that catches a misfired
+        // name inference on a pack nobody has re-authored: "22 rock, 3 scrub,
+        // 11 neutral" on a desert pack is right, while "36 neutral" means the
+        // prefab names carry no signal and those entries want their affinity
+        // set by hand before the zoning can do anything for them.
+        int aRock = 0, aScrub = 0, aDebris = 0, aNeutral = 0, aExplicit = 0;
+        if (theme.entries != null)
+        {
+            foreach (EnvPack.Entry e in theme.entries)
+            {
+                if (e.prefab == null)
+                    continue;
+                if (e.affinity != EnvPack.SubstrateAffinity.Auto)
+                    aExplicit++;
+                switch (substrate.Resolve(e))
+                {
+                    case EnvPack.SubstrateAffinity.Rock: aRock++; break;
+                    case EnvPack.SubstrateAffinity.Scrub: aScrub++; break;
+                    case EnvPack.SubstrateAffinity.Debris: aDebris++; break;
+                    default: aNeutral++; break;
+                }
+            }
+        }
+        log.AppendLine($"  affinity:  {aRock} rock, {aScrub} scrub, {aDebris} debris, {aNeutral} neutral " +
+                       $"({aExplicit} set by hand, the rest inferred from prefab names)");
+
+        int substrateTotal = onPreferred + onRelaxed;
+        log.AppendLine($"  substrate: {onPreferred}/{substrateTotal} prop(s) on PREFERRED ground " +
+                       $"({(substrateTotal > 0 ? onPreferred / (float)substrateTotal : 0f):P0}), " +
+                       $"{onRelaxed} placed on relaxed attempts; " +
+                       $"zones ~{SubstrateField.SubstrateWavelength:0} m, clearings ~" +
+                       $"{SubstrateField.ClearingWavelength:0} m, disturbance within " +
+                       $"{SubstrateField.DisturbanceRange:0} m of the corridor" +
+                       (blueprint.terrainRelief ? ", slope term live" : ", flat map (no slope term)"));
 
         log.AppendLine($"  variation: scale ±{theme.scaleJitter:P0} by role, " +
                        $"{tinted} prop(s) tone-shifted across 5 steps (strength {theme.toneVariation:0.##}" +
