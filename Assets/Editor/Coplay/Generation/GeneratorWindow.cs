@@ -242,6 +242,12 @@ public class GeneratorWindow : EditorWindow
     private static readonly string[] PaceLabels = { "Short", "Standard", "Long" };
     private static readonly float[] PaceMetres = { 120f, 154f, 185f };
 
+    // Lanes measure structurally shorter (a fold big enough to add corridor
+    // length would leave its own lane), so the same three paces map to a
+    // lanes-scaled band on the default 130×75 field. Out-of-band asks are
+    // refused by the synthesizer with the field's exact measured band.
+    private static readonly float[] LanePaceMetres = { 90f, 96f, 102f };
+
     /// <summary>
     /// Author a NEW map from four choices, instead of duplicating the starter
     /// blueprint and editing it.
@@ -270,8 +276,11 @@ public class GeneratorWindow : EditorWindow
                 new GUIContent("Theme", "The art set this map is dressed in. Optional — leave empty for greybox."),
                 _newMapTheme, typeof(EnvPack), false);
             _newMapPace = GUILayout.Toolbar(_newMapPace, PaceLabels);
+            bool lanes = _newMapTopology == LevelBlueprint.ApproachTopology.Lanes;
+            float paceMetres = (lanes ? LanePaceMetres : PaceMetres)[_newMapPace];
             EditorGUILayout.LabelField(
-                $"Route length {PaceMetres[_newMapPace]:0} m — how long each attacker walks under fire. " +
+                $"Route length {paceMetres:0} m — how long each attacker walks under fire. " +
+                (lanes ? "Lanes run shorter than a folded corridor by construction. " : "") +
                 "Enemy health growth is re-solved against whichever you pick, so all three are balanced.",
                 EditorStyles.wordWrappedMiniLabel);
 
@@ -294,7 +303,8 @@ public class GeneratorWindow : EditorWindow
 
         var bp = ScriptableObject.CreateInstance<LevelBlueprint>();
         bp.topology = _newMapTopology;
-        bp.routeLengthTarget = PaceMetres[_newMapPace];
+        bp.routeLengthTarget = (_newMapTopology == LevelBlueprint.ApproachTopology.Lanes
+            ? LanePaceMetres : PaceMetres)[_newMapPace];
         bp.foldWidth = 12f;
         bp.airCorridor = true;
         bp.playfieldSize = new Vector2(130f, 75f);

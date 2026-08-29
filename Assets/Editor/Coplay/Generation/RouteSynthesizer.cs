@@ -355,45 +355,76 @@ public static class RouteSynthesizer
             return pts.ToArray();
         }
 
-        float LenAt(int K, float a) => MeasureSplineLength(Lane(K, a, 0f));
+        float LenAt(int K, float a, float dz) => MeasureSplineLength(Lane(K, a, dz));
 
-        float straight = LenAt(0, 0f);
-        float ceiling = LenAt(3, aMax);
-        if (L < straight * 0.95f || L > ceiling * 1.05f)
+        // PER-LANE geometry: the convergence diagonal makes the OUTER lanes
+        // measurably longer than the inner ones (gate 1 rightly refused the
+        // first version, which fit only the centreline — the outer lanes came
+        // out +9%). Equalize by AMPLITUDE: every lane gets its own fold
+        // amplitude sized so THAT lane measures the target; lanes already long
+        // enough ride flat (amplitude 0, the fold knots collapse collinear).
+        var laneDz = new float[n];
+        for (int j = 0; j < n; j++)
+            laneDz[j] = halfSpan - j * pitch;        // lane 1 = north-most
+
+        float sMin = float.MaxValue, sMax = 0f;
+        for (int j = 0; j < n; j++)
         {
-            report = $"lanes: this field measures {straight:0.#}–{ceiling:0.#} m per lane and the target is " +
-                     $"{L:0.#} m ±5% — set routeLengthTarget inside that band (≈0.7 × field width is the " +
-                     "natural lanes length; the corridor's 154 m cannot fit inside a lane's own channel).";
+            float s0 = LenAt(0, 0f, laneDz[j]);
+            sMin = Mathf.Min(sMin, s0);
+            sMax = Mathf.Max(sMax, s0);
+        }
+
+        // Feasible band: the longest FLAT lane must sit under target+5% (folds
+        // can only lengthen), and the shortest must reach target-5% with folds
+        // inside its own channel.
+        float foldGain = LenAt(3, aMax, 0f) - LenAt(0, 0f, 0f);
+        float reachTop = sMin + foldGain;
+        if (L < sMax / 1.05f || L > reachTop * 1.05f)
+        {
+            report = $"lanes: this field's lanes measure {sMin:0.#}–{sMax:0.#} m flat; with in-lane folds the " +
+                     $"workable routeLengthTarget band is ≈{Mathf.Ceil(sMax / 1.05f)}–{Mathf.Floor(reachTop * 1.05f)} m " +
+                     $"and the ask is {L:0.#} m ±5%. Set the target inside the band (lanes are naturally " +
+                     "shorter than the corridor — a fold big enough to close a large gap would leave its lane).";
             return null;
         }
 
-        int foldCount = 0;
-        float amp = 0f;
-        bool fitted = Mathf.Abs(straight - L) <= L * 0.05f;
-        if (!fitted)
+        float FitAmp(int K, float dz)
         {
-            for (int K = 1; K <= 3 && !fitted; K++)
+            if (LenAt(0, 0f, dz) >= L)
+                return 0f;                            // long enough flat
+            if (K == 0 || LenAt(K, aMax, dz) < L * 0.95f)
+                return -1f;                           // this K cannot reach
+            float lo = 0f, hi = aMax;
+            for (int it = 0; it < 24; it++)
             {
-                if (LenAt(K, aMax) < L * 0.95f)
-                    continue;                        // not enough length; add a fold
-                float lo = 0.5f, hi = aMax;
-                for (int it = 0; it < 24; it++)
-                {
-                    float mid = 0.5f * (lo + hi);
-                    if (LenAt(K, mid) < L) lo = mid; else hi = mid;
-                }
-                amp = 0.5f * (lo + hi);
-                if (Mathf.Abs(LenAt(K, amp) - L) <= L * 0.05f)
-                {
-                    foldCount = K;
-                    fitted = true;
-                }
+                float mid = 0.5f * (lo + hi);
+                if (LenAt(K, mid, dz) < L) lo = mid; else hi = mid;
             }
+            return 0.5f * (lo + hi);
         }
-        if (!fitted)
+
+        int foldCount = -1;
+        var amps = new float[n];
+        for (int K = 0; K <= 3 && foldCount < 0; K++)
         {
-            report = $"lanes: no fold count reaches {L:0.#} m ±5% on this run (band {straight:0.#}–{ceiling:0.#} m) — " +
-                     "adjust routeLengthTarget into the band.";
+            bool ok = true;
+            for (int j = 0; j < n; j++)
+            {
+                float a = FitAmp(K, laneDz[j]);
+                if (a < 0f || Mathf.Abs(LenAt(K, a, laneDz[j]) - L) > L * 0.05f)
+                {
+                    ok = false;
+                    break;
+                }
+                amps[j] = a;
+            }
+            if (ok) foldCount = K;
+        }
+        if (foldCount < 0)
+        {
+            report = $"lanes: no fold count brings EVERY lane within {L:0.#} m ±5% " +
+                     $"(flat lanes measure {sMin:0.#}–{sMax:0.#} m) — move routeLengthTarget toward that band.";
             return null;
         }
 
@@ -401,8 +432,7 @@ public static class RouteSynthesizer
         var names = new string[n];
         for (int j = 0; j < n; j++)
         {
-            float dz = halfSpan - j * pitch;         // lane 1 = north-most
-            routes[j] = Lane(foldCount, amp, dz);
+            routes[j] = Lane(foldCount, amps[j], laneDz[j]);
             names[j] = $"Route_Lane{j + 1}";
         }
 
@@ -416,7 +446,6 @@ public static class RouteSynthesizer
             return null;
         }
 
-        float measured = LenAt(foldCount, amp);
         var layout = new LevelLayout
         {
             corePos = core,
@@ -426,10 +455,13 @@ public static class RouteSynthesizer
             airSpawn = new Vector3(entryX + dirX * 2f, 4f, zc),
             sharedTail = false,                      // lanes converge, they do not merge
         };
+        var perLane = new StringBuilder();
+        for (int j = 0; j < n; j++)
+            perLane.Append($"{(j > 0 ? ", " : "")}L{j + 1} {LenAt(foldCount, amps[j], laneDz[j]):0.#} m (amp {amps[j]:0.#})");
         log.AppendLine($"[ok] {n} parallel lane(s): pitch {pitch:0.#} m, run {run:0.#} m " +
                        $"({(dirX > 0f ? "west→east" : "east→west")}), {foldCount} in-lane fold(s) of " +
-                       $"amp {amp:0.#} m / width {foldW:0.#} m, centreline spline {measured:0.##} m " +
-                       $"(target {L:0.#} ±5%); outer lanes measure slightly longer at the dive.");
+                       $"width {foldW:0.#} m, per-lane amplitudes equalize the convergence diagonal — " +
+                       $"{perLane} (target {L:0.#} ±5%).");
         report = log.ToString();
         return layout;
     }
