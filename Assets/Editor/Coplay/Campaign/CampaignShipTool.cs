@@ -251,6 +251,25 @@ namespace CoreholdEditor.Campaign
                 Debug.Log(audit);
             }
 
+            // ---- render settings (shadows) ----
+            // Same reasoning as the shader audit: main light shadows were once OFF
+            // in every RP asset with a 50 m shadow distance behind a camera sitting
+            // 130-150 m back — two independent reasons for a scene with no cast
+            // shadows at all, each a single number nobody opens twice a year.
+            string look = RenderSettingsAudit.Report(out int lookErrors, out int lookWarns);
+            if (lookErrors > 0)
+            {
+                Error($"Render Settings Audit: {lookErrors} error(s) — shadows disabled or shorter than " +
+                      $"{RenderSettingsAudit.MinShadowDistance:0} m, which ships a flat-looking scene. " +
+                      "Run Tools → COREHOLD → Look → Render Settings Audit for the per-asset list.");
+                Debug.LogError(look);
+            }
+            else if (lookWarns > 0)
+            {
+                Warn($"Render Settings Audit: {lookWarns} warning(s) — see the console for the list.");
+                Debug.Log(look);
+            }
+
             if (manifest.LevelCount == 0)
                 Error("the manifest has no Level stages — generate at least one level.");
             if (manifest.StageOfKind(CampaignStageKind.Welcome) == null)
