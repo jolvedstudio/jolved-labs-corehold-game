@@ -106,8 +106,12 @@ public class TerrainField
 
     /// <summary>Deterministic value-noise fBm in [-1,1] — hash-based, no
     /// UnityEngine.Random, no Mathf.PerlinNoise (whose tables are not a
-    /// contract across platforms). Same doctrine as the pipeline's FNV draws.</summary>
-    private static float Fbm(float x, float z, int seed, int octaves)
+    /// contract across platforms). Same doctrine as the pipeline's FNV draws.
+    ///
+    /// PUBLIC so the other generation fields (see <c>SubstrateField</c>) draw
+    /// from THIS generator on their own seed streams rather than shipping a
+    /// second noise implementation that could drift from this one.</summary>
+    public static float Fbm(float x, float z, int seed, int octaves)
     {
         float sum = 0f, amp = 1f, norm = 0f;
         for (int o = 0; o < octaves; o++)

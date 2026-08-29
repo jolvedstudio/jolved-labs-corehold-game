@@ -46,6 +46,35 @@ namespace Corehold.Data
             Silhouette = 4
         }
 
+        /// <summary>
+        /// What KIND of ground a prop belongs on (E1). The placer publishes
+        /// low-frequency substrate fields — rockiness, its anti-correlate
+        /// fertility, corridor disturbance, slope — and weights every candidate
+        /// position by how much the prop wants to be there. That is what turns
+        /// uniform scatter into a zoned place: a stony shelf bare of plants, a
+        /// scrub flat free of boulders, wreckage along the road.
+        ///
+        /// <see cref="Auto"/> is value 0 so every pack already on disk gets
+        /// zoned dressing with no re-authoring: the affinity is inferred from
+        /// the prefab NAME, conservatively, falling back to Neutral. Unlike
+        /// <see cref="PropRole.Unassigned"/> this default is safe to act on —
+        /// role is intent the prefab cannot reveal, whereas a rock is usually
+        /// called a rock — so it infers instead of failing the gate.
+        /// </summary>
+        public enum SubstrateAffinity
+        {
+            /// <summary>Infer from the prefab name; Neutral when unrecognised.</summary>
+            Auto = 0,
+            /// <summary>Stone. Seeks stony ground and steep faces.</summary>
+            Rock = 1,
+            /// <summary>Vegetation. Seeks the ground rock did not take; thins near traffic.</summary>
+            Scrub = 2,
+            /// <summary>No opinion — scatters at roughly the old uniform rate.</summary>
+            Neutral = 3,
+            /// <summary>Wreckage and man-made litter. Gathers ALONG the corridor.</summary>
+            Debris = 4
+        }
+
         [System.Serializable]
         public struct Entry
         {
@@ -66,6 +95,9 @@ namespace Corehold.Data
 
             [Tooltip("May this sit inside a hairpin pocket? Pockets are where hardpoints live (R27's 10-14 m fold band), so most props should NOT.")]
             public bool allowInFold;
+
+            [Tooltip("What ground this prop belongs on. Auto (the default) infers it from the prefab name — rock/boulder/cliff → Rock, tree/bush/cactus → Scrub, wreck/crate/rubble → Debris, anything else → Neutral. Set it explicitly when the name lies. This is a SOFT preference: the placer relaxes it as a slot runs out of attempts, so zoning never costs fill rate.")]
+            public SubstrateAffinity affinity;
         }
 
         [Tooltip("Theme this pack represents, set from its folder under Assets/Authoring/EnvPack/. Identifies the pack in generation reports and contact sheets (R31).")]
