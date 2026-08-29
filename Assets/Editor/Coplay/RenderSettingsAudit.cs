@@ -37,7 +37,27 @@ public static class RenderSettingsAudit
 
     /// <summary>Below this cascade count a long shadow distance spreads the
     /// shadow map so thin that contact shadows turn to mush.</summary>
-    private const int MinCascadesForLongDistance = 2;
+    public const int MinCascades = 2;
+
+    /// <summary>Unit prefabs whose bodies MUST cast: blob shadows are retired, so
+    /// a unit that casts nothing has no ground contact at all. Blocking.</summary>
+    private static readonly string[] UnitFolders =
+    {
+        "Assets/_COREHOLD/Prefabs/Enemies",
+        "Assets/_COREHOLD/Prefabs/Towers",
+    };
+
+    /// <summary>Dressing that should also cast — rocks and props with no shadow
+    /// are what make a field read as decals on a plane. Reported, not blocking.</summary>
+    private static readonly string[] PropFolders =
+    {
+        "Assets/_COREHOLD/Authoring/EnvPack",
+        "Assets/_COREHOLD/Prefabs/Structures",
+    };
+
+    /// <summary>Ground planes RECEIVE shadows; casting from them buys nothing and
+    /// costs a shadow-map draw, so they are exempt by folder.</summary>
+    private static bool IsGround(string path) => path.Contains("/Ground/");
 
     [MenuItem("Tools/COREHOLD/Look/Render Settings Audit", false, 62)]
     public static void Run()
@@ -94,7 +114,7 @@ public static class RenderSettingsAudit
                            $"this and the play area is simply not shadowed.  ({path})");
 
             if (shadowsOn.boolValue && distance.floatValue >= MinShadowDistance &&
-                cascades != null && cascades.intValue < MinCascadesForLongDistance)
+                cascades != null && cascades.intValue < MinCascades)
                 warns.Add($"{name}: {distance.floatValue:0} m of shadow over {cascades.intValue} cascade — " +
                           "the shadow map is stretched thin, so contact shadows will read soft and blocky. " +
                           $"2+ cascades sharpen the near field.  ({path})");
@@ -109,6 +129,36 @@ public static class RenderSettingsAudit
                           (soft != null ? $", soft {(soft.boolValue ? "on" : "off")}" : ""));
         }
 
+        // ---- everything on the field must cast, now that blob shadows are off ----
+        int mutePropCount = 0;
+        foreach (var (folders, blocking) in new[] { (UnitFolders, true), (PropFolders, false) })
+        {
+            foreach (string folder in folders)
+            {
+                if (!AssetDatabase.IsValidFolder(folder))
+                    continue;
+                foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { folder }))
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (IsGround(path))
+                        continue;
+                    var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    if (go == null || !HasMeshRenderer(go) || CountCasters(go) > 0)
+                        continue;
+
+                    if (blocking)
+                        errors.Add($"{System.IO.Path.GetFileNameWithoutExtension(path)}: nothing casts a shadow " +
+                                   "— with blob shadows retired this unit has NO ground contact at all. Run " +
+                                   "Tools → COREHOLD → Look → Fix Shadow Standard.  (" + path + ")");
+                    else
+                        mutePropCount++;
+                }
+            }
+        }
+        if (mutePropCount > 0)
+            warns.Add($"{mutePropCount} dressing prefab(s) cast no shadow — they read as decals painted on the " +
+                      "ground. Fix Shadow Standard turns them on; regenerate the map to place the fixed prefabs.");
+
         sb.AppendLine($"  OK, errors {errors.Count}, warnings {warns.Count}");
         foreach (string e in errors) sb.AppendLine("  ERROR  " + e);
         foreach (string w in warns) sb.AppendLine("  warn   " + w);
@@ -116,5 +166,119 @@ public static class RenderSettingsAudit
         errorCount = errors.Count;
         warningCount = warns.Count;
         return sb.ToString();
+    }
+
+    /// <summary>True when the prefab has any mesh at all — a pure logic or VFX
+    /// prefab has nothing to cast and must not be reported as broken.</summary>
+    private static bool HasMeshRenderer(GameObject root)
+    {
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            if ((r is MeshRenderer || r is SkinnedMeshRenderer) && r.GetComponent("BlobShadow") == null)
+                return true;
+        return false;
+    }
+
+    /// <summary>Body renderers that cast — blob-shadow quads and non-mesh
+    /// renderers (particles, lines, trails) never count.</summary>
+    private static int CountCasters(GameObject root)
+    {
+        int n = 0;
+        foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+        {
+            if (!(r is MeshRenderer || r is SkinnedMeshRenderer))
+                continue;
+            if (r.GetComponent("BlobShadow") != null)
+                continue;
+            if (r.shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.Off)
+                n++;
+        }
+        return n;
+    }
+
+    // ------------------------------------------------------------------ fixer
+
+    /// <summary>
+    /// Apply the shadow standard everywhere, in one pass — the companion to the
+    /// audit above, so nobody hand-edits an RP asset field again (and so two
+    /// machines editing the same asset do not collide over it).
+    ///
+    ///   • every RP asset: main light shadows ON, shadow distance at least
+    ///     <see cref="MinShadowDistance"/>, cascades at least
+    ///     <see cref="MinCascades"/> — a long distance on one cascade is what
+    ///     turns contact shadows to mush.
+    ///   • every enemy/turret prefab: body renderers cast again. Five turrets
+    ///     shipped with casting switched off entirely, which was invisible while
+    ///     blob shadows covered for them.
+    ///
+    /// Values already ABOVE the standard are left alone: this raises a floor, it
+    /// does not overwrite deliberate tuning.
+    /// </summary>
+    [MenuItem("Tools/COREHOLD/Look/Fix Shadow Standard", false, 63)]
+    public static void FixShadowStandard()
+    {
+        var log = new StringBuilder();
+        log.AppendLine("=== FIX SHADOW STANDARD ===");
+        int assets = 0, prefabs = 0;
+
+        foreach (string guid in AssetDatabase.FindAssets("t:UniversalRenderPipelineAsset"))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            var asset = AssetDatabase.LoadAssetAtPath<ScriptableObject>(path);
+            if (asset == null) continue;
+
+            var so = new SerializedObject(asset);
+            var shadowsOn = so.FindProperty("m_MainLightShadowsSupported");
+            var distance = so.FindProperty("m_ShadowDistance");
+            var cascades = so.FindProperty("m_ShadowCascadeCount");
+            if (shadowsOn == null || distance == null) continue;
+
+            var before = new List<string>();
+            if (!shadowsOn.boolValue) { before.Add("shadows OFF→ON"); shadowsOn.boolValue = true; }
+            if (distance.floatValue < MinShadowDistance)
+            { before.Add($"distance {distance.floatValue:0}→{MinShadowDistance:0}"); distance.floatValue = MinShadowDistance; }
+            if (cascades != null && cascades.intValue < MinCascades)
+            { before.Add($"cascades {cascades.intValue}→{MinCascades}"); cascades.intValue = MinCascades; }
+
+            if (before.Count > 0)
+            {
+                so.ApplyModifiedPropertiesWithoutUndo();
+                EditorUtility.SetDirty(asset);
+                assets++;
+                log.AppendLine($"  {System.IO.Path.GetFileNameWithoutExtension(path)}: {string.Join(", ", before)}");
+            }
+        }
+
+        foreach (string folder in UnitFolders.Concat(PropFolders))
+        {
+            if (!AssetDatabase.IsValidFolder(folder)) continue;
+            foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { folder }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                if (IsGround(path)) continue;
+                var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                if (go == null || CountCasters(go) > 0) continue;
+
+                int turned = 0;
+                foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (!(r is MeshRenderer || r is SkinnedMeshRenderer)) continue;
+                    if (r.GetComponent("BlobShadow") != null) continue;
+                    r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                    turned++;
+                }
+                if (turned > 0)
+                {
+                    PrefabUtility.SavePrefabAsset(go);
+                    prefabs++;
+                    log.AppendLine($"  {System.IO.Path.GetFileNameWithoutExtension(path)}: {turned} renderer(s) now cast");
+                }
+            }
+        }
+
+        AssetDatabase.SaveAssets();
+        log.AppendLine($"  {assets} render-pipeline asset(s) and {prefabs} unit prefab(s) updated.");
+        if (assets == 0 && prefabs == 0)
+            log.AppendLine("  (nothing to change — the standard already holds)");
+        Debug.Log(log.ToString());
     }
 }
