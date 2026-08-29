@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: CampaignAuthoring_SandyDesert_120
   m_EditorClassIdentifier: Assembly-CSharp-Editor::CoreholdEditor.Campaign.CampaignAuthoring
   campaignId: sandy-desert-120
-  displayName: COREHOLD
+  displayName: The Verdance War
   masterSeed: 1
   progression:
     economyCarry: 0
@@ -26,8 +26,12 @@ MonoBehaviour:
   welcomeScenePath: Assets/_COREHOLD/Scenes/Campaign/sandy-desert-120/Campaign_Welcome.unity
   closingScenePath: Assets/_COREHOLD/Scenes/Campaign/sandy-desert-120/Campaign_Closing.unity
   stages:
-  - title: Operation 1
-    briefing: 
+  - title: Node 01 — First Green
+    briefing: 'This is where the sky starts, Commander. The Assembly knows it: their
+      first frames through the bore gates are Breakers — demolition stock, built
+      for shells like ours. Expect couriers overhead, and late in the burn a foundry
+      chassis will walk — a factory that decided to be a weapon. Crack every
+      frame; the node prints thorns from their scrap.'
     blueprint: {fileID: 0}
     seedOverride: 0
     waveRecipe: {fileID: 0}

@@ -18,6 +18,10 @@ namespace Corehold.UI
     ///   • the 3×3 damage-vs-armour counter grid with the current turret's row
     ///     highlighted (GDD §7.1).
     ///
+    /// Docks to the screen side OPPOSITE the inspected tower (R-UI-3) so the
+    /// panel never covers the tower or its range ring; wide bottom-sheet roots
+    /// are detected and left alone.
+    ///
     /// Rebuilt each time it opens and after every upgrade; nothing polls in Update.
     /// </summary>
     [DisallowMultipleComponent]
@@ -28,6 +32,10 @@ namespace Corehold.UI
 
         [Header("Layout")]
         [SerializeField] private GameObject root;
+        [Tooltip("Dock the panel to the screen side opposite the selected tower so it never covers it (R-UI-3). Roots authored as wide bottom sheets are auto-detected and never moved.")]
+        [SerializeField] private bool dockOppositeTower = true; // [TUNE]
+        [Tooltip("Horizontal inset from the screen edge when docked, in canvas units.")]
+        [SerializeField] private float dockInset = 24f;         // [TUNE]
 
         [Header("Header")]
         [SerializeField] private TMP_Text nameLabel;
@@ -65,6 +73,9 @@ namespace Corehold.UI
         [SerializeField] private RangeRing rangeRing;
 
         private TowerHardpoint _pad;
+
+        private bool _dockCaptured;
+        private Vector2 _dockOrigAnchorMin, _dockOrigAnchorMax, _dockOrigPivot, _dockOrigAnchoredPos;
 
         private void Awake()
         {
@@ -104,6 +115,7 @@ namespace Corehold.UI
                 return;
             _pad = pad;
             if (root != null) root.SetActive(true);
+            DockOppositeTo(pad);
             Refresh();
 
             // Show the current range as a ground ring while the panel is open.
@@ -119,6 +131,64 @@ namespace Corehold.UI
             if (root != null) root.SetActive(false);
             if (rangeRing != null) rangeRing.Hide();
             TurretCamera.NotifyDeselected();
+        }
+
+        // ----- R-UI-3: dock opposite the inspected tower -----
+
+        /// <summary>
+        /// Moves the panel root to the screen side opposite <paramref name="pad"/>
+        /// so the panel never covers the tower or its range ring (the BTD6
+        /// lesson — its community's chief complaint is menus over the field).
+        /// Horizontally stretched or >55%-width roots are authored bottom
+        /// sheets: their layout is restored and left untouched.
+        /// </summary>
+        private void DockOppositeTo(TowerHardpoint pad)
+        {
+            if (root == null || pad == null) return;
+            var rootRect = root.transform as RectTransform;
+            if (rootRect == null) return;
+
+            if (!_dockCaptured)
+            {
+                _dockOrigAnchorMin = rootRect.anchorMin;
+                _dockOrigAnchorMax = rootRect.anchorMax;
+                _dockOrigPivot = rootRect.pivot;
+                _dockOrigAnchoredPos = rootRect.anchoredPosition;
+                _dockCaptured = true;
+            }
+
+            var parentRect = rootRect.parent as RectTransform;
+            Camera cam = Camera.main;
+            bool stretched = !Mathf.Approximately(rootRect.anchorMin.x, rootRect.anchorMax.x);
+            bool tooWide = parentRect != null && rootRect.rect.width > parentRect.rect.width * 0.55f;
+            if (!dockOppositeTower || parentRect == null || cam == null || stretched || tooWide)
+            {
+                RestoreDockLayout(rootRect);
+                return;
+            }
+
+            Vector3 vp = cam.WorldToViewportPoint(pad.transform.position);
+            if (vp.z <= 0f)
+            {
+                RestoreDockLayout(rootRect);
+                return;
+            }
+
+            bool padOnLeft = vp.x < 0.5f;
+            float edgeX = padOnLeft ? 1f : 0f;
+            rootRect.anchorMin = new Vector2(edgeX, _dockOrigAnchorMin.y);
+            rootRect.anchorMax = new Vector2(edgeX, _dockOrigAnchorMax.y);
+            rootRect.pivot = new Vector2(edgeX, _dockOrigPivot.y);
+            rootRect.anchoredPosition = new Vector2(padOnLeft ? -dockInset : dockInset, _dockOrigAnchoredPos.y);
+        }
+
+        private void RestoreDockLayout(RectTransform rootRect)
+        {
+            if (!_dockCaptured || rootRect == null) return;
+            rootRect.anchorMin = _dockOrigAnchorMin;
+            rootRect.anchorMax = _dockOrigAnchorMax;
+            rootRect.pivot = _dockOrigPivot;
+            rootRect.anchoredPosition = _dockOrigAnchoredPos;
         }
 
         // ----- Mid-term features (M-a camera/control, M-c relocation) -----
