@@ -864,6 +864,32 @@ namespace Corehold.Core
             {
                 PathRoute route = spawner != null ? spawner.Route : null;
                 Transform core = spawner != null ? spawner.CoreTarget : null;
+
+                // A GROUND unit with no route can never move: RouteTraffic refuses
+                // to register a route-less ground mover, so the unit would stand at
+                // the spawn point forever, walking in place — and never die or
+                // arrive, soft-locking the wave. This happens when a wave group's
+                // spawnerIndex points at the AIR spawner (Route == null) or at no
+                // spawner at all. Fall back to the first routed spawner and say so
+                // loudly: the run stays playable while the data gets fixed.
+                if (!def.isAir && route == null)
+                {
+                    Spawner fallback = FirstRoutedSpawner();
+                    Debug.LogWarning(
+                        $"[WaveManager] GROUND unit '{def.id}' (wave {waveNumber}) resolved NO route — its " +
+                        $"group's spawnerIndex points at {(spawner == null ? "no spawner" : "the AIR spawner")}. " +
+                        (fallback != null
+                            ? $"Falling back to ground spawner {fallback.Index}. Fix the wave asset's spawnerIndex."
+                            : "No ground spawner exists on this map — the unit will stand at the spawn point."));
+                    if (fallback != null)
+                    {
+                        spawner = fallback;
+                        route = fallback.Route;
+                        if (core == null) core = fallback.CoreTarget;
+                        enemy.transform.position = fallback.Position;
+                    }
+                }
+
                 bool convoy = (mutators & WaveMutator.Convoy) != 0 && !def.isAir;
                 mover.Configure(def, route, core, convoy);
 
@@ -1055,6 +1081,19 @@ namespace Corehold.Core
                     return s;
             }
             return null;
+        }
+
+        /// <summary>Lowest-index spawner that owns a route — the ground-unit
+        /// fallback when a wave group's spawnerIndex resolves to no route.</summary>
+        private Spawner FirstRoutedSpawner()
+        {
+            if (spawners == null)
+                return null;
+            Spawner best = null;
+            foreach (var s in spawners)
+                if (s != null && s.Route != null && (best == null || s.Index < best.Index))
+                    best = s;
+            return best;
         }
 
         // ----- Difficulty multipliers (GDD §8.2) -----

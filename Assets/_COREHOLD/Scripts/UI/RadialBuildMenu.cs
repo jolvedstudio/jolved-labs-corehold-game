@@ -6,6 +6,7 @@ using Corehold.Systems;
 using Corehold.Towers;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace Corehold.UI
@@ -42,6 +43,7 @@ namespace Corehold.UI
         private class Node
         {
             public GameObject go;
+            public RectTransform rect;
             public Image halo;   // selection ring behind the plate
             public Image plate;
             public Image icon;
@@ -49,6 +51,14 @@ namespace Corehold.UI
             public Button button;
             public TowerDefinition def;
         }
+
+        // Lens feedback (user feedback on P2): the node under the pointer and the
+        // selected node grow, and the ring's empty centre names the turret —
+        // otherwise same-silhouette icons are hard to tell apart at 76 px.
+        private const float SelectedScale = 1.32f;
+        private const float HoverScale = 1.15f;
+        private Node _hoverNode;
+        private TMP_Text _centerLabel;
 
         private static Sprite _circle; // generated once, shared by every node
 
@@ -99,6 +109,7 @@ namespace Corehold.UI
 
             _pad = pad;
             _selectedDef = null;
+            _hoverNode = null;
 
             // A crowded roster grows the ring rather than overlapping nodes
             // (the 10-slot roster, WIP entries included, same as the sheet).
@@ -116,6 +127,7 @@ namespace Corehold.UI
             _rect.anchoredPosition = local;
 
             BuildNodes(turrets, ringRadius, nodeSize, total);
+            ApplyNodeVisuals();
 
             gameObject.SetActive(true);
             transform.SetAsLastSibling();
@@ -128,6 +140,7 @@ namespace Corehold.UI
         {
             _pad = null;
             _selectedDef = null;
+            _hoverNode = null;
             if (_grow != null) { StopCoroutine(_grow); _grow = null; }
             if (gameObject.activeSelf)
                 gameObject.SetActive(false);
@@ -173,6 +186,7 @@ namespace Corehold.UI
                     : affordable ? (_theme != null ? _theme.cyan : Color.cyan)
                                  : (_theme != null ? _theme.danger : Color.red);
                 node.halo.enabled = false;
+                node.rect.localScale = Vector3.one;
 
                 node.button.interactable = affordable && buildable;
                 node.button.onClick.RemoveAllListeners();
@@ -218,7 +232,7 @@ namespace Corehold.UI
                 var iconRt = (RectTransform)iconGo.transform;
                 iconRt.SetParent(plateRt, false);
                 iconRt.anchorMin = iconRt.anchorMax = new Vector2(0.5f, 0.60f);
-                iconRt.sizeDelta = Vector2.one * nodeSize * 0.52f;
+                iconRt.sizeDelta = Vector2.one * nodeSize * 0.66f;
                 node.icon = iconGo.GetComponent<Image>();
                 node.icon.raycastTarget = false;
                 node.icon.preserveAspect = true;
@@ -239,9 +253,85 @@ namespace Corehold.UI
                 node.button = plateGo.AddComponent<Button>();
                 node.button.targetGraphic = node.plate;
 
+                node.rect = rt;
+                var hover = plateGo.AddComponent<NodeHover>();
+                hover.Init(this, node);
+
                 _nodes.Add(node);
             }
             return _nodes[index];
+        }
+
+        // ----- Lens + centre label (P2 feedback) -----
+
+        private void ApplyNodeVisuals()
+        {
+            foreach (var n in _nodes)
+            {
+                if (!n.go.activeSelf)
+                    continue;
+                bool selected = n.def == _selectedDef && _selectedDef != null;
+                bool hovered = n == _hoverNode;
+                n.halo.enabled = selected;
+                n.rect.localScale = Vector3.one *
+                    (selected ? SelectedScale : hovered ? HoverScale : 1f);
+                // Hovered/selected nodes draw over their neighbours, not under.
+                if (selected || hovered)
+                    n.rect.SetAsLastSibling();
+            }
+            UpdateCenterLabel();
+        }
+
+        private void UpdateCenterLabel()
+        {
+            EnsureCenterLabel();
+            if (_centerLabel == null)
+                return;
+            TowerDefinition show = _selectedDef != null ? _selectedDef : _hoverNode?.def;
+            if (show == null)
+            {
+                _centerLabel.text = "";
+                return;
+            }
+            string role = BuildMenu.RoleTag(show);
+            _centerLabel.text = $"{show.displayName}\n<size=62%><color=#{ColorUtility.ToHtmlStringRGB(_theme != null ? _theme.amber : Color.yellow)}>{role}</color></size>";
+        }
+
+        private void EnsureCenterLabel()
+        {
+            if (_centerLabel != null)
+                return;
+            var go = new GameObject("CenterLabel", typeof(RectTransform));
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(_rect, false);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(190f, 64f);
+            _centerLabel = go.AddComponent<TextMeshProUGUI>();
+            _centerLabel.alignment = TextAlignmentOptions.Center;
+            _centerLabel.fontStyle = FontStyles.Bold;
+            _centerLabel.fontSize = 21f;
+            _centerLabel.richText = true;
+            _centerLabel.raycastTarget = false;
+            _centerLabel.color = Color.white;
+            if (_theme != null && _theme.font != null)
+                _centerLabel.font = _theme.font;
+        }
+
+        private void OnNodeHover(Node node, bool entered)
+        {
+            _hoverNode = entered ? node : (_hoverNode == node ? null : _hoverNode);
+            ApplyNodeVisuals();
+        }
+
+        /// <summary>Pointer-enter/exit relay per node (desktop lens; on touch the
+        /// selection tap provides the same feedback).</summary>
+        private class NodeHover : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+        {
+            private RadialBuildMenu _menu;
+            private Node _node;
+            public void Init(RadialBuildMenu menu, Node node) { _menu = menu; _node = node; }
+            public void OnPointerEnter(PointerEventData e) { if (_menu != null) _menu.OnNodeHover(_node, true); }
+            public void OnPointerExit(PointerEventData e) { if (_menu != null) _menu.OnNodeHover(_node, false); }
         }
 
         // ----- Interaction: tap selects + previews, second tap builds -----
@@ -255,8 +345,7 @@ namespace Corehold.UI
             if (_selectedDef != node.def)
             {
                 _selectedDef = node.def;
-                foreach (var n in _nodes)
-                    n.halo.enabled = n.go.activeSelf && n.def == _selectedDef;
+                ApplyNodeVisuals();
                 if (_owner != null) _owner.PreviewRange(node.def);
                 return;
             }

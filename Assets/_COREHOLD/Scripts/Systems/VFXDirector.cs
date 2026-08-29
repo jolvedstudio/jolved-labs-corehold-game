@@ -732,7 +732,8 @@ namespace Corehold.Systems
         /// fire read distinctly (cool blue vs. hot red). <paramref name="alpha"/>
         /// scales the fade envelope — pass 0 to honour "no tracer" authoring.
         /// </summary>
-        public void DrawTracer(Vector3 from, Vector3 to, TracerFaction faction, float alpha = 1f)
+        public void DrawTracer(Vector3 from, Vector3 to, TracerFaction faction, float alpha = 1f,
+                               Transform follow = null)
         {
             if (_tracerPool == null || alpha <= 0f)
                 return;
@@ -766,7 +767,7 @@ namespace Corehold.Systems
             // authored with alpha 0 draws nothing.
             Color haloColor = new Color(color.r * glowMul, color.g * glowMul, color.b * glowMul, color.a * alpha);
 
-            tracer.Play(_tracerPool, from, to, haloColor, width);
+            tracer.Play(_tracerPool, from, to, haloColor, width, follow);
         }
 
         // ================================================================================
@@ -1019,6 +1020,12 @@ namespace Corehold.Systems
         private float _baseAlpha = 1f;
         private float _baseWidth = 0.08f;
 
+        // Endpoint tracking for fast targets (flak): while alive the line's far
+        // end rides this transform; null = classic fixed line.
+        private Transform _follow;
+        private Vector3 _followLocal;
+        private Vector3 _from;
+
         /// <summary>
         /// Wire up the two child <see cref="LineRenderer"/>s built by the director.
         /// Called once when the pooled prefab is constructed.
@@ -1073,11 +1080,22 @@ namespace Corehold.Systems
         /// halo hue (desaturated toward white) so a single authored colour produces
         /// both the hue and its matching glow.
         /// </summary>
-        public void Play(CoreholdPool<VfxTracer> pool, Vector3 from, Vector3 to, Color haloColor, float width)
+        public void Play(CoreholdPool<VfxTracer> pool, Vector3 from, Vector3 to, Color haloColor, float width,
+                         Transform follow = null)
         {
             EnsureInit();
             _pool = pool;
             _baseWidth = width;
+
+            // A hitscan line frozen for its 0.2 s life visibly overshoots (or
+            // undershoots) a FAST target — flak vs 8 m/s flyers moves the enemy
+            // most of a body length while the line stands still. Following the
+            // victim's hit anchor keeps the bolt pinned to the thing it hit.
+            // The offset is stored in the anchor's LOCAL space so authored
+            // anchors and geometric-centre fallbacks both track exactly.
+            _from = from;
+            _follow = follow;
+            _followLocal = follow != null ? follow.InverseTransformPoint(to) : Vector3.zero;
 
             transform.position = Vector3.zero;
 
@@ -1139,6 +1157,15 @@ namespace Corehold.Systems
                 return;
 
             _lifeLeft -= Time.deltaTime;
+
+            // Keep the far end pinned to a moving victim (a dead/pooled anchor
+            // simply freezes the line where it last was).
+            if (_follow != null && _follow.gameObject.activeInHierarchy)
+            {
+                Vector3 to = _follow.TransformPoint(_followLocal);
+                SetLine(_halo, _from, to, _baseWidth * _haloWidthScale);
+                SetLine(_core, _from, to, _baseWidth);
+            }
 
             // Fade linearly to zero over the lifetime, then release to the pool.
             float alpha = _baseAlpha * Mathf.Clamp01(_lifeLeft / LifeSeconds);

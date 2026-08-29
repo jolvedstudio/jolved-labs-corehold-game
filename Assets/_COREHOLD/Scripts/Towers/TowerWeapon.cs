@@ -325,7 +325,7 @@ namespace Corehold.Towers
             {
                 // Plain hitscan: apply damage directly, draw tracer + impact spark.
                 ApplyDamage(target, effectiveDamage);
-                DrawTracer(origin, target.HitPoint, trace);
+                DrawTracer(origin, target.HitPoint, trace, target.HitPointTransform);
                 // Counter-readable impact (R22): the spark's look encodes whether this
                 // turret's damage type countered the target's armour (GDD §7.1 pillar).
                 if (VFXDirector.Instance != null)
@@ -376,7 +376,7 @@ namespace Corehold.Towers
 
             for (int hop = 0; hop < maxHits && current != null; hop++)
             {
-                DrawTracer(fromPoint, current.HitPoint, chainColor);
+                DrawTracer(fromPoint, current.HitPoint, chainColor, current.HitPointTransform);
                 if (VFXDirector.Instance != null)
                     VFXDirector.Instance.PlayImpactEffective(current.HitPoint, Multiplier(current), current.ArmourType);
 
@@ -490,14 +490,15 @@ namespace Corehold.Towers
         // high blue value keeps it bright enough to bloom.
         private static readonly Color FriendlyTracerColor = new Color(0.05f, 0.35f, 3.0f, 1f);
 
-        private void DrawTracer(Vector3 from, Vector3 to, Color color)
+        private void DrawTracer(Vector3 from, Vector3 to, Color color, Transform follow = null)
         {
             if (VFXDirector.Instance != null)
                 // Friendly tracer identity (colour / glow / width) lives on the
                 // VFXDirector's "Friendly tracer (tower fire)" group. Pass the
                 // per-mount alpha through so a mount authored with alpha 0 draws
-                // nothing.
-                VFXDirector.Instance.DrawTracer(from, to, VFXDirector.TracerFaction.Friendly, color.a);
+                // nothing. The follow anchor keeps the line pinned to fast
+                // victims (flak) for its short life.
+                VFXDirector.Instance.DrawTracer(from, to, VFXDirector.TracerFaction.Friendly, color.a, follow);
             else
             {
                 // No director in the scene (e.g. a bare test): fall back to the local
