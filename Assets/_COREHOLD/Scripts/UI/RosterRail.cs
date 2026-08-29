@@ -117,6 +117,9 @@ namespace Corehold.UI
             float chipH = chipSize * 1.2f;
             float gap = 6f;
 
+            // One extra slot on the right: the PANIC button (auto-deploy).
+            int totalSlots = buildable.Count + 1;
+
             // Container plate: one quiet backdrop that groups the chips into a
             // single read (feedback: the bare chips floated). Never a raycast
             // target — pads behind the rail's margins must stay tappable.
@@ -129,7 +132,7 @@ namespace Corehold.UI
                 plateRt2.pivot = new Vector2(0.5f, 1f);
                 plateRt2.anchoredPosition = new Vector2(0f, 6f);
                 plateRt2.sizeDelta = new Vector2(
-                    buildable.Count * (chipW + gap) - gap + 20f, chipH + 12f);
+                    totalSlots * (chipW + gap) - gap + 20f, chipH + 12f);
                 var plateImg = plate.GetComponent<Image>();
                 if (_theme != null && _theme.panel != null)
                 {
@@ -157,7 +160,7 @@ namespace Corehold.UI
                 rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
                 rt.pivot = new Vector2(0.5f, 1f);
                 rt.sizeDelta = new Vector2(chipW, chipH);
-                rt.anchoredPosition = new Vector2((i - (buildable.Count - 1) * 0.5f) * (chipW + gap), 0f);
+                rt.anchoredPosition = new Vector2((i - (totalSlots - 1) * 0.5f) * (chipW + gap), 0f);
                 chip.group = chip.go.GetComponent<CanvasGroup>();
 
                 var plateGo = new GameObject("Plate", typeof(RectTransform), typeof(Image));
@@ -229,7 +232,99 @@ namespace Corehold.UI
                 }
             }
 
+            BuildPanicChip(chipW, chipH,
+                new Vector2((buildable.Count - (totalSlots - 1) * 0.5f) * (chipW + gap), 0f));
+
             RefreshAffordability();
+        }
+
+        // ----- PANIC (the AI advisor's field act: auto-deploy counters) -----
+
+        private GameObject _panicGo;
+        private CanvasGroup _panicGroup;
+        private TMP_Text _panicLabel;
+        private Button _panicButton;
+
+        private void BuildPanicChip(float chipW, float chipH, Vector2 pos)
+        {
+            _panicGo = new GameObject("Chip_PANIC", typeof(RectTransform), typeof(CanvasGroup));
+            var rt = (RectTransform)_panicGo.transform;
+            rt.SetParent(_rect, false);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
+            rt.pivot = new Vector2(0.5f, 1f);
+            rt.sizeDelta = new Vector2(chipW, chipH);
+            rt.anchoredPosition = pos;
+            _panicGroup = _panicGo.GetComponent<CanvasGroup>();
+
+            var plateGo = new GameObject("Plate", typeof(RectTransform), typeof(Image));
+            var plateRt = (RectTransform)plateGo.transform;
+            plateRt.SetParent(rt, false);
+            plateRt.anchorMin = Vector2.zero; plateRt.anchorMax = Vector2.one;
+            plateRt.offsetMin = plateRt.offsetMax = Vector2.zero;
+            var plate = plateGo.GetComponent<Image>();
+            if (_theme != null && _theme.buttonNormal != null)
+            {
+                plate.sprite = _theme.buttonNormal;
+                plate.type = Image.Type.Sliced;
+            }
+            plate.color = new Color(0.42f, 0.10f, 0.10f, 0.95f); // the one red button
+
+            var bang = new GameObject("Bang", typeof(RectTransform));
+            var bangRt = (RectTransform)bang.transform;
+            bangRt.SetParent(plateRt, false);
+            bangRt.anchorMin = bangRt.anchorMax = new Vector2(0.5f, 0.62f);
+            bangRt.sizeDelta = new Vector2(chipW, chipH * 0.5f);
+            var bangTxt = bang.AddComponent<TextMeshProUGUI>();
+            bangTxt.text = "!";
+            bangTxt.alignment = TextAlignmentOptions.Center;
+            bangTxt.fontStyle = FontStyles.Bold;
+            bangTxt.fontSize = chipW * 0.55f;
+            bangTxt.color = Color.white;
+            bangTxt.raycastTarget = false;
+            if (_theme != null && _theme.font != null)
+                bangTxt.font = _theme.font;
+
+            var lblGo = new GameObject("Label", typeof(RectTransform));
+            var lblRt = (RectTransform)lblGo.transform;
+            lblRt.SetParent(plateRt, false);
+            lblRt.anchorMin = lblRt.anchorMax = new Vector2(0.5f, 0.16f);
+            lblRt.sizeDelta = new Vector2(chipW, chipH * 0.3f);
+            _panicLabel = lblGo.AddComponent<TextMeshProUGUI>();
+            _panicLabel.alignment = TextAlignmentOptions.Center;
+            _panicLabel.fontStyle = FontStyles.Bold;
+            _panicLabel.fontSize = Mathf.Max(12f, chipW * 0.19f);
+            _panicLabel.color = Color.white;
+            _panicLabel.raycastTarget = false;
+            if (_theme != null && _theme.font != null)
+                _panicLabel.font = _theme.font;
+
+            _panicButton = plateGo.AddComponent<Button>();
+            _panicButton.targetGraphic = plate;
+            _panicButton.onClick.AddListener(OnPanic);
+
+            RefreshPanic();
+        }
+
+        private void OnPanic()
+        {
+            if (_owner == null)
+                return;
+            if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+            Disarm();                      // an armed chip and a panic never mix
+            _owner.PanicDeploy();
+            RefreshPanic();
+            RefreshAffordability();        // the deploy just spent salvage
+        }
+
+        private void RefreshPanic()
+        {
+            int left = _owner != null ? _owner.PanicRemaining : 0;
+            if (_panicLabel != null)
+                _panicLabel.text = $"PANIC {left}";
+            if (_panicGroup != null)
+                _panicGroup.alpha = left > 0 ? 1f : 0.4f;
+            if (_panicButton != null)
+                _panicButton.interactable = left > 0;
         }
 
         private Color PlateIdle() => new Color(0.10f, 0.14f, 0.17f, 0.92f);

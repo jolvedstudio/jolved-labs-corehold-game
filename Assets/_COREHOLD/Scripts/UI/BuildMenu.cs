@@ -53,11 +53,19 @@ namespace Corehold.UI
         [Tooltip("Gap from the top screen edge to the rail, in canvas units.")]
         [SerializeField] private float railTopInset = 8f;         // [TUNE]
 
+        [Header("PANIC auto-deploy (rail)")]
+        [Tooltip("Times per level the PANIC button may fire. Each press spends the PLAYER'S salvage on certified turrets — assistance, not free power.")]
+        [SerializeField] private int panicUsesPerLevel = 3;       // [TUNE]
+        [Tooltip("Most turrets one PANIC press will place (fewer if salvage or pads run out).")]
+        [SerializeField] private int panicMaxPerPress = 3;        // [TUNE]
+
         private readonly List<GameObject> _entries = new List<GameObject>();
         private TowerHardpoint _selected;
         private TowerDefinition[] _turrets;
         private RadialBuildMenu _radial;
         private RosterRail _rail;
+        private WaveManager _waveManager;
+        private int _panicLeft;
 
         private bool _subscribed;
 
@@ -69,10 +77,12 @@ namespace Corehold.UI
             // Per-level roster gating (R-UI-2): a LevelDefinition with an
             // authored roster narrows EVERY build surface — sheet, radial and
             // rail — through this one array. Empty/absent = the full roster.
-            var wm = FindFirstObjectByType<WaveManager>();
-            var levelRoster = wm != null ? wm.LevelRoster : null;
+            _waveManager = FindFirstObjectByType<WaveManager>();
+            var levelRoster = _waveManager != null ? _waveManager.LevelRoster : null;
             if (levelRoster != null && levelRoster.Length > 0)
                 _turrets = levelRoster;
+
+            _panicLeft = Mathf.Max(0, panicUsesPerLevel);
 
             Hide();
         }
@@ -123,6 +133,9 @@ namespace Corehold.UI
 
             router.OnHardpointTapped += HandleHardpointTapped;
             router.OnEmptyTapped += HandleEmptyTapped;
+            router.OnPadDragBegin += HandlePadDragBegin;
+            router.OnPadDragUpdate += HandlePadDragUpdate;
+            router.OnPadDragEnd += HandlePadDragEnd;
             _subscribed = true;
         }
 
@@ -135,7 +148,57 @@ namespace Corehold.UI
             }
             router.OnHardpointTapped -= HandleHardpointTapped;
             router.OnEmptyTapped -= HandleEmptyTapped;
+            router.OnPadDragBegin -= HandlePadDragBegin;
+            router.OnPadDragUpdate -= HandlePadDragUpdate;
+            router.OnPadDragEnd -= HandlePadDragEnd;
             _subscribed = false;
+        }
+
+        // ----- Drag a tower between pads (user call — relocation's fast gesture) -----
+        //
+        // The press already opened the tower panel (taps fire on press, unchanged);
+        // the drag hides it and arms the SAME relocation the panel's MOVE/WALK
+        // button uses — identical rules and costs, mid-wave drops still walk.
+
+        private void HandlePadDragBegin(TowerHardpoint pad)
+        {
+            if (pad == null || !pad.IsOccupied)
+                return;
+            if (_rail != null) _rail.Disarm();
+            if (towerPanel != null) towerPanel.Hide();
+            Hide();
+            Corehold.Towers.TurretRelocation.Begin(pad); // free pads glow while pending
+        }
+
+        private void HandlePadDragUpdate(Vector2 screenPos)
+        {
+            if (!Corehold.Towers.TurretRelocation.Pending || router == null)
+                return;
+            var pad = router.PadAt(screenPos);
+            var source = Corehold.Towers.TurretRelocation.Source;
+            if (pad != null && !pad.IsOccupied && !pad.IsReserved && pad != source &&
+                rangeRing != null && source != null && source.Occupant != null)
+            {
+                rangeRing.Show(pad.transform.position, source.Occupant.EffectiveRange);
+            }
+            else if (rangeRing != null)
+            {
+                rangeRing.Hide();
+            }
+        }
+
+        private void HandlePadDragEnd(Vector2 screenPos)
+        {
+            if (rangeRing != null) rangeRing.Hide();
+            if (!Corehold.Towers.TurretRelocation.Pending || router == null)
+                return;
+            var pad = router.PadAt(screenPos);
+            if (pad != null && Corehold.Towers.TurretRelocation.TryCompleteAt(pad))
+            {
+                if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+                return;
+            }
+            Corehold.Towers.TurretRelocation.Cancel();
         }
 
         private void HandleHardpointTapped(TowerHardpoint pad)
@@ -251,6 +314,114 @@ namespace Corehold.UI
             if (rangeRing == null || pad == null || def == null || def.tiers == null || def.tiers.Length == 0)
                 return;
             rangeRing.Show(pad.transform.position, def.tiers[0].range);
+        }
+
+        // ----- PANIC auto-deploy (rail button; the AI advisor's first field act) -----
+
+        /// <summary>PANIC presses left this level.</summary>
+        public int PanicRemaining => _panicLeft;
+
+        /// <summary>
+        /// One PANIC press: greedily spend the player's OWN salvage on the best
+        /// counters to the oncoming wave — damage-type multipliers against its
+        /// armour mix, air handled by the targeting gates — placed on free pads
+        /// nearest the Core (leaks get caught first). Places at most
+        /// panicMaxPerPress turrets; a press that placed nothing is not consumed.
+        /// Pure assistance: certified turrets, the player's economy, no new power.
+        /// </summary>
+        public bool PanicDeploy()
+        {
+            if (_panicLeft <= 0 || _turrets == null)
+                return false;
+            var gm = GameManager.Instance;
+            if (gm == null)
+                return false;
+
+            WaveDefinition threat = null;
+            if (_waveManager != null)
+            {
+                threat = _waveManager.NextWave;
+                if (threat == null)
+                    threat = _waveManager.PeekWave(-1); // final wave live: counter what is here
+            }
+
+            var pads = new List<TowerHardpoint>();
+            foreach (var p in FindObjectsByType<TowerHardpoint>(FindObjectsSortMode.None))
+                if (p != null && !p.IsOccupied && !p.IsReserved)
+                    pads.Add(p);
+            if (pads.Count == 0)
+                return false;
+
+            Transform core = _waveManager != null ? _waveManager.CoreTarget : null;
+            if (core != null)
+            {
+                Vector3 c = core.position;
+                pads.Sort((x, y) => (x.transform.position - c).sqrMagnitude
+                    .CompareTo((y.transform.position - c).sqrMagnitude));
+            }
+
+            int placed = 0;
+            for (int i = 0; i < Mathf.Max(1, panicMaxPerPress) && pads.Count > 0; i++)
+            {
+                TowerDefinition pick = BestCounter(threat, gm.Salvage);
+                if (pick == null)
+                    break;
+                if (!RailBuild(pick, pads[0]))
+                    break;
+                pads.RemoveAt(0);
+                placed++;
+            }
+
+            if (placed == 0)
+                return false;
+            _panicLeft--;
+            return true;
+        }
+
+        /// <summary>Best affordable counter to the threat wave: per-group count ×
+        /// damage-type multiplier vs its armour (air gated by targeting), scaled by
+        /// tier-1 DPS per salvage. Support relays never answer a panic.</summary>
+        private TowerDefinition BestCounter(WaveDefinition threat, int salvage)
+        {
+            var table = theme != null ? theme.damageTable : null;
+            TowerDefinition best = null;
+            float bestValue = 0f;
+
+            foreach (var def in _turrets)
+            {
+                if (def == null || def.basePrefab == null || def.tiers == null || def.tiers.Length == 0)
+                    continue;
+                var t0 = def.tiers[0];
+                if (t0.cost > salvage || t0.TotalDps <= 0f)
+                    continue;
+
+                float power = 0f;
+                if (threat != null && threat.groups != null)
+                {
+                    foreach (var g in threat.groups)
+                    {
+                        if (g.enemy == null || g.count <= 0)
+                            continue;
+                        bool air = g.enemy.isAir;
+                        if (air && !def.canTargetAir) continue;
+                        if (!air && def.targetAirOnly) continue;
+                        float mult = table != null ? table.Multiplier(def.damageType, g.enemy.armourType) : 1f;
+                        power += g.count * mult * (air ? 1.15f : 1f); // AA scarcity nudge
+                    }
+                }
+                else
+                {
+                    power = 1f; // no readable threat: fall back to raw efficiency
+                }
+
+                float value = power * t0.TotalDps / Mathf.Max(1, t0.cost);
+                if (value > bestValue)
+                {
+                    bestValue = value;
+                    best = def;
+                }
+            }
+            return best;
         }
 
         private void BuildEntries()

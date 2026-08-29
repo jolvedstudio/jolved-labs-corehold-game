@@ -709,13 +709,14 @@ namespace CoreholdEditor
             var root = MakeFullscreenDim(canvas.transform, "PauseScreen");
             var comp = canvas.gameObject.AddComponent<PauseScreen>();
 
-            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 560), theme.popup);
+            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 640), theme.popup);
             MakeText(panel, "Title", "PAUSED", _large, TextAlignmentOptions.Top, new Vector2(0, -20), new Vector2(480, 44)).color = Cyan;
             var resume = MakeButton(panel, "Resume", "RESUME", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -90), new Vector2(400, 70));
             var retry = MakeButton(panel, "Retry", "RETRY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -172), new Vector2(400, 70));
             var menu = MakeButton(panel, "Menu", "MAIN MENU", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -254), new Vector2(400, 70));
             var mute = MakeButton(panel, "Mute", "SOUND: ON", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -336), new Vector2(400, 70));
             var almanac = MakeButton(panel, "Almanac", "FIELD GUIDE", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -418), new Vector2(400, 70));
+            var howTo = MakeButton(panel, "HowToPlay", "HOW TO PLAY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -500), new Vector2(400, 70));
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -725,6 +726,7 @@ namespace CoreholdEditor
             SetRef(so, "muteButton", mute.GetComponent<Button>());
             SetRef(so, "muteLabel", mute.GetComponentInChildren<TMP_Text>());
             SetRef(so, "almanacButton", almanac.GetComponent<Button>());
+            SetRef(so, "howToPlayButton", howTo.GetComponent<Button>());
             so.ApplyModifiedPropertiesWithoutUndo();
 
             root.gameObject.SetActive(false);
@@ -821,8 +823,9 @@ namespace CoreholdEditor
             var (vBtn, vBest, vLock) = BuildDifficultyCard(diffRow, "VETERAN", theme);
             var (mBtn, mBest, mLock) = BuildDifficultyCard(diffRow, "NIGHTMARE", theme);
 
-            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-120, 60), new Vector2(200, 60));
-            var settingsBtn = MakeButton(root, "Settings", "SETTINGS", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(120, 60), new Vector2(200, 60));
+            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-240, 60), new Vector2(200, 60));
+            var settingsBtn = MakeButton(root, "Settings", "SETTINGS", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 60), new Vector2(200, 60));
+            var helpBtn = MakeButton(root, "Help", "HOW TO PLAY", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(240, 60), new Vector2(200, 60));
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -839,6 +842,7 @@ namespace CoreholdEditor
             SetRef(so, "nightmareLock", mLock);
             SetRef(so, "settingsButton", settingsBtn.GetComponent<Button>());
             SetRef(so, "settingsPanel", settingsPanel);
+            SetRef(so, "helpButton", helpBtn.GetComponent<Button>());
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return comp;
@@ -935,9 +939,20 @@ namespace CoreholdEditor
             var btn = MakeButtonBase(label, parent, theme, new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(280, 170));
             var name = MakeText(btn, "Name", label, _large, TextAlignmentOptions.Center, new Vector2(0, 44), new Vector2(260, 44));
             SetAnchors(name.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 44));
-            var best = MakeText(btn, "Best", "BEST 0", 18f, TextAlignmentOptions.Center, new Vector2(0, -4), new Vector2(260, 26));
+
+            // One plain line saying what the tier actually CHANGES — the pacing
+            // system (e1) made difficulty mean more than bigger health bars, and
+            // that must be readable before the pick, not discovered mid-run.
+            string desc = label == "VETERAN" ? "+25% enemies · timed builds"
+                        : label == "NIGHTMARE" ? "+55% enemies · relentless waves"
+                        : "Build at your own pace";
+            var descTxt = MakeText(btn, "Desc", desc, 13f, TextAlignmentOptions.Center, new Vector2(0, 16), new Vector2(264, 22));
+            descTxt.color = TextMuted;
+            SetAnchors(descTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 16));
+
+            var best = MakeText(btn, "Best", "BEST 0", 18f, TextAlignmentOptions.Center, new Vector2(0, -12), new Vector2(260, 26));
             best.color = Amber;
-            SetAnchors(best.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -4));
+            SetAnchors(best.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -12));
             var lockText = MakeText(btn, "Lock", "LOCKED", _small, TextAlignmentOptions.Center, new Vector2(0, -44), new Vector2(260, 26));
             SetAnchors(lockText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -44));
             var lockGo = lockText.gameObject;

@@ -188,6 +188,20 @@ namespace Corehold.Core
         /// <summary>This level's turret roster (R-UI-2). Null/empty = the full roster.</summary>
         public TowerDefinition[] LevelRoster => level != null ? level.roster : null;
 
+        /// <summary>The Core transform, via the first spawner that knows it (the
+        /// PANIC auto-deploy sorts free pads by distance to it).</summary>
+        public Transform CoreTarget
+        {
+            get
+            {
+                if (spawners == null) return null;
+                foreach (var s in spawners)
+                    if (s != null && s.CoreTarget != null)
+                        return s.CoreTarget;
+                return null;
+            }
+        }
+
         /// <summary>Number of enemies waiting for a free slot under the 14-cap.</summary>
         public int PendingCount => _pending.Count;
 

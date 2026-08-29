@@ -169,9 +169,14 @@ namespace CoreholdEditor.Campaign
             title.fontStyle = FontStyles.Bold;
             var subtitle = MakeText(canvas.transform, "Subtitle", "CAMPAIGN", 30, TextDim, new Vector2(0.5f, 0.60f));
 
-            var normal = MakeButton(canvas.transform, "Btn_Normal", "NORMAL", new Vector2(0.5f, 0.46f));
-            var veteran = MakeButton(canvas.transform, "Btn_Veteran", "VETERAN", new Vector2(0.5f, 0.36f));
-            var nightmare = MakeButton(canvas.transform, "Btn_Nightmare", "NIGHTMARE", new Vector2(0.5f, 0.26f));
+            // Each tier says what it CHANGES (pacing e1 made difficulty more than
+            // health bars); rich-text subline keeps one button per tier.
+            var normal = MakeButton(canvas.transform, "Btn_Normal",
+                "NORMAL\n<size=45%>build at your own pace</size>", new Vector2(0.5f, 0.46f));
+            var veteran = MakeButton(canvas.transform, "Btn_Veteran",
+                "VETERAN\n<size=45%>+25% enemies · timed builds</size>", new Vector2(0.5f, 0.36f));
+            var nightmare = MakeButton(canvas.transform, "Btn_Nightmare",
+                "NIGHTMARE\n<size=45%>+55% enemies · relentless waves</size>", new Vector2(0.5f, 0.26f));
             var cont = MakeButton(canvas.transform, "Btn_Continue", "CONTINUE RUN", new Vector2(0.5f, 0.14f));
             var contLabel = cont.GetComponentInChildren<TMP_Text>();
             if (contLabel != null) // warm-role — it resumes, not restarts

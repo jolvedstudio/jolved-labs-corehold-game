@@ -41,6 +41,7 @@ namespace Corehold.UI
         [Header("Settings")]
         [SerializeField] private Button settingsButton;
         [SerializeField] private SettingsPanel settingsPanel;
+        [SerializeField] private Button helpButton;
 
         [Header("Locked-state icons (optional)")]
         [SerializeField] private GameObject veteranLock;
@@ -63,6 +64,7 @@ namespace Corehold.UI
             if (nightmareButton != null) nightmareButton.onClick.AddListener(() => Play(Difficulty.Nightmare));
             if (muteButton != null) muteButton.onClick.AddListener(ToggleMute);
             if (settingsButton != null) settingsButton.onClick.AddListener(OpenSettings);
+            if (helpButton != null) helpButton.onClick.AddListener(OpenHelp);
             Refresh();
         }
 
@@ -73,6 +75,16 @@ namespace Corehold.UI
             if (nightmareButton != null) nightmareButton.onClick.RemoveAllListeners();
             if (muteButton != null) muteButton.onClick.RemoveListener(ToggleMute);
             if (settingsButton != null) settingsButton.onClick.RemoveListener(OpenSettings);
+            if (helpButton != null) helpButton.onClick.RemoveListener(OpenHelp);
+        }
+
+        private void OpenHelp()
+        {
+            if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+            var canvas = GetComponentInParent<Canvas>();
+            if (canvas == null && root != null) canvas = root.GetComponentInParent<Canvas>();
+            if (canvas != null)
+                HowToPlayScreen.Toggle(canvas.rootCanvas.transform);
         }
 
         private void OpenSettings()

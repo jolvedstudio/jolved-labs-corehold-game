@@ -359,13 +359,16 @@ namespace Corehold.UI
 
         // ----- Field guide access (R-UI-7): a small button, build phase only -----
 
+        [Tooltip("Show the standalone '?' guide button during build phases. OFF by default (screen rationalization): the FIELD GUIDE lives in the pause menu, one corner item fewer.")]
+        [SerializeField] private bool guideButtonEnabled = false;  // [TUNE]
+
         private GameObject _guideButton;
 
         private void RefreshGuideButton(GameState state)
         {
             // Between waves only — mid-wave the book would be one more thing to
             // mis-tap; pause still offers it any time.
-            bool show = state == GameState.Build;
+            bool show = guideButtonEnabled && state == GameState.Build;
             if (!show)
             {
                 if (_guideButton != null) _guideButton.SetActive(false);
@@ -487,6 +490,15 @@ namespace Corehold.UI
         {
             if (waveManager == null)
                 return;
+
+            // Assault levels announce their rule once, up front — pacing must be
+            // told, never discovered (user feedback on e2).
+            if (waveNumber == 1 && waveManager.AssaultPacing)
+            {
+                ShowBanner("ASSAULT PROTOCOL\n<size=55%>Waves keep coming while the field is clear</size>",
+                           theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f), doctrineBannerSeconds);
+                return;
+            }
 
             WaveDefinition started = waveManager.PeekWave(-1);
             WaveMutator mutators = waveManager.MutatorsForWave(waveNumber);
