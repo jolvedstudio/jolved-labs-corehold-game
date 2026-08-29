@@ -321,6 +321,16 @@ namespace Corehold.Systems
                 return null;
             if (prefab.GetComponentInChildren<ParticleSystem>(true) == null)
                 return null;
+
+            // VFX Graph rides compute shaders; WebGL has none. A pooled prefab
+            // carrying a VisualEffect plays its Shuriken parts and silently
+            // renders NOTHING from the graph in the browser ("Hidden/VFX/..."
+            // shader errors in the console) — say so where the pool is built.
+            if (prefab.GetComponentInChildren<UnityEngine.VFX.VisualEffect>(true) != null)
+                Debug.LogWarning($"[VFXDirector] Pooled effect '{prefab.name}' contains a VFX GRAPH — it will " +
+                                 "render nothing on WebGL (no compute shaders). Replace it with a Shuriken effect; " +
+                                 "the WebGL Shader Audit flags these as errors.", prefab);
+
             return prefab.transform;
         }
 

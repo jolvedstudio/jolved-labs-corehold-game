@@ -68,9 +68,34 @@ public static class WebGLShaderAudit
                 warns.Add($"{Path.GetFileName(path)} → '{mat.shader.name}': {verdict.Substring(5)}  ({path})");
         }
 
+        // ---- VFX Graph sweep -------------------------------------------------
+        // The graph runs on COMPUTE shaders; WebGL has none. Its generated
+        // shaders all fail in the browser ("Hidden/VFX/... not supported on
+        // this GPU") and the effect renders NOTHING — seen live with
+        // vfxgraph_MuzzleFlash01. Any VisualEffect in shipped content is an
+        // error, full stop: replace it with a Shuriken (ParticleSystem) effect.
+        var prefabPaths = new HashSet<string>(
+            roots.Count > 0
+                ? AssetDatabase.GetDependencies(roots.ToArray(), true)
+                    .Where(p => p.EndsWith(".prefab", System.StringComparison.OrdinalIgnoreCase))
+                : System.Linq.Enumerable.Empty<string>());
+        foreach (string guid in AssetDatabase.FindAssets("t:Prefab", new[] { "Assets/_COREHOLD" }))
+            prefabPaths.Add(AssetDatabase.GUIDToAssetPath(guid));
+
+        foreach (string path in prefabPaths.OrderBy(p => p, System.StringComparer.Ordinal))
+        {
+            var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (go == null)
+                continue;
+            if (go.GetComponentInChildren<UnityEngine.VFX.VisualEffect>(true) != null)
+                errors.Add($"{Path.GetFileName(path)}: contains a VFX GRAPH (VisualEffect) — WebGL has no " +
+                           "compute shaders, so the effect renders NOTHING in builds. Replace it with a " +
+                           $"Shuriken (ParticleSystem) effect.  ({path})");
+        }
+
         // ---- report ---------------------------------------------------------
         var sb = new StringBuilder();
-        sb.AppendLine($"=== WebGL SHADER AUDIT — {materialPaths.Count} material(s) checked ===");
+        sb.AppendLine($"=== WebGL SHADER AUDIT — {materialPaths.Count} material(s), {prefabPaths.Count} prefab(s) checked ===");
         sb.AppendLine($"  OK {ok},  warnings {warns.Count},  errors {errors.Count}");
         foreach (string e in errors) sb.AppendLine("  ERROR  " + e);
         foreach (string w in warns) sb.AppendLine("  warn   " + w);
