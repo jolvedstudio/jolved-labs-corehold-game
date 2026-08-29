@@ -366,7 +366,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 90f8362a3ce80e4429eef03d232270cb, type: 2}
   groundPrefab: {fileID: 0}
   groundMaterial: {fileID: 2100000, guid: 489ae478e6164b14688c79505d0f91c5, type: 2}
-  groundTilingPerMetre: 1
+  groundTilingPerMetre: 0.2
   groundDetail: {fileID: 2800000, guid: bb4e37cc365b8ff48b62687d56f76b97, type: 3}
   groundDetailStrength: 0.546
   groundDetailScale: 9
@@ -383,7 +383,7 @@ MonoBehaviour:
   outfieldDensity: 4
   sunIntensity: 2
   sunColor: {r: 1, g: 0.9265996, b: 0.6745283, a: 1}
-  sunAngles: {x: 50, y: -30}
+  sunAngles: {x: 28, y: -35}
   fogColor: {r: 0.65, g: 0.7, b: 0.78, a: 1}
   fogDensity: 0.0007
   roadwayColor: {r: 0.03, g: 0.03, b: 0.04, a: 0.35}
