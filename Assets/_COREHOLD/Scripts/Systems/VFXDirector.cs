@@ -291,6 +291,17 @@ namespace Corehold.Systems
             Debug.Log($"[VFXDirector] Pools built from scene '{gameObject.scene.name}' inspector setup: " +
                       $"{_pools.Count} slot(s) live — {string.Join(", ", _pools.Keys)}.", this);
 
+            // A director with ZERO usable slots plays NOTHING — no explosions, no
+            // impacts, no portals — while code-generated tracers still work, which
+            // reads as "VFX broken in the build". Loud, with the fix, because this
+            // is exactly what a stale scene baked before the config was localized
+            // looks like (the browser console shows this line on WebGL).
+            if (_pools.Count == 0)
+                Debug.LogError($"[VFXDirector] Scene '{gameObject.scene.name}' has NO usable effect slots — " +
+                               "explosions/impacts/portals will not appear. Open the scene, run " +
+                               "Tools → COREHOLD → VFX → Apply VFX Config To Open Scenes, save, and " +
+                               "regenerate/rebuild.", this);
+
             BuildTracerPool();
         }
 

@@ -49,7 +49,7 @@ namespace Corehold.UI
         [Tooltip("Show the persistent top-edge roster rail. Chips arm on tap (pads glow harder), build on pad tap or drag-to-pad.")]
         [SerializeField] private bool rosterRailEnabled = true;   // [TUNE]
         [Tooltip("Chip width in canvas units (height is 1.2×).")]
-        [SerializeField] private float railChipSize = 64f;        // [TUNE]
+        [SerializeField] private float railChipSize = 76f;        // [TUNE]
         [Tooltip("Gap from the top screen edge to the rail, in canvas units.")]
         [SerializeField] private float railTopInset = 8f;         // [TUNE]
 

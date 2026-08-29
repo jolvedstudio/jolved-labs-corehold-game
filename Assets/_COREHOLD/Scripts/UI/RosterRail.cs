@@ -117,6 +117,34 @@ namespace Corehold.UI
             float chipH = chipSize * 1.2f;
             float gap = 6f;
 
+            // Container plate: one quiet backdrop that groups the chips into a
+            // single read (feedback: the bare chips floated). Never a raycast
+            // target — pads behind the rail's margins must stay tappable.
+            if (buildable.Count > 0)
+            {
+                var plate = new GameObject("RailPlate", typeof(RectTransform), typeof(Image));
+                var plateRt2 = (RectTransform)plate.transform;
+                plateRt2.SetParent(_rect, false);
+                plateRt2.anchorMin = plateRt2.anchorMax = new Vector2(0.5f, 1f);
+                plateRt2.pivot = new Vector2(0.5f, 1f);
+                plateRt2.anchoredPosition = new Vector2(0f, 6f);
+                plateRt2.sizeDelta = new Vector2(
+                    buildable.Count * (chipW + gap) - gap + 20f, chipH + 12f);
+                var plateImg = plate.GetComponent<Image>();
+                if (_theme != null && _theme.panel != null)
+                {
+                    plateImg.sprite = _theme.panel;
+                    plateImg.type = Image.Type.Sliced;
+                    plateImg.color = new Color(1f, 1f, 1f, 0.55f);
+                }
+                else
+                {
+                    plateImg.color = new Color(0.05f, 0.08f, 0.10f, 0.55f);
+                }
+                plateImg.raycastTarget = false;
+                plateRt2.SetAsFirstSibling();
+            }
+
             for (int i = 0; i < buildable.Count; i++)
             {
                 TowerDefinition def = buildable[i];
@@ -149,7 +177,7 @@ namespace Corehold.UI
                 var iconRt = (RectTransform)iconGo.transform;
                 iconRt.SetParent(plateRt, false);
                 iconRt.anchorMin = iconRt.anchorMax = new Vector2(0.5f, 0.62f);
-                iconRt.sizeDelta = Vector2.one * chipW * 0.62f;
+                iconRt.sizeDelta = Vector2.one * chipW * 0.74f;
                 chip.icon = iconGo.GetComponent<Image>();
                 chip.icon.sprite = def.icon;
                 chip.icon.enabled = def.icon != null;
@@ -243,6 +271,68 @@ namespace Corehold.UI
             if (chip.go != null)
                 rt.anchoredPosition = home;
             RefreshAffordability();
+        }
+
+        // ----- Hover tip (name, role, power) -----
+
+        private RectTransform _tip;
+        private TMP_Text _tipText;
+
+        private void OnChipHover(Chip chip, bool entered)
+        {
+            if (!entered || chip == null || chip.def == null)
+            {
+                if (_tip != null) _tip.gameObject.SetActive(false);
+                return;
+            }
+            EnsureTip();
+            var def = chip.def;
+            var t0 = def.tiers[0];
+            bool support = t0.auraRadius > 0f || t0.TotalDps <= 0f;
+            string amber = ColorUtility.ToHtmlStringRGB(_theme != null ? _theme.amber : Color.yellow);
+            string stats = support
+                ? "SUPPORT AURA"
+                : $"DPS {t0.TotalDps:0.#}  ·  RNG {t0.range:0.#} m";
+            _tipText.text =
+                $"<b>{def.displayName}</b>\n" +
+                $"<size=80%><color=#{amber}>{BuildMenu.RoleTag(def)}</color>  ·  {t0.cost}  ·  {stats}</size>";
+            _tip.gameObject.SetActive(true);
+            var chipRt = (RectTransform)chip.go.transform;
+            _tip.anchoredPosition = chipRt.anchoredPosition +
+                Vector2.down * (chipRt.sizeDelta.y + 10f);
+            _tip.SetAsLastSibling();
+        }
+
+        private void EnsureTip()
+        {
+            if (_tip != null)
+                return;
+            var go = new GameObject("RailTip", typeof(RectTransform), typeof(Image));
+            _tip = (RectTransform)go.transform;
+            _tip.SetParent(_rect, false);
+            _tip.anchorMin = _tip.anchorMax = new Vector2(0.5f, 1f);
+            _tip.pivot = new Vector2(0.5f, 1f);
+            _tip.sizeDelta = new Vector2(250f, 54f);
+            var img = go.GetComponent<Image>();
+            img.color = new Color(0.04f, 0.07f, 0.09f, 0.94f);
+            img.raycastTarget = false;
+
+            var txtGo = new GameObject("Text", typeof(RectTransform));
+            var txtRt = (RectTransform)txtGo.transform;
+            txtRt.SetParent(_tip, false);
+            txtRt.anchorMin = Vector2.zero;
+            txtRt.anchorMax = Vector2.one;
+            txtRt.offsetMin = new Vector2(8f, 4f);
+            txtRt.offsetMax = new Vector2(-8f, -4f);
+            _tipText = txtGo.AddComponent<TextMeshProUGUI>();
+            _tipText.alignment = TextAlignmentOptions.Center;
+            _tipText.fontSize = 17f;
+            _tipText.richText = true;
+            _tipText.raycastTarget = false;
+            _tipText.color = Color.white;
+            if (_theme != null && _theme.font != null)
+                _tipText.font = _theme.font;
+            go.SetActive(false);
         }
 
         // ----- Arm / build -----
@@ -372,13 +462,24 @@ namespace Corehold.UI
         /// than a Button: Buttons swallow the drag threshold and make
         /// drag-to-build feel sticky.</summary>
         private class ChipInput : MonoBehaviour,
-            IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
+            IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler,
+            IPointerEnterHandler, IPointerExitHandler
         {
             private RosterRail _rail;
             private Chip _chip;
             private bool _dragging;
 
             public void Init(RosterRail rail, Chip chip) { _rail = rail; _chip = chip; }
+
+            public void OnPointerEnter(PointerEventData e)
+            {
+                if (_rail != null && !_dragging) _rail.OnChipHover(_chip, true);
+            }
+
+            public void OnPointerExit(PointerEventData e)
+            {
+                if (_rail != null) _rail.OnChipHover(_chip, false);
+            }
 
             public void OnPointerClick(PointerEventData e)
             {
@@ -389,6 +490,7 @@ namespace Corehold.UI
             public void OnBeginDrag(PointerEventData e)
             {
                 _dragging = true;
+                if (_rail != null) _rail.OnChipHover(_chip, false); // tip out of the way
                 if (_rail != null) _rail.OnChipBeginDrag(_chip, e);
             }
 

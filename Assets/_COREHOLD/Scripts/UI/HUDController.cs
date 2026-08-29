@@ -85,6 +85,14 @@ namespace Corehold.UI
         [Tooltip("[TUNE] An enemy with base health at or above this marks its wave as a BOSS wave in banners and the queue (matches the Colossus class).")]
         [SerializeField] private float bossPreviewHpThreshold = 1000f;
 
+        [Header("Wave panel placement")]
+        [Tooltip("Demote the wave label + queue to a small bottom-left cluster at runtime (feedback: the top panel was big and mostly idle). Off = the scene's authored layout.")]
+        [SerializeField] private bool demoteWavePanel = true;      // [TUNE]
+        [Tooltip("Bottom-left inset of the demoted wave cluster, canvas units.")]
+        [SerializeField] private Vector2 wavePanelInset = new Vector2(14f, 10f); // [TUNE]
+        [Tooltip("Scale applied to the wave preview rows when demoted.")]
+        [SerializeField] private float wavePanelScale = 0.8f;      // [TUNE]
+
         [Header("Salvage pips (R-UI-5)")]
         [Tooltip("[TUNE] Max salvage pips in flight at once — kills beyond this just tick the counter (never queue).")]
         [SerializeField] private int maxConcurrentPips = 8;
@@ -169,7 +177,42 @@ namespace Corehold.UI
             }
 
             BuildIntegritySegments();
+            DemoteWavePanel();
             RefreshAll();
+        }
+
+        /// <summary>
+        /// Move the wave label + preview rows to a small bottom-left cluster
+        /// (user feedback on R-UI-4: the top panel was oversized for what it
+        /// says). Done at runtime so every existing and generated scene gets it
+        /// with no scene edits; the second queue row follows automatically
+        /// because it copies the first row's layout at creation.
+        /// </summary>
+        private void DemoteWavePanel()
+        {
+            if (!demoteWavePanel)
+                return;
+
+            if (waveLabel != null)
+            {
+                var rt = waveLabel.rectTransform;
+                rt.anchorMin = rt.anchorMax = Vector2.zero;
+                rt.pivot = Vector2.zero;
+                rt.anchoredPosition = wavePanelInset;
+                waveLabel.alignment = TextAlignmentOptions.BottomLeft;
+                float small = theme != null ? theme.fontSizeSmall : 22f;
+                if (waveLabel.fontSize > small)
+                    waveLabel.fontSize = small;
+            }
+
+            if (previewRow != null)
+            {
+                previewRow.anchorMin = previewRow.anchorMax = Vector2.zero;
+                previewRow.pivot = Vector2.zero;
+                float labelH = waveLabel != null ? Mathf.Max(20f, waveLabel.fontSize + 6f) : 26f;
+                previewRow.anchoredPosition = wavePanelInset + Vector2.up * labelH;
+                previewRow.localScale = Vector3.one * Mathf.Clamp(wavePanelScale, 0.4f, 1f);
+            }
         }
 
         // ----- Initial full refresh -----
@@ -688,8 +731,12 @@ namespace Corehold.UI
             _previewRow2.pivot = previewRow.pivot;
             _previewRow2.sizeDelta = previewRow.sizeDelta;
             float drop = Mathf.Max(24f, previewRow.rect.height) + 4f;
-            _previewRow2.anchoredPosition = previewRow.anchoredPosition + Vector2.down * drop;
-            _previewRow2.localScale = Vector3.one * 0.72f;
+            // Stack AWAY from the nearest screen edge: below the row when it lives
+            // up top (authored layout), above it when demoted to the bottom.
+            bool nearBottom = previewRow.anchorMin.y < 0.5f;
+            _previewRow2.anchoredPosition = previewRow.anchoredPosition +
+                (nearBottom ? Vector2.up : Vector2.down) * drop * previewRow.localScale.y;
+            _previewRow2.localScale = previewRow.localScale * 0.72f;
 
             // Mirror the first row's layout behaviour so cells arrange the same way.
             var src = previewRow.GetComponent<HorizontalLayoutGroup>();

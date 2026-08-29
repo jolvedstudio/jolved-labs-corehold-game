@@ -38,9 +38,17 @@ namespace Corehold.Towers
         public static void Begin(TowerHardpoint pad)
         {
             Source = pad != null && pad.IsOccupied ? pad : null;
+            // While a move is pending, every free pad turns its standing pulse up
+            // (same signal as an armed rail chip) — "where can it go?" answers
+            // itself, which makes the two-tap move read like a drag.
+            TowerHardpoint.BuildAttention = Source != null;
         }
 
-        public static void Cancel() => Source = null;
+        public static void Cancel()
+        {
+            Source = null;
+            TowerHardpoint.BuildAttention = false;
+        }
 
         /// <summary>
         /// Complete the pending move onto <paramref name="dest"/>. Instant in
@@ -54,6 +62,7 @@ namespace Corehold.Towers
 
             var src = Source;
             Source = null;
+            TowerHardpoint.BuildAttention = false;
 
             if (!src.DetachForRelocation(out Tower tower, out int invested))
                 return false;
