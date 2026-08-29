@@ -281,7 +281,7 @@ public static class RouteSynthesizer
     ///
     /// Length: a Lanes blueprint authors a SHORTER routeLengthTarget than the
     /// corridor's 154 m (≈0.7 × field width; the error text reports the exact
-    /// reachable band). In-lane hairpin folds close small gaps toward the target;
+    /// reachable band). Gentle in-lane WAVES close small gaps toward the target;
     /// the balance model then re-solves hpGrowth against the actual measured
     /// geometry exactly as it does for every generated map.
     /// </summary>
@@ -322,16 +322,26 @@ public static class RouteSynthesizer
 
         // ---- draws up front, fixed order --------------------------------
         var rng = new Rng(GenerationPipeline.Fnv1a(b.randomSeed, "lanes"));
-        float sign0 = (rng.NextU() & 1u) == 0u ? 1f : -1f;   // first fold's side
+        float sign0 = (rng.NextU() & 1u) == 0u ? 1f : -1f;   // first wave's side
         float[] anchors =
         {
-            0.28f + rng.Range(-0.03f, 0.03f),
-            0.52f + rng.Range(-0.03f, 0.03f),
-            0.78f + rng.Range(-0.03f, 0.03f),
+            0.16f + rng.Range(-0.02f, 0.02f),
+            0.32f + rng.Range(-0.02f, 0.02f),
+            0.48f + rng.Range(-0.02f, 0.02f),
+            0.64f + rng.Range(-0.02f, 0.02f),
+            0.80f + rng.Range(-0.02f, 0.02f),
         };
 
-        // Fold width must fit between its neighbours' anchors on this run.
-        float foldW = Mathf.Min(F, run * 0.18f);
+        // Wave shape (user feedback: "make the lanes straighter"). The first
+        // version reused the corridor's HAIRPIN knots — perpendicular jogs the
+        // spline renders as stair-steps. Lanes now bend as smooth TRIANGLE
+        // waves (out-peak-back, no lateral jog), spread over up to FIVE gentle
+        // folds instead of three sharp ones: the length a lane needs arrives
+        // as a low ripple, not a zigzag. A wave gains less length per fold
+        // than a hairpin, which is fine — the equalizer only ever needs a few
+        // metres per lane.
+        float spacing = 0.16f * run;
+        float foldW = Mathf.Min(F, spacing * 0.9f);
         float aMax = pitch * 0.5f - LaneEnvelopeHalf - 0.25f;
 
         Vector3[] Lane(int K, float a, float dz)
@@ -341,12 +351,9 @@ public static class RouteSynthesizer
             {
                 float xk = Mathf.Lerp(entryX, xConv, Mathf.Clamp01(anchors[k]));
                 float s = sign0 * (k % 2 == 0 ? 1f : -1f);
-                float x0 = xk - dirX * foldW * 0.5f;
-                float x1 = xk + dirX * foldW * 0.5f;
-                pts.Add(new Vector3(x0, 0f, zc + dz));
-                pts.Add(new Vector3(x0, 0f, zc + dz + s * a));
-                pts.Add(new Vector3(x1, 0f, zc + dz + s * a));
-                pts.Add(new Vector3(x1, 0f, zc + dz));
+                pts.Add(new Vector3(xk - dirX * foldW * 0.5f, 0f, zc + dz));
+                pts.Add(new Vector3(xk, 0f, zc + dz + s * a));
+                pts.Add(new Vector3(xk + dirX * foldW * 0.5f, 0f, zc + dz));
             }
             pts.Add(new Vector3(xConv, 0f, zc + dz));
             // Convergence dive: taper toward the Core's z, meet at the Core.
@@ -375,10 +382,15 @@ public static class RouteSynthesizer
             sMax = Mathf.Max(sMax, s0);
         }
 
+        // Five gentle folds always: with wave knots, more-and-smaller reads
+        // straighter than fewer-and-taller, and a flat lane's amplitude 0
+        // collapses its wave knots collinear — invisible.
+        const int WaveFolds = 5;
+
         // Feasible band: the longest FLAT lane must sit under target+5% (folds
         // can only lengthen), and the shortest must reach target-5% with folds
         // inside its own channel.
-        float foldGain = LenAt(3, aMax, 0f) - LenAt(0, 0f, 0f);
+        float foldGain = LenAt(WaveFolds, aMax, 0f) - LenAt(0, 0f, 0f);
         float reachTop = sMin + foldGain;
         if (L < sMax / 1.05f || L > reachTop * 1.05f)
         {
@@ -404,28 +416,18 @@ public static class RouteSynthesizer
             return 0.5f * (lo + hi);
         }
 
-        int foldCount = -1;
+        int foldCount = WaveFolds;
         var amps = new float[n];
-        for (int K = 0; K <= 3 && foldCount < 0; K++)
+        for (int j = 0; j < n; j++)
         {
-            bool ok = true;
-            for (int j = 0; j < n; j++)
+            float a = FitAmp(WaveFolds, laneDz[j]);
+            if (a < 0f || Mathf.Abs(LenAt(WaveFolds, a, laneDz[j]) - L) > L * 0.05f)
             {
-                float a = FitAmp(K, laneDz[j]);
-                if (a < 0f || Mathf.Abs(LenAt(K, a, laneDz[j]) - L) > L * 0.05f)
-                {
-                    ok = false;
-                    break;
-                }
-                amps[j] = a;
+                report = $"lanes: lane {j + 1} cannot reach {L:0.#} m ±5% with waves inside its own channel " +
+                         $"(flat lanes measure {sMin:0.#}–{sMax:0.#} m) — move routeLengthTarget toward that band.";
+                return null;
             }
-            if (ok) foldCount = K;
-        }
-        if (foldCount < 0)
-        {
-            report = $"lanes: no fold count brings EVERY lane within {L:0.#} m ±5% " +
-                     $"(flat lanes measure {sMin:0.#}–{sMax:0.#} m) — move routeLengthTarget toward that band.";
-            return null;
+            amps[j] = a;
         }
 
         var routes = new Vector3[n][];
