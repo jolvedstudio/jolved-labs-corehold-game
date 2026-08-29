@@ -299,10 +299,20 @@ public static class RouteSynthesizer
         float entryX = -dirX * (W * 0.5f - FieldMargin);
         float xConv = core.x - dirX * LaneConvergeStandoff;
         float run = Mathf.Abs(xConv - entryX);
+
+        // The classic trap (hit in the field): a CENTRED Core — right for the
+        // siege shapes — HALVES a lane's run, and every length ask then fails.
+        // Name it in every refusal instead of letting the band numbers puzzle.
+        string coreHint = Mathf.Abs(core.x) < W * 0.15f
+            ? " NOTE: the Core sits near the field's x-centre, which HALVES the lanes' run — lanes want " +
+              "the Core toward the far side (protectedNormalizedPos.x ≈ 0.75 or 0.25; centred Cores " +
+              "are the SIEGE shapes' configuration)."
+            : "";
+
         if (run < 40f)
         {
             report = $"lanes: only {run:0.#} m of run between the entry edge and the Core standoff — " +
-                     "move protectedNormalizedPos toward the far side or enlarge playfieldSize.x.";
+                     "move protectedNormalizedPos toward the far side or enlarge playfieldSize.x." + coreHint;
             return null;
         }
 
@@ -397,7 +407,8 @@ public static class RouteSynthesizer
             report = $"lanes: this field's lanes measure {sMin:0.#}–{sMax:0.#} m flat; with in-lane folds the " +
                      $"workable routeLengthTarget band is ≈{Mathf.Ceil(sMax / 1.05f)}–{Mathf.Floor(reachTop * 1.05f)} m " +
                      $"and the ask is {L:0.#} m ±5%. Set the target inside the band (lanes are naturally " +
-                     "shorter than the corridor — a fold big enough to close a large gap would leave its lane).";
+                     "shorter than the corridor — a fold big enough to close a large gap would leave its lane)." +
+                     coreHint;
             return null;
         }
 
@@ -424,7 +435,8 @@ public static class RouteSynthesizer
             if (a < 0f || Mathf.Abs(LenAt(WaveFolds, a, laneDz[j]) - L) > L * 0.05f)
             {
                 report = $"lanes: lane {j + 1} cannot reach {L:0.#} m ±5% with waves inside its own channel " +
-                         $"(flat lanes measure {sMin:0.#}–{sMax:0.#} m) — move routeLengthTarget toward that band.";
+                         $"(flat lanes measure {sMin:0.#}–{sMax:0.#} m) — move routeLengthTarget toward that band." +
+                         coreHint;
                 return null;
             }
             amps[j] = a;
