@@ -52,6 +52,11 @@ namespace Corehold.Data
                  "them silent. Air groups are never redirected. Off for the shipped map.")]
         public bool spreadGroundGroupsAcrossSpawners;
 
+        [Tooltip("ASSAULT pacing (e2): while a wave is live, the next wave auto-chains a moment after the " +
+                 "committed headcount drops below the chain lock — relentless pressure, chain bonus still " +
+                 "paid. Authored per level (Campaign Builder stage checkbox). Off = the shipped pacing.")]
+        public bool assaultPacing;
+
         [Header("Certified tuning (the generator's adopt flow writes these)")]
 
         [Tooltip("Damage multiplier applied to EVERY turret on this level (1 = as authored). Level-scoped: " +

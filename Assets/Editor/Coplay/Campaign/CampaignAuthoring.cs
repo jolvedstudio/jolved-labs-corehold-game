@@ -54,6 +54,11 @@ namespace CoreholdEditor.Campaign
                      "introduction curve (R-UI-2); the rail slides the newcomer in with a NEW tag.")]
             public int rosterCount;
 
+            [Tooltip("ASSAULT pacing (e2): waves auto-chain whenever the field drains below the " +
+                     "chain lock — relentless pressure for late/replay stages. Written into the " +
+                     "LevelDefinition on Generate/Adopt.")]
+            public bool assaultPacing;
+
             [Tooltip("The recipe this stage's map is generated from.")]
             public LevelBlueprint blueprint;
 

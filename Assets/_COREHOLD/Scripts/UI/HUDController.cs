@@ -746,7 +746,11 @@ namespace Corehold.UI
                 }
                 else
                 {
-                    startWaveLabel.text = $"START WAVE {nextNum}";
+                    // e1: an armed countdown says so on the button itself — the
+                    // early tap stays the skill lever, the timer is the pressure.
+                    startWaveLabel.text = _shownAutoSec > 0
+                        ? $"START WAVE {nextNum}\nAUTO IN {_shownAutoSec}s"
+                        : $"START WAVE {nextNum}";
                 }
             }
         }
@@ -927,10 +931,22 @@ namespace Corehold.UI
                 colossusBarRoot.gameObject.SetActive(show);
         }
 
+        private int _shownAutoSec = -1;
+
         private void Update()
         {
-            // The ONE per-frame HUD read allowed: the boss bar, only while a boss is
-            // on the field. Everything else is event-driven (GDD §9.1).
+            // Two per-frame HUD reads allowed: the boss bar while a boss is on the
+            // field, and the auto-start countdown while one is armed (e1) — the
+            // label only rebuilds when the whole second changes. Everything else
+            // is event-driven (GDD §9.1).
+            float remain = waveManager != null ? waveManager.AutoStartRemaining : -1f;
+            int sec = remain > 0f ? Mathf.CeilToInt(remain) : -1;
+            if (sec != _shownAutoSec)
+            {
+                _shownAutoSec = sec;
+                RefreshStartButton();
+            }
+
             if (_colossus != null && colossusBarFill != null)
             {
                 if (!_colossus.IsAlive)

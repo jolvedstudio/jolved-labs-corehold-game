@@ -153,6 +153,18 @@ namespace Corehold.Data
 
             /// <summary>Four approaches over 270° — all sides but one, which is where four still separate.</summary>
             Encirclement = 4,
+
+            /// <summary>
+            /// Four PARALLEL lanes from one edge, converging just before the Core —
+            /// the PvZ read: per-lane threat, per-lane defence, pads on the ridges
+            /// between lanes. Lanes are one centreline offset in z, so separation
+            /// equals the pitch by construction. Routes measure far SHORTER than a
+            /// folded corridor (a straight run cannot fold much inside its own
+            /// lane), so a Lanes blueprint authors a smaller routeLengthTarget
+            /// (~0.7 × field width; the synthesizer reports the reachable band)
+            /// and the balance model re-solves against the actual geometry.
+            /// </summary>
+            Lanes = 5,
         }
 
         [Header("Approach topology (R40)")]
@@ -167,6 +179,16 @@ namespace Corehold.Data
         public bool IsSiege => topology == ApproachTopology.Pincer ||
                                topology == ApproachTopology.Siege ||
                                topology == ApproachTopology.Encirclement;
+
+        /// <summary>Parallel-lanes topology (PvZ read). Like sieges its routes
+        /// CONVERGE on the Core rather than merging, so the separation gate
+        /// exempts the same convergence zone.</summary>
+        public bool IsLanes => topology == ApproachTopology.Lanes;
+
+        /// <summary>Parallel lanes for the Lanes topology — one measured-safe
+        /// count, like every other member of the enum (4 lanes at ≥9 m pitch
+        /// hold the 4.5 m envelope with pad channels between them).</summary>
+        public int LaneCount => IsLanes ? 4 : 0;
 
         /// <summary>Entrance legs for a corridor map. Siege topologies ignore it.</summary>
         public int GroundLegs => topology == ApproachTopology.SingleLane ? 1 : 2;

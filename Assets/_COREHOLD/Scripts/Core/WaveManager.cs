@@ -290,6 +290,7 @@ namespace Corehold.Core
         private void Update()
         {
             TickStallWatchdog();
+            TickPacing();
 
             // Pending units enter as track entrances clear over time (not only on
             // deaths): the front unit walks away and frees the entrance. Retry a few
@@ -306,6 +307,142 @@ namespace Corehold.Core
         }
 
         private float _drainTimer;
+
+        // ================================================================
+        //  Wave pacing (e1-e3): difficulty auto-start, assault, AI director
+        // ================================================================
+        //
+        // BALANCE NOTE: none of this touches wave content — the model certifies
+        // composition, and pacing only compresses the player's BUILD TIME,
+        // which the model never simulated (it assumes final build states).
+        // Normal difficulty stays untimed, i.e. exactly the certified baseline;
+        // the director can only SHORTEN an authored countdown, never lengthen.
+
+        [Header("Wave pacing — auto-start, assault, director (e1-e3)")]
+        [Tooltip("[TUNE] VETERAN: seconds of build phase before the next wave auto-starts. 0 = manual (the Normal behaviour). Starting early by button still works and still pays chain bonuses when chaining.")]
+        [SerializeField] private float autoStartVeteranSeconds = 20f;
+
+        [Tooltip("[TUNE] NIGHTMARE: seconds of build phase before the next wave auto-starts. 0 = manual.")]
+        [SerializeField] private float autoStartNightmareSeconds = 8f;
+
+        [Tooltip("[TUNE] The FIRST build phase multiplies its countdown by this — the player is still reading the map.")]
+        [SerializeField] private float firstWaveGraceMultiplier = 1.5f;
+
+        [Tooltip("[TUNE] ASSAULT (LevelDefinition.assaultPacing): while a wave is live, the next wave auto-chains this many seconds after the field drains below the chain lock.")]
+        [SerializeField] private float assaultChainDelaySeconds = 2f;
+
+        [Tooltip("[TUNE] AI DIRECTOR (e3): when the player is cruising (high integrity, drained field, banked salvage) the auto-start countdown ticks up to 1/this fraction faster — pressure adapts to performance. 1 disables. It can only ACCELERATE an existing countdown; on Normal (no countdown) it does nothing.")]
+        [Range(0.25f, 1f)]
+        [SerializeField] private float directorMinCountdownFraction = 0.45f;
+
+        private float _autoStartRemaining = -1f; // <0 = no countdown armed
+        private float _assaultArmTime;
+
+        /// <summary>Seconds until the next wave auto-starts, or ≤0 when no
+        /// countdown is armed (Normal difficulty / no wave left). The HUD shows it
+        /// on the Start button.</summary>
+        public float AutoStartRemaining => _autoStartRemaining;
+
+        /// <summary>Assault pacing in force for this level (e2).</summary>
+        public bool AssaultPacing => level != null && level.assaultPacing;
+
+        private float AutoStartSeconds()
+        {
+            var gm = GameManager.Instance;
+            if (gm == null) return 0f;
+            switch (gm.Difficulty)
+            {
+                case Difficulty.Veteran: return Mathf.Max(0f, autoStartVeteranSeconds);
+                case Difficulty.Nightmare: return Mathf.Max(0f, autoStartNightmareSeconds);
+                default: return 0f; // Normal: untimed build, the certified baseline
+            }
+        }
+
+        /// <summary>
+        /// e3 — the bounded director: 1 (authored pace) when struggling, up to
+        /// 1/directorMinCountdownFraction (faster ticking) when cruising. Signals:
+        /// integrity fraction, how drained the field is, banked salvage. All
+        /// clamped; composition is never touched.
+        /// </summary>
+        private float DirectorTickRate()
+        {
+            if (directorMinCountdownFraction >= 0.999f)
+                return 1f;
+            var gm = GameManager.Instance;
+            if (gm == null)
+                return 1f;
+
+            int maxIntegrity = level != null && level.coreIntegrity > 0 ? level.coreIntegrity : 20;
+            float integrity = Mathf.Clamp01((float)gm.Integrity / maxIntegrity);
+            float field = ChainLockAt > 0 ? 1f - Mathf.Clamp01((float)CommittedCount / ChainLockAt) : 1f;
+            float bank = Mathf.Clamp01(gm.Salvage / 300f);
+            float cruise = integrity * 0.5f + field * 0.3f + bank * 0.2f;
+
+            float fraction = Mathf.Lerp(1f, directorMinCountdownFraction, cruise);
+            return 1f / Mathf.Max(0.25f, fraction);
+        }
+
+        private void TickPacing()
+        {
+            var gm = GameManager.Instance;
+            if (gm == null || !HasNextWave)
+            {
+                _autoStartRemaining = -1f;
+                _assaultArmTime = 0f;
+                return;
+            }
+
+            // e1: build-phase countdown (Veteran/Nightmare). Scaled time, so pause
+            // and the 2x clock behave exactly like the enemies do.
+            if (gm.State == GameState.Build && !WaveInProgress)
+            {
+                float authored = AutoStartSeconds();
+                if (authored <= 0f)
+                {
+                    _autoStartRemaining = -1f;
+                }
+                else
+                {
+                    if (_autoStartRemaining < 0f)
+                    {
+                        bool firstWave = _nextWaveIndex == 0;
+                        _autoStartRemaining = authored *
+                            (firstWave ? Mathf.Max(1f, firstWaveGraceMultiplier) : 1f);
+                    }
+                    _autoStartRemaining -= Time.deltaTime * DirectorTickRate();
+                    if (_autoStartRemaining <= 0f)
+                    {
+                        _autoStartRemaining = -1f;
+                        StartNextWave();
+                    }
+                }
+                _assaultArmTime = 0f;
+                return;
+            }
+
+            // e2: assault chaining while a wave is live.
+            if (AssaultPacing && gm.State == GameState.Wave && WaveInProgress)
+            {
+                _autoStartRemaining = -1f;
+                if (CanStartNextWave)
+                {
+                    _assaultArmTime += Time.deltaTime;
+                    if (_assaultArmTime >= Mathf.Max(0f, assaultChainDelaySeconds))
+                    {
+                        _assaultArmTime = 0f;
+                        StartNextWave(); // pays the chain bonus like a button chain
+                    }
+                }
+                else
+                {
+                    _assaultArmTime = 0f;
+                }
+                return;
+            }
+
+            _autoStartRemaining = -1f;
+            _assaultArmTime = 0f;
+        }
 
         /// <summary>
         /// Navigation liveness net (GDD redesign §Gap 4). If any live enemy makes no
@@ -465,6 +602,11 @@ namespace Corehold.Core
         {
             if (ignoreFlightCap ? !HasNextWave : !CanStartNextWave)
                 return false;
+
+            // Any pending auto-start/assault timers are consumed by this start,
+            // whoever triggered it (button, countdown, assault chain).
+            _autoStartRemaining = -1f;
+            _assaultArmTime = 0f;
 
             // Chain bonus: 8 salvage per live enemy at the moment of the call,
             // capped at 80 (GDD §8.4). Only when a wave is already on the field.

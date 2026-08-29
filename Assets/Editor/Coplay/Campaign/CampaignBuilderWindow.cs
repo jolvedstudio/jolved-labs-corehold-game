@@ -340,6 +340,10 @@ namespace CoreholdEditor.Campaign
                             "only). 0 = full roster. Written into the LevelDefinition on Generate/Adopt " +
                             "(R-UI-2 per-level introductions)."),
                         s.rosterCount);
+                    s.assaultPacing = EditorGUILayout.Toggle(
+                        new GUIContent("Assault pacing", "Waves auto-chain whenever the field drains " +
+                            "below the chain lock (e2). Written into the LevelDefinition on Generate/Adopt."),
+                        s.assaultPacing);
                     if (s.blueprint != null)
                     {
                         s.seedOverride = EditorGUILayout.IntField(
@@ -1370,10 +1374,10 @@ namespace CoreholdEditor.Campaign
         }
 
         /// <summary>
-        /// Write the stage's turret roster (R-UI-2) into its LevelDefinition:
-        /// the first N buildable turrets in menu order, or null (= full roster)
-        /// when the count is 0 or covers everything. Runs at every point a
-        /// stage's definition is finalized, so re-generating re-applies it.
+        /// Write the stage's per-level RULES into its LevelDefinition — the turret
+        /// roster (R-UI-2: first N buildable in menu order, null = full roster) and
+        /// the assault-pacing flag (e2). Runs at every point a stage's definition
+        /// is finalized, so re-generating re-applies both.
         /// </summary>
         private static void ApplyStageRoster(CampaignAuthoring.AuthoredStage stage,
                                              LevelDefinition def, StringBuilder log)
@@ -1383,10 +1387,13 @@ namespace CoreholdEditor.Campaign
             var pool = RosterRegistry.BuildableTowersOrdered();
             int n = stage != null ? stage.rosterCount : 0;
             def.roster = n > 0 && n < pool.Length ? pool.Take(n).ToArray() : null;
+            def.assaultPacing = stage != null && stage.assaultPacing;
             EditorUtility.SetDirty(def);
             if (def.roster != null)
                 log.AppendLine($"  roster gated to first {def.roster.Length} turret(s): " +
                                string.Join(", ", def.roster.Select(t => t.displayName)) + ".");
+            if (def.assaultPacing)
+                log.AppendLine("  ASSAULT pacing on: waves auto-chain when the field drains below the chain lock.");
         }
 
         private void DeleteStageOutputs(CampaignAuthoring.AuthoredStage stage, StringBuilder log)

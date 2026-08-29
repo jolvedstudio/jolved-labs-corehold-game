@@ -73,6 +73,7 @@ public static class RouteSynthesizer
     /// </summary>
     public static LevelLayout Synthesize(LevelBlueprint b, out string report)
     {
+        if (b.IsLanes) return SynthesizeLanes(b, out report);
         return b.IsSiege ? SynthesizeSiege(b, out report) : SynthesizeCorridor(b, out report);
     }
 
@@ -255,6 +256,180 @@ public static class RouteSynthesizer
 
         log.AppendLine($"[ok] {foldCount} folds of {F:0.#} m, top run z {zTop:0.##}, drop {drop:0.##} m, " +
                        $"west spline {measured:0.##} m (target {L:0.#} ±5%)");
+        report = log.ToString();
+        return layout;
+    }
+
+    // ------------------------------------------------------- lanes topology (PvZ)
+
+    /// <summary>Lanes begin their convergence dive this far before the Core.</summary>
+    private const float LaneConvergeStandoff = 14f;
+
+    /// <summary>Half-width of one lane's traffic envelope. A fold's amplitude must
+    /// keep its excursion inside the lane's OWN channel, so neighbouring lanes
+    /// never pinch — which is also why lanes cannot fold their way to corridor
+    /// lengths: a fold big enough to add serious length would leave its lane.</summary>
+    private const float LaneEnvelopeHalf = 2.25f;
+
+    /// <summary>
+    /// Lanes synthesis: four parallel routes enter from ONE edge and converge on
+    /// the Core just before its face — the PvZ read (per-lane threat, per-lane
+    /// defence, pads on the ridges between lanes). Every lane is the SAME
+    /// centreline translated in z, so lane separation equals the pitch by
+    /// construction everywhere outside the exempted convergence zone: the
+    /// argument the siege spiral makes with rotation, made with translation.
+    ///
+    /// Length: a Lanes blueprint authors a SHORTER routeLengthTarget than the
+    /// corridor's 154 m (≈0.7 × field width; the error text reports the exact
+    /// reachable band). In-lane hairpin folds close small gaps toward the target;
+    /// the balance model then re-solves hpGrowth against the actual measured
+    /// geometry exactly as it does for every generated map.
+    /// </summary>
+    private static LevelLayout SynthesizeLanes(LevelBlueprint b, out string report)
+    {
+        var log = new StringBuilder();
+        float W = b.playfieldSize.x, D = b.playfieldSize.y;
+        float L = b.routeLengthTarget;
+        float F = Mathf.Clamp(b.foldWidth, 7.5f, 20f);
+        int n = Mathf.Max(2, b.LaneCount);
+        Vector3 core = LevelLayout.FromNormalized(b.protectedNormalizedPos, b.playfieldSize);
+
+        // Enter from the long-side edge the Core sits furthest from — longest run.
+        float dirX = core.x >= 0f ? 1f : -1f;
+        float entryX = -dirX * (W * 0.5f - FieldMargin);
+        float xConv = core.x - dirX * LaneConvergeStandoff;
+        float run = Mathf.Abs(xConv - entryX);
+        if (run < 40f)
+        {
+            report = $"lanes: only {run:0.#} m of run between the entry edge and the Core standoff — " +
+                     "move protectedNormalizedPos toward the far side or enlarge playfieldSize.x.";
+            return null;
+        }
+
+        // Pitch: fit the bundle in the field depth, centred on the Core's z (the
+        // centre is clamped so the outer lanes keep the field margin).
+        float usable = D - 2f * FieldMargin;
+        float pitch = Mathf.Min(12f, usable / Mathf.Max(1, n - 1));
+        if (pitch < 9f)
+        {
+            report = $"lanes: {n} lanes need ≥9 m of pitch and this field affords {pitch:0.#} m — " +
+                     "a deeper playfield is required.";
+            return null;
+        }
+        float halfSpan = pitch * (n - 1) * 0.5f;
+        float zc = Mathf.Clamp(core.z, -D * 0.5f + FieldMargin + halfSpan,
+                                        D * 0.5f - FieldMargin - halfSpan);
+
+        // ---- draws up front, fixed order --------------------------------
+        var rng = new Rng(GenerationPipeline.Fnv1a(b.randomSeed, "lanes"));
+        float sign0 = (rng.NextU() & 1u) == 0u ? 1f : -1f;   // first fold's side
+        float[] anchors =
+        {
+            0.28f + rng.Range(-0.03f, 0.03f),
+            0.52f + rng.Range(-0.03f, 0.03f),
+            0.78f + rng.Range(-0.03f, 0.03f),
+        };
+
+        // Fold width must fit between its neighbours' anchors on this run.
+        float foldW = Mathf.Min(F, run * 0.18f);
+        float aMax = pitch * 0.5f - LaneEnvelopeHalf - 0.25f;
+
+        Vector3[] Lane(int K, float a, float dz)
+        {
+            var pts = new List<Vector3> { new Vector3(entryX, 0f, zc + dz) };
+            for (int k = 0; k < K; k++)
+            {
+                float xk = Mathf.Lerp(entryX, xConv, Mathf.Clamp01(anchors[k]));
+                float s = sign0 * (k % 2 == 0 ? 1f : -1f);
+                float x0 = xk - dirX * foldW * 0.5f;
+                float x1 = xk + dirX * foldW * 0.5f;
+                pts.Add(new Vector3(x0, 0f, zc + dz));
+                pts.Add(new Vector3(x0, 0f, zc + dz + s * a));
+                pts.Add(new Vector3(x1, 0f, zc + dz + s * a));
+                pts.Add(new Vector3(x1, 0f, zc + dz));
+            }
+            pts.Add(new Vector3(xConv, 0f, zc + dz));
+            // Convergence dive: taper toward the Core's z, meet at the Core.
+            pts.Add(new Vector3(core.x - dirX * 5f, 0f, core.z + dz * 0.35f));
+            pts.Add(new Vector3(core.x, 0f, core.z));
+            return pts.ToArray();
+        }
+
+        float LenAt(int K, float a) => MeasureSplineLength(Lane(K, a, 0f));
+
+        float straight = LenAt(0, 0f);
+        float ceiling = LenAt(3, aMax);
+        if (L < straight * 0.95f || L > ceiling * 1.05f)
+        {
+            report = $"lanes: this field measures {straight:0.#}–{ceiling:0.#} m per lane and the target is " +
+                     $"{L:0.#} m ±5% — set routeLengthTarget inside that band (≈0.7 × field width is the " +
+                     "natural lanes length; the corridor's 154 m cannot fit inside a lane's own channel).";
+            return null;
+        }
+
+        int foldCount = 0;
+        float amp = 0f;
+        bool fitted = Mathf.Abs(straight - L) <= L * 0.05f;
+        if (!fitted)
+        {
+            for (int K = 1; K <= 3 && !fitted; K++)
+            {
+                if (LenAt(K, aMax) < L * 0.95f)
+                    continue;                        // not enough length; add a fold
+                float lo = 0.5f, hi = aMax;
+                for (int it = 0; it < 24; it++)
+                {
+                    float mid = 0.5f * (lo + hi);
+                    if (LenAt(K, mid) < L) lo = mid; else hi = mid;
+                }
+                amp = 0.5f * (lo + hi);
+                if (Mathf.Abs(LenAt(K, amp) - L) <= L * 0.05f)
+                {
+                    foldCount = K;
+                    fitted = true;
+                }
+            }
+        }
+        if (!fitted)
+        {
+            report = $"lanes: no fold count reaches {L:0.#} m ±5% on this run (band {straight:0.#}–{ceiling:0.#} m) — " +
+                     "adjust routeLengthTarget into the band.";
+            return null;
+        }
+
+        var routes = new Vector3[n][];
+        var names = new string[n];
+        for (int j = 0; j < n; j++)
+        {
+            float dz = halfSpan - j * pitch;         // lane 1 = north-most
+            routes[j] = Lane(foldCount, amp, dz);
+            names[j] = $"Route_Lane{j + 1}";
+        }
+
+        // Backstop, same as siege: parallel construction holds the pitch, this
+        // measured check catches the day that stops being true.
+        float sep = MinPairSeparation(routes, core, LaneConvergeStandoff);
+        if (sep < MinSeparation)
+        {
+            report = $"lanes: lanes hold only {sep:0.##} m apart (≥{MinSeparation:0.##} m) outside the " +
+                     "convergence zone — this should be impossible for a translated centreline; check foldWidth.";
+            return null;
+        }
+
+        float measured = LenAt(foldCount, amp);
+        var layout = new LevelLayout
+        {
+            corePos = core,
+            groundRoutes = routes,
+            routeNames = names,
+            // Air enters from the same edge and flies straight down the bundle.
+            airSpawn = new Vector3(entryX + dirX * 2f, 4f, zc),
+            sharedTail = false,                      // lanes converge, they do not merge
+        };
+        log.AppendLine($"[ok] {n} parallel lane(s): pitch {pitch:0.#} m, run {run:0.#} m " +
+                       $"({(dirX > 0f ? "west→east" : "east→west")}), {foldCount} in-lane fold(s) of " +
+                       $"amp {amp:0.#} m / width {foldW:0.#} m, centreline spline {measured:0.##} m " +
+                       $"(target {L:0.#} ±5%); outer lanes measure slightly longer at the dive.");
         report = log.ToString();
         return layout;
     }
