@@ -96,8 +96,15 @@ flagged, not assumed.
 
 ## 5. Phasing
 
-- **P1 (systems):** R-UI-3 (layout rule), R-UI-4 (wave queue), R-UI-5
-  (salvage pips), R-UI-6 (banner) — all display-layer, no design risk.
+- **P1 (systems): BUILT.** R-UI-3 (`TowerPanel.DockOppositeTo`, wide
+  bottom-sheet roots auto-detected and left alone), R-UI-4 (second queue row
+  built programmatically in `HUDController.EnsureQueueRow`, fed by
+  `WaveManager.PeekWave`; boss counts tinted danger), R-UI-5
+  (`GameManager.OnKillSalvage` → pooled amber shards arcing to the counter,
+  capped, unscaled time), R-UI-6 (shared `ShowBanner`: doctrine name +
+  plain-words clause, HEAVY CONTACT for boss waves, short cyan stamp
+  otherwise, wave 1 silent). All widgets self-build — no scene edits needed;
+  Coplay may restyle via the serialized [TUNE] fields and UITheme only.
 - **P2 (systems + Coplay):** R-UI-1 radial menu behind a settings toggle
   until it feels right; Coplay styles nodes/motion.
 - **P3 (systems + user sign-off on gating):** R-UI-2 rail + per-level turret

@@ -201,6 +201,12 @@ namespace Corehold.Core
         /// </summary>
         public WaveDefinition NextWave => GetWave(_nextWaveIndex);
 
+        /// <summary>Wave definition at an offset from the next unstarted wave —
+        /// 0 = next, 1 = the one after (the HUD's two-wave queue, R-UI-4),
+        /// -1 = the wave that just started (banner composition). Null when out
+        /// of range.</summary>
+        public WaveDefinition PeekWave(int offset) => GetWave(_nextWaveIndex + offset);
+
         /// <summary>Get the wave definition at a 0-based index, or null if out of range.</summary>
         public WaveDefinition GetWave(int index)
         {

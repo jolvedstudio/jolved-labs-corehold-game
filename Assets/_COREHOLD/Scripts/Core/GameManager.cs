@@ -147,6 +147,11 @@ namespace Corehold.Core
         /// </summary>
         public event Action<int, int, Vector3> OnStreakChanged;
 
+        /// <summary>Every kill payout: (total salvage incl. streak bonus, kill
+        /// world position). Drives the HUD's salvage pips (R-UI-5) — the economy
+        /// made physically legible at the crash site. Cosmetic listeners only.</summary>
+        public event Action<int, Vector3> OnKillSalvage;
+
         private void Awake()
         {
             if (_instance != null && _instance != this)
@@ -284,6 +289,18 @@ namespace Corehold.Core
             float bonusFraction = Mathf.Min(StreakPerStep * (CurrentStreak - 1), StreakCap);
             int bonus = Mathf.RoundToInt(bounty * bonusFraction);
             AddSalvage(bounty + bonus);
+
+            // Salvage pips (R-UI-5): every kill, not just streaks. Contained the
+            // same way as the streak label — a cosmetic listener must not cost
+            // the kill that raised it anything but a log line.
+            try
+            {
+                OnKillSalvage?.Invoke(bounty + bonus, worldPos);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogException(e);
+            }
 
             if (CurrentStreak >= 2)
             {
