@@ -124,6 +124,14 @@ namespace Corehold.Systems
             set { PlayerPrefs.SetInt(SettingsPrefix + "night", value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
+        /// <summary>Radial build menu (R-UI-1) — empty-pad taps grow a ring of turret
+        /// nodes around the pad instead of opening the bottom sheet (default OFF).</summary>
+        public static bool RadialBuildMenu
+        {
+            get => PlayerPrefs.GetInt(SettingsPrefix + "radial", 0) != 0;
+            set { PlayerPrefs.SetInt(SettingsPrefix + "radial", value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
         // ----- Per-map + per-difficulty personal records (R4) -----
         //
         // Same store, new keys: corehold.record.<map>.<difficulty>.<stat>. The

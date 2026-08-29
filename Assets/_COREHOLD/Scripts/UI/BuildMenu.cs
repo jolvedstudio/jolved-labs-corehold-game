@@ -15,10 +15,11 @@ namespace Corehold.UI
     /// unaffordable entries desaturated and non-interactive. The selected turret's
     /// range previews as a ground ring. Tapping elsewhere dismisses.
     ///
-    /// A single bottom-sheet layout is used on all viewports (the radial variant is
-    /// explicitly a nicety on the upside list, GDD §9.1). Listens to
-    /// <see cref="InputRouter"/> for pad taps; when a pad is occupied it defers to
-    /// the <see cref="TowerPanel"/> instead.
+    /// The bottom sheet is the default layout on all viewports; the player can
+    /// switch to the radial pad menu (R-UI-1, <see cref="RadialBuildMenu"/>) in
+    /// Settings — same entries, same rules, grown around the pad instead.
+    /// Listens to <see cref="InputRouter"/> for pad taps; when a pad is occupied
+    /// it defers to the <see cref="TowerPanel"/> instead.
     /// </summary>
     [DisallowMultipleComponent]
     public class BuildMenu : MonoBehaviour
@@ -36,9 +37,18 @@ namespace Corehold.UI
         [Header("Range preview")]
         [SerializeField] private RangeRing rangeRing;
 
+        [Header("Radial menu (R-UI-1) — opt-in via Settings, sheet is default")]
+        [Tooltip("Ring radius in canvas units, pad centre to node centres.")]
+        [SerializeField] private float radialRadius = 120f;       // [TUNE]
+        [Tooltip("Diameter of each radial node in canvas units.")]
+        [SerializeField] private float radialNodeSize = 76f;      // [TUNE]
+        [Tooltip("Grow-out animation length in unscaled seconds (~120 ms feels right).")]
+        [SerializeField] private float radialGrowSeconds = 0.12f; // [TUNE]
+
         private readonly List<GameObject> _entries = new List<GameObject>();
         private TowerHardpoint _selected;
         private TowerDefinition[] _turrets;
+        private RadialBuildMenu _radial;
 
         private bool _subscribed;
 
@@ -138,6 +148,21 @@ namespace Corehold.UI
 
         public void Open(TowerHardpoint pad)
         {
+            if (SaveData.RadialBuildMenu)
+            {
+                EnsureRadial();
+                if (_radial != null)
+                {
+                    // Tapping the pad the ring is already open on closes it.
+                    if (_radial.IsOpenFor(pad)) { Hide(); return; }
+                    _selected = pad;
+                    if (root != null) root.SetActive(false);
+                    if (_radial.Open(pad, _turrets, radialRadius, radialNodeSize, radialGrowSeconds))
+                        return;
+                }
+                // Radial unavailable (no canvas/camera): fall through to the sheet.
+            }
+
             _selected = pad;
             if (root != null) root.SetActive(true);
             BuildEntries();
@@ -148,7 +173,22 @@ namespace Corehold.UI
             _selected = null;
             if (root != null) root.SetActive(false);
             if (rangeRing != null) rangeRing.Hide();
+            if (_radial != null) _radial.Close();
         }
+
+        private void EnsureRadial()
+        {
+            if (_radial != null)
+                return;
+            Canvas canvas = root != null ? root.GetComponentInParent<Canvas>(true)
+                                         : GetComponentInParent<Canvas>(true);
+            if (canvas == null)
+                return;
+            _radial = RadialBuildMenu.Create(this, theme, canvas.rootCanvas.transform);
+        }
+
+        /// <summary>Second tap on the selected radial node (R-UI-1): build it.</summary>
+        public void RadialConfirm(TowerDefinition def) => OnPick(def);
 
         private void BuildEntries()
         {

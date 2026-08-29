@@ -105,8 +105,17 @@ flagged, not assumed.
   plain-words clause, HEAVY CONTACT for boss waves, short cyan stamp
   otherwise, wave 1 silent). All widgets self-build — no scene edits needed;
   Coplay may restyle via the serialized [TUNE] fields and UITheme only.
-- **P2 (systems + Coplay):** R-UI-1 radial menu behind a settings toggle
-  until it feels right; Coplay styles nodes/motion.
+- **P2 (systems): BUILT — Coplay styling open.** R-UI-1 radial menu
+  (`RadialBuildMenu`, created at runtime by `BuildMenu` — no scene edits)
+  behind Settings → "BUILD MENU: RADIAL/SHEET" (`SaveData.RadialBuildMenu`,
+  default SHEET). Tap a node to select + preview range, tap again to build;
+  unaffordable/WIP nodes dimmed and inert; ring auto-grows for the 10-slot
+  roster, clamps fully on-screen, 120 ms unscaled grow-out. Sheet remains
+  the default and the fallback. Coplay lane: node look (plates are
+  runtime-generated circles + theme colours today), grow/shrink motion feel,
+  iconography — via BuildMenu's radial [TUNE] knobs and UITheme. Settings
+  panels in existing scenes show the new toggle after *Build real UI*
+  regenerates them.
 - **P3 (systems + user sign-off on gating):** R-UI-2 rail + per-level turret
   introductions (progression change), R-UI-7 almanac.
 - **P4 (design call):** R-UI-8 speed stops.

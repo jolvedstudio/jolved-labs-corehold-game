@@ -28,6 +28,8 @@ namespace Corehold.UI
         [SerializeField] private TMP_Text shakeLabel;
         [SerializeField] private Button nightButton;
         [SerializeField] private TMP_Text nightLabel;
+        [SerializeField] private Button radialButton;
+        [SerializeField] private TMP_Text radialLabel;
         [SerializeField] private Button closeButton;
 
         private bool _syncing;
@@ -39,6 +41,7 @@ namespace Corehold.UI
             if (musicSlider != null) musicSlider.onValueChanged.AddListener(OnMusic);
             if (shakeButton != null) shakeButton.onClick.AddListener(ToggleShake);
             if (nightButton != null) nightButton.onClick.AddListener(ToggleNight);
+            if (radialButton != null) radialButton.onClick.AddListener(ToggleRadial);
             if (closeButton != null) closeButton.onClick.AddListener(Hide);
         }
 
@@ -49,6 +52,7 @@ namespace Corehold.UI
             if (musicSlider != null) musicSlider.onValueChanged.RemoveListener(OnMusic);
             if (shakeButton != null) shakeButton.onClick.RemoveListener(ToggleShake);
             if (nightButton != null) nightButton.onClick.RemoveListener(ToggleNight);
+            if (radialButton != null) radialButton.onClick.RemoveListener(ToggleRadial);
             if (closeButton != null) closeButton.onClick.RemoveListener(Hide);
         }
 
@@ -130,12 +134,20 @@ namespace Corehold.UI
                 NightVariant.Instance.SetNight(SaveData.NightPreferred);
         }
 
+        private void ToggleRadial()
+        {
+            SaveData.RadialBuildMenu = !SaveData.RadialBuildMenu;
+            RefreshToggles();
+        }
+
         private void RefreshToggles()
         {
             if (shakeLabel != null)
                 shakeLabel.text = SaveData.ShakeEnabled ? "SCREEN SHAKE: ON" : "SCREEN SHAKE: OFF";
             if (nightLabel != null)
                 nightLabel.text = SaveData.NightPreferred ? "NIGHT MODE: ON" : "NIGHT MODE: OFF";
+            if (radialLabel != null)
+                radialLabel.text = SaveData.RadialBuildMenu ? "BUILD MENU: RADIAL" : "BUILD MENU: SHEET";
         }
     }
 }

@@ -848,7 +848,7 @@ namespace CoreholdEditor
             var comp = canvas.gameObject.AddComponent<SettingsPanel>();
 
             var panel = MakePanel(dim, "Panel", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                Vector2.zero, new Vector2(640, 560), theme.popup);
+                Vector2.zero, new Vector2(640, 630), theme.popup);
             panel.pivot = new Vector2(0.5f, 0.5f);
 
             var title = MakeText(panel, "Title", "SETTINGS", _large, TextAlignmentOptions.Top,
@@ -864,6 +864,8 @@ namespace CoreholdEditor
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -330), new Vector2(420, 58));
             var night = MakeButton(panel, "NightToggle", "NIGHT MODE: OFF", theme,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -400), new Vector2(420, 58));
+            var radial = MakeButton(panel, "RadialToggle", "BUILD MENU: SHEET", theme,
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -470), new Vector2(420, 58));
             var close = MakeButton(panel, "Close", "CLOSE", theme,
                 new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(280, 60));
 
@@ -876,6 +878,8 @@ namespace CoreholdEditor
             SetRef(so, "shakeLabel", shake.GetComponentInChildren<TMP_Text>());
             SetRef(so, "nightButton", night.GetComponent<Button>());
             SetRef(so, "nightLabel", night.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "radialButton", radial.GetComponent<Button>());
+            SetRef(so, "radialLabel", radial.GetComponentInChildren<TMP_Text>());
             SetRef(so, "closeButton", close.GetComponent<Button>());
             so.ApplyModifiedPropertiesWithoutUndo();
 
