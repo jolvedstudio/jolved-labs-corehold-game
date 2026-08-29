@@ -68,6 +68,26 @@ public static class WebGLShaderAudit
                 warns.Add($"{Path.GetFileName(path)} → '{mat.shader.name}': {verdict.Substring(5)}  ({path})");
         }
 
+        // ---- Soft particles sweep --------------------------------------------
+        // URP fades a soft particle against the DEPTH TEXTURE. The quality tier a
+        // WebGL build runs (Mobile: RequireDepthTexture = 0) has none, so the fade
+        // term has nothing to sample and the particle renders fully transparent —
+        // INVISIBLE in the build while perfect in the editor, which runs the PC
+        // tier. That asymmetry cost this project a long hunt: every effect except
+        // the portal (no soft particles) and the tracers (own shader) vanished.
+        foreach (string path in materialPaths.OrderBy(p => p, System.StringComparer.Ordinal))
+        {
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null || mat.shader == null)
+                continue;
+            bool soft = mat.IsKeywordEnabled("_SOFTPARTICLES_ON") ||
+                        (mat.HasProperty("_SoftParticlesEnabled") && mat.GetFloat("_SoftParticlesEnabled") > 0.5f);
+            if (soft)
+                errors.Add($"{Path.GetFileName(path)}: SOFT PARTICLES are on — invisible in a WebGL build " +
+                           "(the Mobile quality tier it runs has no depth texture). Turn Soft Particles off " +
+                           $"on the material, or enable Require Depth Texture on Mobile_RPAsset.  ({path})");
+        }
+
         // ---- VFX Graph sweep -------------------------------------------------
         // The graph runs on COMPUTE shaders; WebGL has none. Its generated
         // shaders all fail in the browser ("Hidden/VFX/... not supported on

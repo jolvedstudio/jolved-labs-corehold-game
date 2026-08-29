@@ -27,9 +27,9 @@ Material:
   m_ValidKeywords:
   - _EMISSION
   - _FADING_ON
-  - _SOFTPARTICLES_ON
   - _SURFACE_TYPE_TRANSPARENT
   m_InvalidKeywords:
+  - _SOFTPARTICLES_ON
   - _FLIPBOOKBLENDING_OFF
   m_LightmapFlags: 6
   m_EnableInstancingVariants: 0
@@ -87,7 +87,7 @@ Material:
     - _LightingEnabled: 0
     - _Mode: 2
     - _QueueOffset: 0
-    - _SoftParticlesEnabled: 1
+    - _SoftParticlesEnabled: 0
     - _SoftParticlesFarFadeDistance: 0.5
     - _SoftParticlesNearFadeDistance: 0
     - _SrcBlend: 5
