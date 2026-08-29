@@ -65,17 +65,23 @@ public static class VFXConfigIO
         }
 
         config.effects = entries;
-        config.tracerMaterial = ObjectOf(so, "tracerMaterial", config.tracerMaterial) as Material;
-        config.tracerWidth = FloatOf(so, "tracerWidth", config.tracerWidth);
-        config.tracerGlow = FloatOf(so, "tracerGlow", config.tracerGlow);
+        config.tracerCoreMaterial = ObjectOf(so, "tracerCoreMaterial", config.tracerCoreMaterial) as Material;
+        config.tracerHaloMaterial = ObjectOf(so, "tracerHaloMaterial", config.tracerHaloMaterial) as Material;
+        config.tracerHaloWidthScale = FloatOf(so, "tracerHaloWidthScale", config.tracerHaloWidthScale);
+        config.tracerCoreGlow = FloatOf(so, "tracerCoreGlow", config.tracerCoreGlow);
         config.tracerPrewarm = IntOf(so, "tracerPrewarm", config.tracerPrewarm);
-        config.defaultTracerColor = ColorOf(so, "defaultTracerColor", config.defaultTracerColor);
+        config.friendlyTracerWidth = FloatOf(so, "friendlyTracerWidth", config.friendlyTracerWidth);
+        config.friendlyTracerGlow = FloatOf(so, "friendlyTracerGlow", config.friendlyTracerGlow);
+        config.friendlyTracerColor = ColorOf(so, "friendlyTracerColor", config.friendlyTracerColor);
+        config.hostileTracerWidth = FloatOf(so, "hostileTracerWidth", config.hostileTracerWidth);
+        config.hostileTracerGlow = FloatOf(so, "hostileTracerGlow", config.hostileTracerGlow);
+        config.hostileTracerColor = ColorOf(so, "hostileTracerColor", config.hostileTracerColor);
 
         EditorUtility.SetDirty(config);
         AssetDatabase.SaveAssets();
 
         log?.AppendLine($"• VFX config written: {entries.Length} effect slot(s), " +
-                        $"tracer width {config.tracerWidth}, colour {config.defaultTracerColor}.");
+                        $"friendly {config.friendlyTracerColor} / hostile {config.hostileTracerColor}.");
         return config;
     }
 
@@ -105,11 +111,17 @@ public static class VFXConfigIO
                 missing?.Add(entry.id.ToString());
         }
 
-        SetObject(so, "tracerMaterial", config.tracerMaterial);
-        SetFloat(so, "tracerWidth", config.tracerWidth);
-        SetFloat(so, "tracerGlow", config.tracerGlow);
+        SetObject(so, "tracerCoreMaterial", config.tracerCoreMaterial);
+        SetObject(so, "tracerHaloMaterial", config.tracerHaloMaterial);
+        SetFloat(so, "tracerHaloWidthScale", config.tracerHaloWidthScale);
+        SetFloat(so, "tracerCoreGlow", config.tracerCoreGlow);
         SetInt(so, "tracerPrewarm", config.tracerPrewarm);
-        SetColor(so, "defaultTracerColor", config.defaultTracerColor);
+        SetFloat(so, "friendlyTracerWidth", config.friendlyTracerWidth);
+        SetFloat(so, "friendlyTracerGlow", config.friendlyTracerGlow);
+        SetColor(so, "friendlyTracerColor", config.friendlyTracerColor);
+        SetFloat(so, "hostileTracerWidth", config.hostileTracerWidth);
+        SetFloat(so, "hostileTracerGlow", config.hostileTracerGlow);
+        SetColor(so, "hostileTracerColor", config.hostileTracerColor);
 
         so.ApplyModifiedPropertiesWithoutUndo();
         EditorUtility.SetDirty(director);

@@ -61,8 +61,10 @@ public static class AuditCombatVFXWiring
                 int val = (int)System.Enum.Parse(typeof(VFXDirector.Effect), name);
                 sb.AppendLine($"  {(filled.Contains(val) ? "OK " : "MISSING ")} {name}");
             }
-            var tracerMat = so.FindProperty("tracerMaterial").objectReferenceValue;
-            sb.AppendLine($"  Tracer material: {(tracerMat != null ? tracerMat.name : "(built at runtime)")}");
+            var coreMat = so.FindProperty("tracerCoreMaterial").objectReferenceValue;
+            var haloMat = so.FindProperty("tracerHaloMaterial").objectReferenceValue;
+            sb.AppendLine($"  Tracer core material: {(coreMat != null ? coreMat.name : "(built at runtime)")}");
+            sb.AppendLine($"  Tracer halo material: {(haloMat != null ? haloMat.name : "(built at runtime)")}");
         }
 
         // --- Towers ---

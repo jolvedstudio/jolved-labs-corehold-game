@@ -129,26 +129,54 @@ namespace Corehold.Systems
             new EffectEntry { id = Effect.StrikeMarker,       prewarm = 1 },
         };
 
+        /// <summary>
+        /// Which side fired a tracer. Each faction has its OWN width / glow / colour
+        /// so tower fire and enemy fire read as a distinct visual language (GDD §11):
+        /// cool blue friendly bolts vs. hot red hostile bolts, tuned independently.
+        /// </summary>
+        public enum TracerFaction { Friendly, Hostile }
+
         [Header("Hitscan tracer (GDD §11) — Autocannon + Arc Node only")]
-        [Tooltip("Shared additive material for the tracer LineRenderer. One material, shared by every tracer segment. Built at runtime if left null.")]
-        [SerializeField] private Material tracerMaterial;
+        [Tooltip("ADDITIVE material for the tracer's white-hot CORE line (the thin inner streak that Bloom smears into glow). Uses the Corehold/VFXTracer shader with SrcAlpha+One blending. Built at runtime from that shader if left null.")]
+        [SerializeField] private Material tracerCoreMaterial;
 
-        [Tooltip("Tracer line width in metres.")]
-        [SerializeField] private float tracerWidth = 0.15f;   // shipped Game.unity value
+        [Tooltip("ALPHA-BLEND material for the tracer's coloured HALO line (the wide outer streak that carries the saturated faction hue). Uses the Corehold/VFXTracer shader with SrcAlpha+OneMinusSrcAlpha blending so the hue is PRESERVED over the bright desert instead of washing to white like additive does. Built at runtime from that shader if left null.")]
+        [SerializeField] private Material tracerHaloMaterial;
 
-        [Tooltip("Brightness multiplier applied to EVERY tracer's HDR colour (enemy + tower). Values above 1 push the colour further into HDR so it blooms more intensely. 1 = author-authored colour unchanged.")]
+        [Min(1f)]
+        [Tooltip("How much wider the coloured halo line is than the core line. The core carries the glow; the halo carries the hue.")]
+        [SerializeField] private float tracerHaloWidthScale = 3f;
+
         [Min(0f)]
-        [SerializeField] private float tracerGlow = 1f;
+        [Tooltip("HDR brightness of the white-hot core. Keep moderate (~1.5) so Bloom lights it up without ACES/Neutral tonemapping desaturating the surrounding halo hue.")]
+        [SerializeField] private float tracerCoreGlow = 1.6f;
 
-        [Tooltip("Copies of the tracer prewarmed into its pool.")]
+        [Tooltip("Copies of the tracer prewarmed into its pool (shared by both factions).")]
         [SerializeField] private int tracerPrewarm = 8;
 
-        [Tooltip("Default tracer colour (additive, so RGB reads as the glow colour). HDR-bright so it stands out.")]
+        [Header("Friendly tracer (tower fire)")]
+        [Tooltip("Friendly (tower) tracer line width in metres.")]
+        [SerializeField] private float friendlyTracerWidth = 0.08f;
+
+        [Min(0f)]
+        [Tooltip("Brightness multiplier applied to the friendly tracer's HDR colour. 1 = colour unchanged; higher blooms more. Keep moderate so the hue survives ACES tonemapping.")]
+        [SerializeField] private float friendlyTracerGlow = 1f;
+
         [ColorUsage(true, true)]
-        // The shipped scene's tuned tracer: an intensely HDR cyan, not the warm
-        // orange this defaulted to. A generated scene inherited the default and
-        // fired visibly different-looking shots (see SetupVFXDirector).
-        [SerializeField] private Color defaultTracerColor = new Color(0f, 207.88327f, 705.2075f, 1f);
+        [Tooltip("Friendly (tower) tracer colour. Cool blue faction identity. This is the HALO hue — keep it moderately bright (one dominant channel) so alpha-blending preserves the blue instead of washing to white.")]
+        [SerializeField] private Color friendlyTracerColor = new Color(0.15f, 0.55f, 1.8f, 1f);
+
+        [Header("Hostile tracer (enemy fire)")]
+        [Tooltip("Hostile (enemy) tracer line width in metres.")]
+        [SerializeField] private float hostileTracerWidth = 0.08f;
+
+        [Min(0f)]
+        [Tooltip("Brightness multiplier applied to the hostile tracer's HDR colour. 1 = colour unchanged; higher blooms more. Keep moderate so the hue survives ACES tonemapping.")]
+        [SerializeField] private float hostileTracerGlow = 1f;
+
+        [ColorUsage(true, true)]
+        [Tooltip("Hostile (enemy) tracer colour. Hot red faction identity. This is the HALO hue — keep it moderately bright (one dominant channel) so alpha-blending preserves the red over the bright desert instead of washing to white.")]
+        [SerializeField] private Color hostileTracerColor = new Color(1.8f, 0.12f, 0.06f, 1f);
 
         // ----- Singleton -----
 
@@ -319,7 +347,7 @@ namespace Corehold.Systems
             if (_tracerPool != null)
                 return;
 
-            EnsureTracerMaterial();
+            EnsureTracerMaterials();
 
             var rootGo = new GameObject("Pool_Tracers");
             rootGo.transform.SetParent(transform, false);
@@ -329,31 +357,48 @@ namespace Corehold.Systems
             _tracerPool = new CoreholdPool<VfxTracer>(_tracerPrefab, _tracerRoot, Mathf.Max(0, tracerPrewarm));
         }
 
-        private void EnsureTracerMaterial()
+        /// <summary>
+        /// Build the two shared tracer materials from the purpose-built
+        /// <c>Corehold/VFXTracer</c> shader when they were not authored as assets.
+        ///
+        /// Two blend models on ONE shader:
+        ///   • CORE — ADDITIVE (SrcAlpha, One): the thin white-hot inner streak.
+        ///     Additive is exactly what a glowing hot line should do; Bloom smears
+        ///     its brightness into the halo of light.
+        ///   • HALO — ALPHA-BLEND (SrcAlpha, OneMinusSrcAlpha): the wide coloured
+        ///     outer streak. Alpha-blend REPLACES the background toward the tracer's
+        ///     hue instead of adding to it, so a saturated red/blue stays red/blue
+        ///     over the bright desert instead of washing to white the way a single
+        ///     additive line does.
+        ///
+        /// We build both from the SAME shader (which exposes _SrcBlend/_DstBlend as
+        /// real material properties) so the blend state is reliable — unlike the old
+        /// approach of SetFloat-ing _Surface/_Blend on a URP shader, which does not
+        /// actually change the render state at runtime.
+        /// </summary>
+        private void EnsureTracerMaterials()
         {
-            if (tracerMaterial != null)
-                return;
+            Shader shader = Shader.Find("Corehold/VFXTracer");
 
-            // One shared additive material. In URP the built-in legacy particle
-            // shaders do NOT render (they show as invisible/magenta), so we MUST use
-            // a URP-native shader. URP Particles/Unlit with additive blend renders
-            // the LineRenderer vertex/gradient colour and, being unlit + HDR, glows
-            // through Bloom.
-            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-            if (shader == null)
-                shader = Shader.Find("Sprites/Default"); // URP-compatible fallback
+            if (tracerCoreMaterial == null)
+            {
+                Shader s = shader != null ? shader : Shader.Find("Sprites/Default");
+                tracerCoreMaterial = new Material(s) { name = "VFX_Tracer_Core_Additive (shared)" };
+                if (tracerCoreMaterial.HasProperty("_SrcBlend")) tracerCoreMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (tracerCoreMaterial.HasProperty("_DstBlend")) tracerCoreMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                tracerCoreMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            }
 
-            tracerMaterial = new Material(shader) { name = "VFX_Tracer_Additive (shared)" };
-
-            // Configure additive blending (URP path).
-            if (tracerMaterial.HasProperty("_Surface")) tracerMaterial.SetFloat("_Surface", 1f); // Transparent
-            if (tracerMaterial.HasProperty("_Blend")) tracerMaterial.SetFloat("_Blend", 1f);      // Additive
-            if (tracerMaterial.HasProperty("_SrcBlend")) tracerMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            if (tracerMaterial.HasProperty("_DstBlend")) tracerMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
-            if (tracerMaterial.HasProperty("_ZWrite")) tracerMaterial.SetFloat("_ZWrite", 0f);
-            // Ensure vertex colours from the LineRenderer gradient are applied.
-            tracerMaterial.EnableKeyword("_ALPHAPREMULTIPLY_ON");
-            tracerMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            if (tracerHaloMaterial == null)
+            {
+                Shader s = shader != null ? shader : Shader.Find("Sprites/Default");
+                tracerHaloMaterial = new Material(s) { name = "VFX_Tracer_Halo_AlphaBlend (shared)" };
+                if (tracerHaloMaterial.HasProperty("_SrcBlend")) tracerHaloMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (tracerHaloMaterial.HasProperty("_DstBlend")) tracerHaloMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                // Draw the halo just BEFORE the additive core so the bright core
+                // sits visually on top of the coloured halo.
+                tracerHaloMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent - 1;
+            }
         }
 
         private VfxTracer BuildTracerPrefab()
@@ -362,9 +407,26 @@ namespace Corehold.Systems
             go.transform.SetParent(_tracerRoot, false);
             go.SetActive(false);
 
+            // Wide coloured HALO line (child, drawn first / underneath).
+            var haloGo = new GameObject("Halo");
+            haloGo.transform.SetParent(go.transform, false);
+            LineRenderer halo = ConfigureTracerLine(haloGo, tracerHaloMaterial, friendlyTracerWidth * tracerHaloWidthScale);
+
+            // Thin white-hot CORE line (child, drawn second / on top).
+            var coreGo = new GameObject("Core");
+            coreGo.transform.SetParent(go.transform, false);
+            LineRenderer core = ConfigureTracerLine(coreGo, tracerCoreMaterial, friendlyTracerWidth);
+
+            var tracer = go.AddComponent<VfxTracer>();
+            tracer.Configure(core, halo, tracerHaloWidthScale, tracerCoreGlow);
+            return tracer;
+        }
+
+        private static LineRenderer ConfigureTracerLine(GameObject go, Material material, float width)
+        {
             var lr = go.AddComponent<LineRenderer>();
             lr.positionCount = 2;
-            lr.widthMultiplier = tracerWidth;
+            lr.widthMultiplier = width; // per-shot Play() overrides this
             lr.numCapVertices = 2;
             lr.numCornerVertices = 0;
             lr.useWorldSpace = true;
@@ -374,9 +436,8 @@ namespace Corehold.Systems
             lr.receiveShadows = false;
             lr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
             lr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            lr.sharedMaterial = tracerMaterial;
-
-            return go.AddComponent<VfxTracer>();
+            lr.sharedMaterial = material;
+            return lr;
         }
 
         // ================================================================================
@@ -658,31 +719,54 @@ namespace Corehold.Systems
         // ---- Hitscan tracer (Autocannon + Arc Node) ----
 
         /// <summary>
-        /// Draw a pooled hitscan tracer between two world points with the default
-        /// colour (GDD §11). The segment fades over two frames and returns itself to
-        /// the pool. No-op if the tracer pool is not built.
+        /// Draw a pooled FRIENDLY (tower) hitscan tracer between two world points
+        /// (GDD §11). The segment fades and returns itself to the pool. No-op if the
+        /// tracer pool is not built.
         /// </summary>
-        public void DrawTracer(Vector3 from, Vector3 to) => DrawTracer(from, to, defaultTracerColor);
+        public void DrawTracer(Vector3 from, Vector3 to) =>
+            DrawTracer(from, to, TracerFaction.Friendly, 1f);
 
-        /// <summary>Draw a pooled hitscan tracer between two world points with an explicit colour.</summary>
-        public void DrawTracer(Vector3 from, Vector3 to, Color color)
+        /// <summary>
+        /// Draw a pooled hitscan tracer for a specific FACTION. Each faction supplies
+        /// its OWN colour, glow (HDR brightness) and line width, so tower and enemy
+        /// fire read distinctly (cool blue vs. hot red). <paramref name="alpha"/>
+        /// scales the fade envelope — pass 0 to honour "no tracer" authoring.
+        /// </summary>
+        public void DrawTracer(Vector3 from, Vector3 to, TracerFaction faction, float alpha = 1f)
         {
-            if (_tracerPool == null)
+            if (_tracerPool == null || alpha <= 0f)
                 return;
 
             VfxTracer tracer = _tracerPool.Get();
             if (tracer == null)
                 return;
 
-            // Push the author-authored colour further into HDR so it blooms brighter.
-            // The RGB carries the glow (additive material), so we scale RGB only and
-            // leave alpha (the fade envelope) untouched. Applied to EVERY tracer, so
-            // enemy and tower bolts brighten together from one control.
-            Color glow = tracerGlow == 1f
-                ? color
-                : new Color(color.r * tracerGlow, color.g * tracerGlow, color.b * tracerGlow, color.a);
+            Color color;
+            float glowMul;
+            float width;
+            if (faction == TracerFaction.Hostile)
+            {
+                color = hostileTracerColor;
+                glowMul = hostileTracerGlow;
+                width = hostileTracerWidth;
+            }
+            else
+            {
+                color = friendlyTracerColor;
+                glowMul = friendlyTracerGlow;
+                width = friendlyTracerWidth;
+            }
 
-            tracer.Play(_tracerPool, from, to, glow, tracerWidth);
+            // The faction colour drives the coloured HALO (alpha-blended, hue kept).
+            // Its glow multiplier stays MODERATE on purpose — pushing every channel
+            // bright is exactly what made the old single additive line wash to white
+            // under ACES/Neutral tonemapping. The white-hot CORE (built inside the
+            // tracer at tracerCoreGlow) supplies the Bloom glow instead. The fade
+            // envelope rides on alpha, scaled by the caller's alpha so a mount
+            // authored with alpha 0 draws nothing.
+            Color haloColor = new Color(color.r * glowMul, color.g * glowMul, color.b * glowMul, color.a * alpha);
+
+            tracer.Play(_tracerPool, from, to, haloColor, width);
         }
 
         // ================================================================================
@@ -894,7 +978,6 @@ namespace Corehold.Systems
     /// lingers. Pooled — no Instantiate/Destroy on the firing path.
     /// </summary>
     [DisallowMultipleComponent]
-    [RequireComponent(typeof(LineRenderer))]
     public class VfxTracer : MonoBehaviour
     {
         // Time-based lifetime so the bolt reads as a visible streak regardless of
@@ -902,63 +985,152 @@ namespace Corehold.Systems
         private const float LifeSeconds = 0.2f;
         private float _lifeLeft;
 
-        private LineRenderer _line;
         private CoreholdPool<VfxTracer> _pool;
-        private Gradient _gradient;
-        private GradientColorKey[] _colorKeys;
-        private GradientAlphaKey[] _alphaKeys;
-        private Color _color = Color.white;
+
+        // A tracer is drawn as TWO overlaid lines (GDD §11 colour-language):
+        //   • _halo — wide, saturated, ALPHA-BLENDED. Carries the faction hue and
+        //     survives tonemapping because alpha-blend replaces (not adds) toward
+        //     the colour, so it never washes to white over the bright desert.
+        //   • _core — thin, near-white, ADDITIVE and HDR-bright. This is what Bloom
+        //     smears into "glow". Sitting inside the coloured halo, the eye reads a
+        //     glowing COLOURED bolt.
+        //
+        // These MUST be [SerializeField] (not plain private) because the tracer is
+        // POOLED: CoreholdPool clones the prefab with Object.Instantiate, and only
+        // serialized fields survive that clone. When they were plain private fields,
+        // Configure() set them on the PREFAB only, every clone got null, Play()
+        // no-opped and NOTHING rendered in play mode. Instantiate rewires serialized
+        // references to the cloned child hierarchy automatically.
+        [SerializeField] private LineRenderer _core;
+        [SerializeField] private LineRenderer _halo;
+        [SerializeField] private float _haloWidthScale = 3f;
+        [SerializeField] private float _coreGlow = 1.6f;
+
+        // Cached gradients / key arrays (one pair per line) so fading allocates nothing.
+        private Gradient _coreGradient;
+        private Gradient _haloGradient;
+        private GradientColorKey[] _coreColorKeys;
+        private GradientAlphaKey[] _coreAlphaKeys;
+        private GradientColorKey[] _haloColorKeys;
+        private GradientAlphaKey[] _haloAlphaKeys;
+
+        private Color _coreColor = Color.white;
+        private Color _haloColor = Color.white;
         private float _baseAlpha = 1f;
+        private float _baseWidth = 0.08f;
+
+        /// <summary>
+        /// Wire up the two child <see cref="LineRenderer"/>s built by the director.
+        /// Called once when the pooled prefab is constructed.
+        /// </summary>
+        public void Configure(LineRenderer core, LineRenderer halo, float haloWidthScale, float coreGlow)
+        {
+            _core = core;
+            _halo = halo;
+            _haloWidthScale = Mathf.Max(1f, haloWidthScale);
+            _coreGlow = Mathf.Max(0f, coreGlow);
+            EnsureInit();
+        }
 
         private void EnsureInit()
         {
-            if (_line == null)
-                _line = GetComponent<LineRenderer>();
-
-            if (_gradient == null)
+            // Safety net for pooled clones: if the serialized child references did
+            // not survive (e.g. a hand-built prefab), resolve them from the child
+            // hierarchy by name so a clone is never left with no lines to draw.
+            if (_halo == null || _core == null)
             {
-                _colorKeys = new[]
+                var lines = GetComponentsInChildren<LineRenderer>(true);
+                foreach (var lr in lines)
                 {
-                    new GradientColorKey(Color.white, 0f),
-                    new GradientColorKey(Color.white, 1f),
-                };
-                _alphaKeys = new[]
+                    if (_halo == null && lr.gameObject.name == "Halo") _halo = lr;
+                    else if (_core == null && lr.gameObject.name == "Core") _core = lr;
+                }
+                // Last-resort: assign by order if names differ.
+                if ((_halo == null || _core == null) && lines.Length >= 2)
                 {
-                    new GradientAlphaKey(1f, 0f),
-                    new GradientAlphaKey(1f, 1f),
-                };
-                _gradient = new Gradient();
+                    _halo ??= lines[0];
+                    _core ??= lines[1];
+                }
+            }
+
+            if (_coreGradient == null)
+            {
+                _coreColorKeys = new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) };
+                _coreAlphaKeys = new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) };
+                _coreGradient = new Gradient();
+            }
+            if (_haloGradient == null)
+            {
+                _haloColorKeys = new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) };
+                _haloAlphaKeys = new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) };
+                _haloGradient = new Gradient();
             }
         }
 
-        /// <summary>Draw between two points at a colour and width, then fade over two frames.</summary>
-        public void Play(CoreholdPool<VfxTracer> pool, Vector3 from, Vector3 to, Color color, float width)
+        /// <summary>
+        /// Draw between two points using the coloured halo hue and base width, then
+        /// fade out over the tracer lifetime. The white-hot core is derived from the
+        /// halo hue (desaturated toward white) so a single authored colour produces
+        /// both the hue and its matching glow.
+        /// </summary>
+        public void Play(CoreholdPool<VfxTracer> pool, Vector3 from, Vector3 to, Color haloColor, float width)
         {
             EnsureInit();
             _pool = pool;
+            _baseWidth = width;
 
             transform.position = Vector3.zero;
-            _line.useWorldSpace = true;
-            _line.positionCount = 2;
-            _line.widthMultiplier = width;
-            _line.SetPosition(0, from);
-            _line.SetPosition(1, to);
 
-            _color = color;
-            _baseAlpha = color.a <= 0f ? 1f : color.a;
+            // The halo carries the saturated faction hue at moderate brightness.
+            _haloColor = new Color(haloColor.r, haloColor.g, haloColor.b, 1f);
+
+            // The core is the SAME hue pushed toward white and up into HDR so Bloom
+            // catches it. Mixing 65% toward white keeps a hint of the faction colour
+            // in the hot centre while still reading as a bright glowing filament.
+            Color hot = Color.Lerp(new Color(haloColor.r, haloColor.g, haloColor.b, 1f), Color.white, 0.65f);
+            _coreColor = new Color(hot.r * _coreGlow, hot.g * _coreGlow, hot.b * _coreGlow, 1f);
+
+            _baseAlpha = haloColor.a <= 0f ? 1f : haloColor.a;
+
+            SetLine(_halo, from, to, _baseWidth * _haloWidthScale);
+            SetLine(_core, from, to, _baseWidth);
+
             ApplyAlpha(_baseAlpha);
 
             _lifeLeft = LifeSeconds;
         }
 
+        private static void SetLine(LineRenderer lr, Vector3 from, Vector3 to, float width)
+        {
+            if (lr == null)
+                return;
+            lr.useWorldSpace = true;
+            lr.positionCount = 2;
+            lr.widthMultiplier = width;
+            lr.SetPosition(0, from);
+            lr.SetPosition(1, to);
+        }
+
         private void ApplyAlpha(float alpha)
         {
-            _colorKeys[0].color = _color;
-            _colorKeys[1].color = _color;
-            _alphaKeys[0].alpha = alpha;
-            _alphaKeys[1].alpha = alpha;
-            _gradient.SetKeys(_colorKeys, _alphaKeys);
-            _line.colorGradient = _gradient;
+            if (_halo != null)
+            {
+                _haloColorKeys[0].color = _haloColor;
+                _haloColorKeys[1].color = _haloColor;
+                _haloAlphaKeys[0].alpha = alpha;
+                _haloAlphaKeys[1].alpha = alpha;
+                _haloGradient.SetKeys(_haloColorKeys, _haloAlphaKeys);
+                _halo.colorGradient = _haloGradient;
+            }
+            if (_core != null)
+            {
+                _coreColorKeys[0].color = _coreColor;
+                _coreColorKeys[1].color = _coreColor;
+                _coreAlphaKeys[0].alpha = alpha;
+                _coreAlphaKeys[1].alpha = alpha;
+                _coreGradient.SetKeys(_coreColorKeys, _coreAlphaKeys);
+                _core.colorGradient = _coreGradient;
+            }
         }
 
         private void LateUpdate()

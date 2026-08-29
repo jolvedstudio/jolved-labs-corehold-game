@@ -76,13 +76,18 @@ public static class SetupVFXDirector
         }, 6),
     };
 
-    // ---- Tracer configuration, as tuned in the shipped Game.unity ----------
-    // Read out of the scene, not invented: thin (0.15 m, not 0.35) and an
-    // intensely HDR cyan (not the warm orange the class defaulted to).
-    private const float TracerWidth = 0.15f;
-    private const float TracerGlow = 1f;
+    // ---- Tracer configuration -----------------------------------------------
+    // Per FACTION now: friendly (tower) fire is a cool blue, hostile (enemy) fire
+    // a hot red — each with its own width/glow. Moderate HDR so the hue survives
+    // ACES tonemapping and the alpha-blended material keeps the colour over the
+    // bright desert ground (a hot additive value washed enemy red to white).
     private const int TracerPrewarm = 8;
-    private static readonly Color DefaultTracerColor = new Color(0f, 207.88327f, 705.2075f, 1f);
+    private const float FriendlyTracerWidth = 0.08f;
+    private const float FriendlyTracerGlow = 1f;
+    private static readonly Color FriendlyTracerColor = new Color(0.05f, 0.35f, 3.0f, 1f);
+    private const float HostileTracerWidth = 0.08f;
+    private const float HostileTracerGlow = 1f;
+    private static readonly Color HostileTracerColor = new Color(3.0f, 0.05f, 0.03f, 1f);
 
     [MenuItem("Tools/COREHOLD/Scene Setup/VFX Director", false, 42)]
     public static void Setup()
@@ -158,10 +163,13 @@ public static class SetupVFXDirector
         // tracers where the shipped map fires thin cyan ones. A setup tool that
         // owns PART of a component leaves the rest free to drift, so it now
         // writes the whole configuration.
-        WriteFloat(so, "tracerWidth", TracerWidth);
-        WriteFloat(so, "tracerGlow", TracerGlow);
         WriteInt(so, "tracerPrewarm", TracerPrewarm);
-        WriteColor(so, "defaultTracerColor", DefaultTracerColor);
+        WriteFloat(so, "friendlyTracerWidth", FriendlyTracerWidth);
+        WriteFloat(so, "friendlyTracerGlow", FriendlyTracerGlow);
+        WriteColor(so, "friendlyTracerColor", FriendlyTracerColor);
+        WriteFloat(so, "hostileTracerWidth", HostileTracerWidth);
+        WriteFloat(so, "hostileTracerGlow", HostileTracerGlow);
+        WriteColor(so, "hostileTracerColor", HostileTracerColor);
 
         so.ApplyModifiedPropertiesWithoutUndo();
         EditorUtility.SetDirty(director);
@@ -175,7 +183,7 @@ public static class SetupVFXDirector
             Debug.LogError("[COREHOLD] VFXDirector setup: missing prefabs:\n- " + string.Join("\n- ", missing));
         else
             Debug.Log($"[COREHOLD] VFXDirector setup complete (code map): {Map.Length} effect prefabs assigned, " +
-                      $"tracer width {TracerWidth} colour {DefaultTracerColor}.");
+                      $"friendly {FriendlyTracerColor} / hostile {HostileTracerColor} tracers.");
     }
 
     /// <summary>
@@ -212,10 +220,13 @@ public static class SetupVFXDirector
         }
 
         config.effects = entries.ToArray();
-        config.tracerWidth = TracerWidth;
-        config.tracerGlow = TracerGlow;
         config.tracerPrewarm = TracerPrewarm;
-        config.defaultTracerColor = DefaultTracerColor;
+        config.friendlyTracerWidth = FriendlyTracerWidth;
+        config.friendlyTracerGlow = FriendlyTracerGlow;
+        config.friendlyTracerColor = FriendlyTracerColor;
+        config.hostileTracerWidth = HostileTracerWidth;
+        config.hostileTracerGlow = HostileTracerGlow;
+        config.hostileTracerColor = HostileTracerColor;
         EditorUtility.SetDirty(config);
         AssetDatabase.SaveAssets();
 

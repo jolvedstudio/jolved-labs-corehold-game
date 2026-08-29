@@ -25,13 +25,13 @@ MonoBehaviour:
   overrideGroundTint: 1
   groundTint: {r: 1, g: 0.94, b: 0.82, a: 1}
   precipitation: 2
-  ambientLoop: {fileID: 8300000, guid: a0cc576982ec97743b72733d6959880d, type: 3}
+  ambientLoop: {fileID: 8300000, guid: 95ad359a219f31f46a5c495c69b0b38a, type: 3}
   ambientVolume: 0.32
   precipitationPrefab: {fileID: 0}
   precipitationRate: 180
   fallSpeed: 1.6
-  particleSize: 0.019
-  streakLength: 18
+  particleSize: 0.065
+  streakLength: 20.5
   particleColor: {r: 0.85, g: 0.76, b: 0.6, a: 0.16}
   overridePostProfile: 1
   postProfile: {fileID: 11400000, guid: 9eb25121f2872f947970796783f326ca, type: 2}

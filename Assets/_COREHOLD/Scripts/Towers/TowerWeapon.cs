@@ -488,16 +488,24 @@ namespace Corehold.Towers
         // (the shipped default's high green+blue is why it read cyan-white). Keeping
         // green/red almost off lets the line stay blue even where it saturates, while a
         // high blue value keeps it bright enough to bloom.
-        private static readonly Color FriendlyTracerColor = new Color(0.0f, 0.25f, 7.0f, 1f);
+        private static readonly Color FriendlyTracerColor = new Color(0.05f, 0.35f, 3.0f, 1f);
 
         private void DrawTracer(Vector3 from, Vector3 to, Color color)
         {
-            Color faction = FriendlyTracerColor;
-            faction.a = color.a; // honour "no tracer" (alpha 0) authoring
             if (VFXDirector.Instance != null)
-                VFXDirector.Instance.DrawTracer(from, to, faction);
+                // Friendly tracer identity (colour / glow / width) lives on the
+                // VFXDirector's "Friendly tracer (tower fire)" group. Pass the
+                // per-mount alpha through so a mount authored with alpha 0 draws
+                // nothing.
+                VFXDirector.Instance.DrawTracer(from, to, VFXDirector.TracerFaction.Friendly, color.a);
             else
+            {
+                // No director in the scene (e.g. a bare test): fall back to the local
+                // chain tracer using the authored friendly colour.
+                Color faction = FriendlyTracerColor;
+                faction.a = color.a;
                 ChainTracer.Draw(from, to, faction);
+            }
         }
 
         /// <summary>

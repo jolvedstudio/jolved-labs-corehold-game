@@ -36,15 +36,10 @@ namespace Corehold.Enemies
         [HideInInspector] [SerializeField] private Transform muzzle;
         [HideInInspector] [SerializeField] private Color tracerColor = new Color(4f, 1.2f, 0.3f, 1f);
 
-        // Faction tracer identity (VFX colour-language): all hostile enemy fire reads
-        // as glowing red. HDR-bright so it blooms through the scene's Bloom. Kept clear
-        // of the friendly blue used by tower fire.
-        //
-        // NEARLY PURE single-channel: a high red with green/blue near zero. A single
-        // clipped channel keeps its hue; two clipped channels sum to white. Keeping
-        // green/blue almost off lets the line stay red even where it saturates, while a
-        // high red value keeps it bright enough to bloom.
-        private static readonly Color HostileTracerColor = new Color(7.0f, 0.06f, 0.03f, 1f);
+        // Hostile tracer identity (colour / glow / width) now lives on the VFXDirector
+        // under its "Hostile tracer (enemy fire)" group, so it is authored per-scene
+        // and independent of friendly (tower) fire. This weapon only decides WHEN to
+        // fire and passes the per-mount alpha through (0 = no tracer for that mount).
 
         private Enemy _enemy;
 
@@ -202,11 +197,12 @@ namespace Corehold.Enemies
             if (Corehold.Systems.VFXDirector.Instance != null)
             {
                 // Faction tracer identity (VFX colour-language): ALL hostile enemy fire
-                // reads as glowing red, regardless of the per-mount authored colour.
-                // Preserve the authored alpha so a mount with alpha 0 draws no tracer.
-                Color hostile = HostileTracerColor;
-                hostile.a = w.tracerColor.a;
-                Corehold.Systems.VFXDirector.Instance.DrawTracer(origin, targetPoint, hostile);
+                // uses the director's HOSTILE tracer settings (its own colour, glow and
+                // width), so enemy fire reads distinctly from tower fire. The per-mount
+                // authored alpha is passed through so a mount with alpha 0 draws no
+                // tracer.
+                Corehold.Systems.VFXDirector.Instance.DrawTracer(
+                    origin, targetPoint, Corehold.Systems.VFXDirector.TracerFaction.Hostile, w.tracerColor.a);
                 Corehold.Systems.VFXDirector.Instance.PlayImpact(targetPoint);
             }
 

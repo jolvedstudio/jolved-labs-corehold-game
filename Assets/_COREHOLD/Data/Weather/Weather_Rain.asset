@@ -37,4 +37,4 @@ MonoBehaviour:
   postProfile: {fileID: 11400000, guid: e2c986f34f95dd14592568e6f8e46f73, type: 2}
   postWeight: 1
   windDirection: {x: 0.35, y: 0, z: -1}
-  windStrength: 6.81
+  windStrength: 3.5

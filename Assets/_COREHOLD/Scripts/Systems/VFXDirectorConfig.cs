@@ -36,21 +36,45 @@ namespace Corehold.Systems
         public Entry[] effects = Array.Empty<Entry>();
 
         [Header("Hitscan tracer (Autocannon + Arc Node)")]
-        [Tooltip("Shared additive material for the tracer LineRenderer. When null the VFXDirector builds a URP additive material at runtime.")]
-        public Material tracerMaterial;
+        [Tooltip("ADDITIVE material for the tracer's white-hot core line. When null the VFXDirector builds one at runtime from the Corehold/VFXTracer shader.")]
+        public Material tracerCoreMaterial;
 
-        [Tooltip("Tracer line width in metres.")]
-        public float tracerWidth = 0.15f;
+        [Tooltip("ALPHA-BLEND material for the tracer's coloured halo line (hue-preserving). When null the VFXDirector builds one at runtime from the Corehold/VFXTracer shader.")]
+        public Material tracerHaloMaterial;
+
+        [Min(1f)]
+        [Tooltip("How much wider the coloured halo line is than the core line.")]
+        public float tracerHaloWidthScale = 3f;
 
         [Min(0f)]
-        [Tooltip("Brightness multiplier applied to every tracer's HDR colour. 1 = author-authored colour unchanged; higher pushes the colour further into HDR so it blooms more.")]
-        public float tracerGlow = 1f;
+        [Tooltip("HDR brightness of the white-hot core (Bloom glow). Keep moderate so the halo hue survives tonemapping.")]
+        public float tracerCoreGlow = 1.6f;
 
-        [Tooltip("Copies of the tracer prewarmed into its pool.")]
+        [Tooltip("Copies of the tracer prewarmed into its pool (shared by both factions).")]
         public int tracerPrewarm = 8;
 
+        [Header("Friendly tracer (tower fire)")]
+        [Tooltip("Friendly (tower) tracer line width in metres.")]
+        public float friendlyTracerWidth = 0.08f;
+
+        [Min(0f)]
+        [Tooltip("Brightness multiplier applied to the friendly tracer's HDR colour. Keep moderate so the hue survives ACES tonemapping.")]
+        public float friendlyTracerGlow = 1f;
+
         [ColorUsage(true, true)]
-        [Tooltip("Default tracer colour (additive HDR).")]
-        public Color defaultTracerColor = new Color(0f, 207.88327f, 705.2075f, 1f);
+        [Tooltip("Friendly (tower) tracer colour — cool blue faction identity (halo hue).")]
+        public Color friendlyTracerColor = new Color(0.15f, 0.55f, 1.8f, 1f);
+
+        [Header("Hostile tracer (enemy fire)")]
+        [Tooltip("Hostile (enemy) tracer line width in metres.")]
+        public float hostileTracerWidth = 0.08f;
+
+        [Min(0f)]
+        [Tooltip("Brightness multiplier applied to the hostile tracer's HDR colour. Keep moderate so the hue survives ACES tonemapping.")]
+        public float hostileTracerGlow = 1f;
+
+        [ColorUsage(true, true)]
+        [Tooltip("Hostile (enemy) tracer colour — hot red faction identity.")]
+        public Color hostileTracerColor = new Color(3.0f, 0.05f, 0.03f, 1f);
     }
 }

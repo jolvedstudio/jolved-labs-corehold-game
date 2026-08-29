@@ -61,9 +61,23 @@ public static class LookStage
             notes.Add("no camera found — post skipped");
         }
 
-        VolumeProfile profile = ctx.theme != null && ctx.theme.postProfile != null
-            ? ctx.theme.postProfile
-            : EnsureSharedProfile();
+        // The BASE volume profile must own the scene's Bloom + Tonemapping (the
+        // tracer glow lives here). A theme MAY supply its own full base profile,
+        // but a weather GRADE profile (colour adjustments only, no Bloom/Tonemapping)
+        // must never be used as the base — doing so leaves the scene with no glow.
+        // Guard against that misconfiguration: accept theme.postProfile only if it
+        // actually is a base profile, else fall back to the canonical shared one.
+        VolumeProfile profile;
+        if (ctx.theme != null && ctx.theme.postProfile != null && IsBaseProfile(ctx.theme.postProfile))
+        {
+            profile = ctx.theme.postProfile;
+        }
+        else
+        {
+            if (ctx.theme != null && ctx.theme.postProfile != null)
+                notes.Add($"theme profile '{ctx.theme.postProfile.name}' has no Bloom/Tonemapping — treating as a weather grade and using the shared base instead");
+            profile = EnsureSharedProfile();
+        }
         Volume volume = SceneQuery.FirstInActiveScene<Volume>();
         if (volume == null)
         {
@@ -75,9 +89,7 @@ public static class LookStage
         volume.isGlobal = true;
         volume.priority = 1f; // BASE layer — the weather applier's grade volume sits above
         volume.sharedProfile = profile;
-        notes.Add(ctx.theme != null && ctx.theme.postProfile != null
-            ? $"theme profile '{profile.name}'"
-            : "shared ACES/bloom/vignette profile");
+        notes.Add($"base volume profile '{profile.name}'");
 
         // ---- 2. roadways ----------------------------------------------------
         Color road = ctx.theme != null ? ctx.theme.roadwayColor : DefaultRoadColor;
@@ -154,6 +166,18 @@ public static class LookStage
     /// (created only when absent) and only the M-d additions — vignette and a
     /// light grade — are ensured on top. One asset serves every scene.
     /// </summary>
+    /// <summary>
+    /// A profile qualifies as a scene BASE (rather than a weather grade) when it
+    /// carries Bloom and/or Tonemapping — the components that define the tracer
+    /// glow. Weather grades declare only colour adjustments / white balance /
+    /// vignette, so they fail this test and are never accepted as the base.
+    /// </summary>
+    private static bool IsBaseProfile(VolumeProfile profile)
+    {
+        return profile != null &&
+               (profile.Has<Bloom>() || profile.Has<Tonemapping>());
+    }
+
     private static VolumeProfile EnsureSharedProfile()
     {
         var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(SharedProfilePath);

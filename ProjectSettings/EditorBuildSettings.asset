@@ -119,6 +119,12 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s269973.unity
     guid: e1da4a63fa07e0e4e9a7cbf0945d79c8
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s9488.unity
+    guid: cd70b2b84fe348c48a410962cad06fe3
+  - enabled: 1
+    path: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s846991.unity
+    guid: f547feb40528eb944a6713351f7c96d7
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   m_UseUCBPForAssetBundles: 0
