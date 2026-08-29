@@ -680,33 +680,75 @@ namespace Corehold.Systems
             // intuition suggests.
             main.startSize = p.particleSize;
             main.startColor = p.particleColor;
-            // Lifetime must cover the TRAVERSE, not the screen height: the camera
-            // is pitched, so world-down crosses screen-up at fallSpeed·up.y (≈0.79
-            // at 38°), and the spawn box spreads particles up to 0.3·height DEEPER
-            // than the 12 m layer, where the same screen height spans more metres.
-            // `height / fallSpeed` ignored both, and rain died ~70% down the view.
-            float upShare = Mathf.Max(0.35f, cam.transform.up.y);
-            float span = height * ((12f + height * 0.3f) / 12f);
-            main.startLifetime = (span / upShare + 2f) / Mathf.Max(0.1f, p.fallSpeed);
-            main.maxParticles = Mathf.CeilToInt(p.precipitationRate * main.startLifetime.constant) + 32;
             main.gravityModifier = 0f;
 
-            var emission = ps.emission;
-            emission.enabled = true;
-            emission.rateOverTime = p.precipitationRate;
-
-            var shape = ps.shape;
-            shape.enabled = true;
-            shape.shapeType = ParticleSystemShapeType.Box;
-            shape.scale = new Vector3(width, 0.1f, height * 0.6f);
-            shape.position = new Vector3(0f, height * 0.5f, 0f);
-
-            // Fall + wind drift, expressed in the camera's local frame.
+            // MOTION FIRST — it decides where the emitter belongs. Fall + wind,
+            // resolved into the camera's frame (the sheet is camera-local).
             Vector3 wind = p.windDirection.sqrMagnitude > 0.0001f
                 ? p.windDirection.normalized * p.windStrength
                 : Vector3.zero;
             Vector3 worldVel = Vector3.down * p.fallSpeed + wind;
             Vector3 localVel = cam.transform.InverseTransformDirection(worldVel);
+
+            // Time in frame on each screen axis. The spawn box reaches 0.3·height
+            // DEEPER than the 12 m layer, where the same screen height spans more
+            // metres — hence the stretched span. Both speeds are the REAL ones
+            // (fall projected onto screen-up, plus wind), not fallSpeed alone.
+            float span = height * ((12f + height * 0.3f) / 12f);
+            float downSpeed = Mathf.Max(0f, -localVel.y);
+            float sideSpeed = Mathf.Abs(localVel.x);
+            float tDown = downSpeed > 0.05f ? span / downSpeed : float.PositiveInfinity;
+            float tSide = sideSpeed > 0.05f ? width / sideSpeed : float.PositiveInfinity;
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Box;
+
+            if (tDown <= 0.6f * tSide)
+            {
+                // FALLS through the frame (rain): a thin slab along the top edge,
+                // raining down. Streaks read best entering from above, and the
+                // crosswind is far too slow to blow them out on the way.
+                shape.scale = new Vector3(width, 0.1f, height * 0.6f);
+                shape.position = new Vector3(0f, height * 0.5f, 0f);
+                main.startLifetime = tDown + 2f / Mathf.Max(0.1f, downSpeed);
+            }
+            else
+            {
+                // DRIFTS across the frame (dust on a crosswind). The top slab is
+                // WRONG here, and was the bug: dust's wind (5 m/s, mostly sideways)
+                // beats its fall (1.6 m/s), so motes spawned along the top edge blew
+                // out of the SIDE before they could cross the view — the sheet only
+                // ever painted the upper strip, at every camera pitch. Fill the
+                // whole visible volume instead: motes exist wherever the player
+                // looks, whatever direction the wind takes them.
+                shape.scale = new Vector3(width * 1.1f, height * 1.15f, height * 0.6f);
+                shape.position = Vector3.zero;
+                main.startLifetime = Mathf.Clamp(Mathf.Min(tDown, tSide) * 0.9f, 0.5f, 20f);
+
+                // Volume spawning means motes appear INSIDE the frame, so fade them
+                // in and out instead of popping.
+                var col = ps.colorOverLifetime;
+                col.enabled = true;
+                var grad = new Gradient();
+                grad.SetKeys(
+                    new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                    new[]
+                    {
+                        new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.15f),
+                        new GradientAlphaKey(1f, 0.85f), new GradientAlphaKey(0f, 1f)
+                    });
+                col.color = new ParticleSystem.MinMaxGradient(grad);
+            }
+
+            // Looping + prewarm so the layer is already full on the first frame
+            // (a volume that fills in over its lifetime reads as weather fading in).
+            main.prewarm = true;
+            main.maxParticles = Mathf.CeilToInt(p.precipitationRate * main.startLifetime.constant) + 32;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = p.precipitationRate;
 
             var vel = ps.velocityOverLifetime;
             vel.enabled = true;
