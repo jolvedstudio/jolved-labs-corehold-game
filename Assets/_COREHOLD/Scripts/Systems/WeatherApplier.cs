@@ -712,6 +712,12 @@ namespace Corehold.Systems
                 shape.scale = new Vector3(width, 0.1f, height * 0.6f);
                 shape.position = new Vector3(0f, height * 0.5f, 0f);
                 main.startLifetime = tDown + 2f / Mathf.Max(0.1f, downSpeed);
+
+                // The sheet is ONE reused system across presets, so the drift
+                // branch's fade has to be cleared here or a dust→rain change
+                // would leave rain fading in and out mid-fall.
+                var fade = ps.colorOverLifetime;
+                fade.enabled = false;
             }
             else
             {
