@@ -284,6 +284,12 @@ namespace Corehold.Systems
             if (next.overrideGroundTint)
                 TintTargets(next.groundTint);
 
+            // Surface response, written UNCONDITIONALLY (zeros included): this
+            // is what makes clearing weather restore dry ground instead of
+            // leaving the previous preset's snow lying on a sunny map.
+            ApplySurfaceResponse(next.groundWetness, next.groundSnow, next.snowColor);
+            PropSnow.Apply(next.groundSnow, next.groundWetness, next.snowColor);
+
             // sharedProfile, not profile: assigning the asset directly avoids
             // instantiating a runtime copy per apply (the same reason ground tinting
             // goes through a property block rather than renderer.material).
@@ -342,6 +348,40 @@ namespace Corehold.Systems
                 r.GetPropertyBlock(_block);
                 _block.SetColor(BaseColorId, composed);
                 _block.SetColor(ColorId, composed);
+                r.SetPropertyBlock(_block);
+            }
+        }
+
+        private static readonly int SnowAmountId = Shader.PropertyToID("_SnowAmount");
+        private static readonly int SnowColorId = Shader.PropertyToID("_SnowColor");
+        private static readonly int WetAmountId = Shader.PropertyToID("_WetAmount");
+
+        /// <summary>
+        /// Push the surface response — wet and snow — onto the ground renderers
+        /// through the SAME property block the tint uses, so a renderer keeps
+        /// its generator-written tiling and its weather tint at once.
+        ///
+        /// Only the terrain shader reads these properties; on any other ground
+        /// material they are inert, which is the desired failure: a theme whose
+        /// ground is a plain URP Lit plane loses the effect rather than the
+        /// scene. Always written (including zeros) so CLEARING weather restores
+        /// dry ground rather than leaving the last preset's snow lying there.
+        /// </summary>
+        private void ApplySurfaceResponse(float wet, float snow, Color snowColor)
+        {
+            ResolveTargets();
+            if (_block == null)
+                _block = new MaterialPropertyBlock();
+
+            for (int i = 0; i < _resolvedTargets.Count; i++)
+            {
+                Renderer r = _resolvedTargets[i];
+                if (r == null)
+                    continue;
+                r.GetPropertyBlock(_block);
+                _block.SetFloat(WetAmountId, Mathf.Clamp01(wet));
+                _block.SetFloat(SnowAmountId, Mathf.Clamp01(snow));
+                _block.SetColor(SnowColorId, snowColor);
                 r.SetPropertyBlock(_block);
             }
         }

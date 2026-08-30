@@ -371,12 +371,24 @@ public static class GenerationPipeline
         ctx.theme = DrawTheme(ctx.blueprint);
         ctx.weather = DrawWeather(ctx.blueprint, ctx.theme);
 
+        // The theme's route-occlusion tolerance, pushed to the one place every
+        // consumer reads it. RESET FIRST, unconditionally: a themeless run must
+        // not inherit the last theme's tolerance, and neither must the next run
+        // if this one is discarded.
+        RouteVisibility.ToleranceMultiplier =
+            ctx.theme != null ? Mathf.Max(1f, ctx.theme.occlusionTolerance) : 1f;
+
         if (ctx.theme == null)
             return StageResult.Skip("envPackPool empty — generating undressed, authored look");
 
         string themeLabel = string.IsNullOrEmpty(ctx.theme.themeName) ? ctx.theme.name : ctx.theme.themeName;
         return StageResult.Ok($"theme '{themeLabel}', weather " +
-                              (ctx.weather != null ? $"'{ctx.weather.name}'" : "null preset (authored look)"));
+                              (ctx.weather != null ? $"'{ctx.weather.name}'" : "null preset (authored look)") +
+                              (RouteVisibility.ToleranceMultiplier > 1.001f
+                                  ? $", route-occlusion tolerance ×{RouteVisibility.ToleranceMultiplier:0.##} " +
+                                    $"({RouteVisibility.HiddenBudgetFraction * RouteVisibility.ToleranceMultiplier:P0} " +
+                                    "of route may hide; pad sight lines unaffected)"
+                                  : ""));
     }
 
     private static StageResult StNewScene(Context ctx)

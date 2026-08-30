@@ -62,6 +62,22 @@ namespace Corehold.Data
 
         [Header("Ground tint")]
         [Tooltip("[TUNE] Tint the ground and silhouette band. Applied through a shared MaterialPropertyBlock — never a per-object material instance, which would break batching and leak materials.")]
+        [Tooltip("Surface response: how WET the ground looks (0 = dry). Darkens and desaturates the " +
+                 "terrain rather than adding gloss — at 130-150 m wetness reads as darker ground, and a " +
+                 "specular path would cost WebGL bandwidth for something nobody can resolve. Pairs " +
+                 "naturally with Rain, but it is independent: ground stays wet after the rain stops.")]
+        [Range(0f, 1f)] public float groundWetness;
+
+        [Tooltip("Surface response: how much SNOW lies on the ground (0 = none). Accumulates by the " +
+                 "surface normal, so flat ground whitens while slopes stay bare — which is the whole " +
+                 "read of snow at a distance. Props whiten too, through the shared tone-variant " +
+                 "materials, so the field does not end up white ground under untouched brown rocks.")]
+        [Range(0f, 1f)] public float groundSnow;
+
+        [Tooltip("The colour snow lies as. Slightly blue-shifted off white reads as snow; pure white " +
+                 "reads as blown-out ground.")]
+        public Color snowColor = new Color(0.92f, 0.94f, 0.98f, 1f);
+
         public bool overrideGroundTint;
 
         [Tooltip("[TUNE] Multiplicative tint for the tinted renderers.")]

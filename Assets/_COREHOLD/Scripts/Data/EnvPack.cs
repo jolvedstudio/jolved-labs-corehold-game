@@ -179,6 +179,14 @@ namespace Corehold.Data
                  "terrain slope settle. 0 keeps everything perfectly plumb.")]
         [Range(0f, 20f)] public float uprightJitterDegrees = 2.5f;
 
+        [Tooltip("How much of the ROUTE this theme may hide behind dressing, as a multiplier on the " +
+                 "standard 6% budget. 1 = standard; 2.5 = a visually busy theme where the lanes read " +
+                 "through gaps rather than in the clear. Raise it alongside density: a saturated field " +
+                 "that must respect the sparse budget just fails the gate instead of looking full.\n\n" +
+                 "This NEVER relaxes the camera's sight line to a pad. That one has no budget and gets " +
+                 "none — a pad the player cannot see is a broken level, not a dense one.")]
+        [Range(1f, 4f)] public float occlusionTolerance = 1f;
+
         [Header("Dressing density")]
 
         [Tooltip("Multiplier on LANDMARK placements inside the design box (1 ≈ 3 on the standard field). 0 disables the role for this theme.")]

@@ -38,6 +38,20 @@ Shader "COREHOLD/Terrain Lit"
         _RockDetailScale ("Rock Detail Scale", Float) = 4
         _RockDetailStrength ("Rock Detail Strength", Range(0, 1)) = 0.5
         _RockDetailBlend ("Rock Detail Blend", Range(0, 1)) = 0
+
+        // Weather surface response, driven per-scene by WeatherApplier through a
+        // MaterialPropertyBlock. Both default to 0, so a scene that never sets
+        // them renders exactly as before.
+        //
+        // SNOW accumulates by the surface NORMAL: flat ground whitens, slopes
+        // stay bare, which is the whole read of snow at a distance. WET simply
+        // DARKENS and desaturates — no specular path, because at 130-150 m
+        // wetness reads as darker ground, not as shine, and a gloss lane would
+        // cost WebGL bandwidth for something nobody can resolve.
+        _SnowAmount ("Snow Amount", Range(0, 1)) = 0
+        _SnowColor ("Snow Color", Color) = (0.92, 0.94, 0.98, 1)
+        _SnowUpBias ("Snow Up Bias", Range(1, 8)) = 3
+        _WetAmount ("Wet Amount", Range(0, 1)) = 0
     }
 
     SubShader
@@ -62,6 +76,10 @@ Shader "COREHOLD/Terrain Lit"
             float _RockDetailScale;
             half _RockDetailStrength;
             half _RockDetailBlend;
+            half _SnowAmount;
+            half4 _SnowColor;
+            half _SnowUpBias;
+            half _WetAmount;
         CBUFFER_END
         ENDHLSL
 
@@ -134,6 +152,23 @@ Shader "COREHOLD/Terrain Lit"
                 albedo *= lerp(1.0h, detail * 2.0h, strength);
 
                 half3 normalWS = normalize(input.normalWS);
+
+                // ---- weather surface response ---------------------------------
+                // WET first, then SNOW: snow lies ON a wet surface, not under it.
+                // Wet darkens and desaturates — no specular, because at this
+                // camera distance wetness reads as darker ground and a gloss
+                // lane would cost WebGL bandwidth nobody can resolve.
+                half wet = saturate(_WetAmount);
+                half lum = dot(albedo, half3(0.299h, 0.587h, 0.114h));
+                albedo = lerp(albedo, lerp(albedo, lum.xxx, 0.35h) * 0.55h, wet);
+
+                // Snow accumulates by the surface NORMAL: flat ground whitens,
+                // slopes shed. The bias sharpens that falloff so the transition
+                // reads as accumulation rather than as a wash over everything.
+                half up = saturate(normalWS.y);
+                half snow = saturate(_SnowAmount) * pow(up, _SnowUpBias);
+                albedo = lerp(albedo, _SnowColor.rgb, snow);
+
                 float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);
                 Light mainLight = GetMainLight(shadowCoord);
 
