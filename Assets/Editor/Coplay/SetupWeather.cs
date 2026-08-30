@@ -99,8 +99,16 @@ public static class SetupWeather
         p.fogColor = new Color(0.13f, 0.16f, 0.22f, 1f);
         p.fogDensity = 0.0052f;                 // a touch denser than R11's solved baseline
 
-        p.overrideGroundTint = true;
-        p.groundTint = new Color(0.88f, 0.92f, 1.00f, 1f);   // cool, wet sheen
+        // The ground gets WET, which it never did: this preset shipped with
+        // groundWetness at its 0 default and a cool ground TINT standing in for
+        // it, so rain fell on bone-dry ground that had merely been painted
+        // blue. The tint goes; the surface lane owns the ground's look now, the
+        // same way groundSnow owns it under snow.
+        p.overrideGroundTint = false;
+        p.groundWetness = 0.45f;
+        p.puddleDepth = 0.18f;                  // a scatter of standing water in the low ground
+        p.wetShine = 1f;
+        p.surfaceChangeSeconds = 12f;           // ground soaks slower than the sky closes
 
         p.precipitation = WeatherPreset.Precipitation.Rain;
         p.precipitationRate = 260f;
@@ -201,6 +209,8 @@ public static class SetupWeather
         // The ground does the heavy lifting here, not the particles.
         p.groundSnow = 0.75f;
         p.groundWetness = 0.15f;                             // snow damps what it does not cover
+        p.puddleDepth = 0f;                                  // it is freezing: nothing stands as water
+        p.wetShine = 0.35f;                                  // barely there — snow is matte
         p.snowColor = new Color(0.92f, 0.94f, 0.98f, 1f);
         p.overrideGroundTint = false;                        // groundSnow owns the ground's look
 
@@ -316,7 +326,9 @@ public static class SetupWeather
         p.particleSize = 0.02f;
         p.streakLength = 22f;
         p.particleColor = new Color(0.75f, 0.82f, 0.95f, 0.4f);
-        p.groundWetness = 0.55f;
+        p.groundWetness = 0.75f;
+        p.puddleDepth = 0.34f;         // a storm leaves real water standing
+        p.wetShine = 1.15f;
         p.surfaceChangeSeconds = 6f;   // a storm arrives fast
         p.windDirection = new Vector3(1f, 0.05f, -0.4f);
         p.windStrength = 9f;
@@ -414,6 +426,8 @@ public static class SetupWeather
         p.particleColor = new Color(0.97f, 0.98f, 1f, 0.55f);
         p.groundSnow = 0.95f;
         p.groundWetness = 0.2f;
+        p.puddleDepth = 0f;
+        p.wetShine = 0.3f;
         p.snowColor = new Color(0.92f, 0.94f, 0.98f, 1f);
         p.surfaceChangeSeconds = 18f;
         p.windDirection = new Vector3(0.6f, -0.05f, -0.25f);

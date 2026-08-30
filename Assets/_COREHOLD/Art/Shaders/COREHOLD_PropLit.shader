@@ -61,6 +61,12 @@ Shader "COREHOLD/Prop Lit"
         // xyz = normalized horizontal wind direction, w = sway amplitude.
         float4 _CoreholdWind;
 
+        // Shared with the terrain shader so ground and props shine as one
+        // surface: .w is the specular scale, .z the rain ripple (unused here —
+        // props do not pool), and _CoreholdSkyColor is what wet things mirror.
+        float4 _CoreholdWater;
+        half4 _CoreholdSkyColor;
+
         CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
             half4 _BaseColor;
@@ -170,6 +176,27 @@ Shader "COREHOLD/Prop Lit"
                                  mainLight.color * (ndotl * mainLight.shadowAttenuation);
 
                 half3 color = albedo * lighting;
+
+                // Wet props SHINE, on the same terms as the wet ground — this
+                // is the half that reads as rain rather than as dusk. No
+                // pooling: water does not stand on a rock, it runs off, so
+                // props get the broad damp sheen and never the mirror.
+                //
+                // Snow kills it: a snow-capped rock is matte, and leaving the
+                // highlight under the film would make fresh snow look like wet
+                // plastic.
+                half shine = wet * (1.0h - snow) * _CoreholdWater.w;
+                if (shine > 0.001h)
+                {
+                    float3 viewDir = normalize(_WorldSpaceCameraPos - input.positionWS);
+                    half3 hv = normalize(mainLight.direction + viewDir);
+                    half spec = pow(saturate(dot(normalWS, hv)), 40.0h);
+                    color += mainLight.color * mainLight.shadowAttenuation * spec * shine * 0.6h;
+
+                    half fres = pow(1.0h - saturate(dot(normalWS, viewDir)), 5.0h);
+                    color = lerp(color, _CoreholdSkyColor.rgb, saturate(fres * shine * 0.5h));
+                }
+
                 color = MixFog(color, input.fogFactor);
                 return half4(color, 1.0h);
             }

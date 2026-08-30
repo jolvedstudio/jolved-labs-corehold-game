@@ -78,6 +78,19 @@ namespace Corehold.Data
                  "naturally with Rain, but it is independent: ground stays wet after the rain stops.")]
         [Range(0f, 1f)] public float groundWetness;
 
+        [Tooltip("How far standing water RISES (0 = damp ground, never a puddle). Water is modelled as " +
+                 "a table that climbs through the terrain's own height range as the ground soaks, so " +
+                 "pools collect in the valleys the map already has — no authoring, any map, and the " +
+                 "same lever a flood event would push further. 0.15 is a scatter of puddles in the low " +
+                 "ground; 0.5 is a map with real water in it. Needs groundWetness to mean anything.")]
+        [Range(0f, 1f)] public float puddleDepth = 0.15f;
+
+        [Tooltip("How hard wet surfaces SHINE (0 = matte, the pre-R34 look). This is the half that " +
+                 "makes rain read as rain: darkening alone says 'different ground', a highlight says " +
+                 "'there is water on it'. Costs shader arithmetic only — no extra texture, no second " +
+                 "pass, and a dry map pays nothing at all.")]
+        [Range(0f, 2f)] public float wetShine = 1f;
+
         [Tooltip("Surface response: how much FILM lies on the ground (0 = none). Accumulates by the " +
                  "surface normal, so flat ground coats while slopes stay bare. With the default cool " +
                  "colour this is SNOW; with a warm colour it is DUST — a sandstorm preset uses this " +

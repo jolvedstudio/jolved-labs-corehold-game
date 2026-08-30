@@ -133,6 +133,8 @@ namespace Corehold.Systems
         private float _targetSnow, _targetWet;
         private float _trailStrength = 0.8f;
         private float _trailMeltSeconds = 45f;
+        private float _puddleDepth;
+        private float _wetShine = 1f;
         private Color _targetFilm = Color.white;
         private float _curSnow, _curWet;
         private float _envelope = 1f;          // 0→1 ramp shared by rate + surfaces
@@ -237,6 +239,11 @@ namespace Corehold.Systems
             // must put the dressing back on its own before the variants die
             // with the domain, or the next scene inherits pink renderers.
             PropSnow.Restore();
+
+            // Shader globals outlive the scene. A menu loaded after a rainstorm
+            // must not keep the storm's water table and shine — the same reason
+            // TrailMap zeroes its strength on the way out.
+            Shader.SetGlobalVector(WaterId, Vector4.zero);
             if (Application.isPlaying && AudioDirector.Instance != null)
                 AudioDirector.Instance.StopWeatherLoop();
             if (_precipitationMaterial != null)
@@ -392,6 +399,7 @@ namespace Corehold.Systems
             // swapped onto the weather shader) with no weather to justify it.
             _windStrength = 0f;
             _propSway = 0f;
+            _puddleDepth = 0f;
             _sheetPs = null;
 
             var stack = new List<WeatherPreset>(8);
@@ -476,6 +484,8 @@ namespace Corehold.Systems
             _targetFilm = next.snowColor;
             _trailStrength = next.trailStrength;
             _trailMeltSeconds = next.trailMeltSeconds;
+            _puddleDepth = next.puddleDepth;
+            _wetShine = next.wetShine;
             _surfaceSeconds = next.surfaceChangeSeconds <= 0f ? 10f : next.surfaceChangeSeconds;
             _envelope = 0f;
             if (!Application.isPlaying)
@@ -561,6 +571,7 @@ namespace Corehold.Systems
             m.surfaceChangeSeconds = 0f;
             m.groundSnow = 0f;
             m.groundWetness = 0f;
+            m.puddleDepth = 0f;
 
             foreach (WeatherPreset l in stack)
             {
@@ -598,7 +609,17 @@ namespace Corehold.Systems
                     m.trailStrength = l.trailStrength;
                     m.trailMeltSeconds = l.trailMeltSeconds;
                 }
-                m.groundWetness = Mathf.Max(m.groundWetness, l.groundWetness);
+                if (l.groundWetness > m.groundWetness)
+                {
+                    // Wetness is ACCUMULATIVE (max wins — a second layer cannot
+                    // dry the ground), and the water that stands in it belongs
+                    // to whichever layer brought the water. Carried together so
+                    // a light drizzle layered under a downpour cannot leave the
+                    // downpour's soak with the drizzle's puddles.
+                    m.groundWetness = l.groundWetness;
+                    m.puddleDepth = l.puddleDepth;
+                    m.wetShine = l.wetShine;
+                }
                 if (l.surfaceChangeSeconds > 0f) m.surfaceChangeSeconds = l.surfaceChangeSeconds;
 
                 if (l.precipitation != WeatherPreset.Precipitation.None)
@@ -717,7 +738,8 @@ namespace Corehold.Systems
         private void PushSurface()
         {
             ApplySurfaceResponse(_curWet, _curSnow, _targetFilm);
-            ApplyRoadwayCover(_curSnow);
+            PushWater(_curWet);
+            ApplyRoadwayCover(_curSnow, _curWet);
             PropSnow.Apply(_curSnow, _curWet, _targetFilm,
                            _windDirection, _windStrength * _envelope, _propSway);
             // Trails follow the RAMPED film, so they fade in with the snowfall
@@ -790,6 +812,76 @@ namespace Corehold.Systems
                 _block.SetColor(ColorId, composed);
                 r.SetPropertyBlock(_block);
             }
+        }
+
+        private static readonly int WaterId = Shader.PropertyToID("_CoreholdWater");
+        private static readonly int SkyColorId = Shader.PropertyToID("_CoreholdSkyColor");
+
+        /// <summary>Shoreline softness in metres. Wide enough that the water
+        /// line is a wet margin rather than a cut edge, narrow enough that a
+        /// shallow pool still has a shape.</summary>
+        private const float ShorelineFeather = 0.45f;
+
+        /// <summary>The terrain's own vertical extent, measured once from the
+        /// resolved ground renderers. The water table climbs through THIS, so a
+        /// map with 12 m of relief floods differently from a map with 2 m —
+        /// which is right, and needs nothing authored per map.</summary>
+        private float _groundMinY, _groundRangeY = 1f;
+        private bool _groundMeasured;
+
+        private void MeasureGround()
+        {
+            if (_groundMeasured)
+                return;
+            _groundMeasured = true;
+
+            bool any = false;
+            float min = float.PositiveInfinity, max = float.NegativeInfinity;
+            for (int i = 0; i < _resolvedTargets.Count; i++)
+            {
+                Renderer r = _resolvedTargets[i];
+                if (r == null)
+                    continue;
+                Bounds b = r.bounds;
+                min = Mathf.Min(min, b.min.y);
+                max = Mathf.Max(max, b.max.y);
+                any = true;
+            }
+            if (!any)
+                return;
+
+            _groundMinY = min;
+            // A FLAT map measures ~0 range, which would make the water table a
+            // switch rather than a rise. Flooring it keeps pools patchy there
+            // (the shoreline wobble does the work) instead of tiling the whole
+            // floor with water the instant it rains.
+            _groundRangeY = Mathf.Max(max - min, 1.2f);
+        }
+
+        /// <summary>Raise the water table and hand the shaders the sky that wet
+        /// ground has to mirror.</summary>
+        private void PushWater(float wet)
+        {
+            ResolveTargets();
+            MeasureGround();
+
+            // Ripples belong to RAIN. Snow and dust settle on water without
+            // stirring it, and a shimmering puddle under a dust storm is an
+            // instant tell that this is a shader and not weather.
+            float ripple = _merged != null &&
+                           _merged.precipitation == WeatherPreset.Precipitation.Rain &&
+                           _resolvedRate > 0f ? 1f : 0f;
+
+            float level = _groundMinY + _groundRangeY * _puddleDepth * Mathf.Clamp01(wet);
+            Shader.SetGlobalVector(WaterId,
+                new Vector4(level, ShorelineFeather, ripple, _wetShine));
+
+            // The scene's own atmosphere is the honest answer for what a puddle
+            // reflects: fog colour while fog is on (it IS the sky's colour at
+            // distance), ambient otherwise. A fixed blue would fight every
+            // preset that grades the light.
+            Color sky = RenderSettings.fog ? RenderSettings.fogColor : RenderSettings.ambientLight;
+            Shader.SetGlobalColor(SkyColorId, sky);
         }
 
         private static readonly int SnowAmountId = Shader.PropertyToID("_SnowAmount");
@@ -928,22 +1020,32 @@ namespace Corehold.Systems
             }
         }
 
-        /// <summary>Sink the worn-path ribbons under the accumulating film.</summary>
-        private void ApplyRoadwayCover(float snow)
+        /// <summary>How much more the worn path reads when it is soaked. A dirt
+        /// track is the FIRST thing to darken in rain — it is compacted, so the
+        /// water sits on it rather than draining through.</summary>
+        private const float RoadwayWetGain = 0.45f;
+
+        /// <summary>Sink the worn-path ribbons under the accumulating film, and
+        /// deepen them under rain.</summary>
+        private void ApplyRoadwayCover(float snow, float wet)
         {
             if (_roadways.Count == 0)
                 return;
             if (_block == null)
                 _block = new MaterialPropertyBlock();
 
-            float keep = 1f - RoadwaySnowCover * Mathf.Clamp01(snow);
+            // Snow BURIES the path; rain DEEPENS it. Both at once is a thaw,
+            // and the snow wins — which is correct, since what is on top is
+            // what you see.
+            float keep = (1f + RoadwayWetGain * Mathf.Clamp01(wet)) *
+                         (1f - RoadwaySnowCover * Mathf.Clamp01(snow));
             for (int i = 0; i < _roadways.Count; i++)
             {
                 Renderer r = _roadways[i];
                 if (r == null)
                     continue;
                 Color c = _roadwayBase[i];
-                c.a *= keep;
+                c.a = Mathf.Clamp01(c.a * keep);
                 r.GetPropertyBlock(_block);
                 _block.SetColor(BaseColorId, c);
                 _block.SetColor(ColorId, c);
