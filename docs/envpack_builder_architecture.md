@@ -5,6 +5,17 @@ out → ten reviewable test scenes → then the untouched COREHOLD generator
 consumes the pack. This document is how to build it without getting stuck where
 you are stuck.
 
+> **STATUS: L1–L5 are BUILT** under `Assets/Editor/Coplay/PackBuilder/`
+> (`ArtTarget`, `ArtTargetFactory`, `PrefabIndexer`, `PackMatcher`,
+> `PackWriter`, `PaletteExtractor`, `LookdevStager`), menu-driven as numbered
+> steps under `Tools → COREHOLD → Level → Env Pack Builder`. L6 (a window
+> veneer) remains optional. Coplay's lane is now reviewing the picks with eyes
+> on the meshes, localizing vendor picks, and feeding better candidates in —
+> not building the tool. The sections below stand as the design record; one
+> implementation note: dominant color is measured with a synchronous
+> `PreviewRenderUtility` render rather than `AssetPreview` (same atlas-safety,
+> none of the async pumping a menu-item context cannot do reliably).
+
 ## The one architectural move
 
 You are struggling because "here's a picture, figure out which prefabs match"
