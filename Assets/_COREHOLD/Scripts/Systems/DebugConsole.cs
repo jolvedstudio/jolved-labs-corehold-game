@@ -28,7 +28,8 @@ namespace Corehold.Systems
     ///   RUN        V  force VICTORY  X  force DEFEAT                 1/2/3 difficulty
     ///   CAMPAIGN   C  status dump    ⇧C wipe this campaign's saves
     ///   TIME       P  pause/resume   ,  slower                       .  faster
-    ///   LOOK       T  cycle mutators N  night toggle                 W  re-apply weather
+    ///   LOOK       T  cycle mutators ⇧T authored mutators           N  night toggle
+    ///              W  re-apply weather
     ///   OUTPUT     F1 stats overlay  F2 key map                      F3 screenshot
     ///
     /// The campaign keys are the reason this file grew: without V, walking to
@@ -108,7 +109,10 @@ namespace Corehold.Systems
             if (kb.periodKey.wasPressedThisFrame)
                 StepSpeed(+1);
             if (kb.tKey.wasPressedThisFrame)
-                CycleForcedMutators();
+            {
+                if (shift) CycleForcedMutatorAsset();
+                else CycleForcedMutators();
+            }
             if (kb.nKey.wasPressedThisFrame)
                 ToggleNight();
             if (kb.wKey.wasPressedThisFrame)
@@ -504,6 +508,50 @@ namespace Corehold.Systems
                       "(applies to waves started from now; T again to cycle).");
         }
 
+        /// <summary>
+        /// R33 test: cycle through this scene's AUTHORED mutators, adding one
+        /// to every wave started after the press.
+        ///
+        /// The asset-shaped twin of T, and the reason a new mutator is worth
+        /// authoring at all: without it, seeing what one does means editing a
+        /// wave asset, re-entering play and walking to that wave. The library
+        /// comes off the WaveManager, so a mutator that is not in the scene's
+        /// list is not offered — which is also how a designer finds out they
+        /// forgot to register one.
+        /// </summary>
+        private void CycleForcedMutatorAsset()
+        {
+            var wm = FindFirstObjectByType<WaveManager>();
+            if (wm == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WaveManager to force mutators on.");
+                return;
+            }
+
+            var lib = wm.MutatorLibrary;
+            if (lib == null || lib.Count == 0)
+            {
+                Debug.LogWarning("[DebugConsole] This scene's WaveManager has no mutator library. " +
+                                 "Run Tools → COREHOLD → Scene Setup → Wave Mutators to fill it.");
+                return;
+            }
+
+            // The cycle is None, then each asset in order, so a press always
+            // has somewhere to go back to.
+            int at = -1;
+            for (int i = 0; i < lib.Count; i++)
+                if (lib[i] == wm.DebugForceMutatorAsset) { at = i; break; }
+
+            int next = at + 1;
+            wm.DebugForceMutatorAsset = next >= lib.Count ? null : lib[next];
+
+            var forced = wm.DebugForceMutatorAsset;
+            Debug.Log(forced == null
+                ? "[DebugConsole] Forced authored mutator: none (⇧T again to cycle)."
+                : $"[DebugConsole] Forced authored mutator: {forced.ResolvedId} — " +
+                  $"{forced.title}: {forced.clause} (applies to waves started from now).");
+        }
+
         /// <summary>Re-apply the active weather preset so live [TUNE] edits show now.</summary>
         private void ReapplyWeather()
         {
@@ -675,7 +723,8 @@ namespace Corehold.Systems
                 "RUN       V  force WIN     X  force LOSS     1/2/3 difficulty\n" +
                 "CAMPAIGN  C  status dump   shift+C  wipe this campaign's saves\n" +
                 "TIME      P  pause         ,  slower         .  faster\n" +
-                "LOOK      T  mutators      N  night          W  reapply weather\n" +
+                "LOOK      T  mutators      \u21e7T authored     N  night\n" +
+                "          W  reapply weather\n" +
                 "OUTPUT    F1 stats         F2 this list      F3 screenshot\n\n" +
                 "V is the campaign accelerator: force a win, press CONTINUE,\n" +
                 "and the next stage loads with the carry rules applied.";

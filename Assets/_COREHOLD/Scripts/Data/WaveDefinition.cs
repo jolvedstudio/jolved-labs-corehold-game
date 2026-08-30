@@ -59,5 +59,12 @@ namespace Corehold.Data
 
         [Tooltip("Optional mutators for this wave (R20). None = vanilla. Applied at spawn; values tuned on the WaveManager.")]
         public WaveMutator mutators = WaveMutator.None;
+
+        [Tooltip("Authored mutators for this wave (R33), on top of any flags above. These are ASSETS, " +
+                 "so a new rule is a new asset rather than a code change — and each one carries its own " +
+                 "numbers, which the exporter writes into the wave table so the balance model prices " +
+                 "what you actually authored. An asset bound to a legacy flag is applied ONCE even if " +
+                 "the flag is also ticked above.")]
+        public WaveMutatorDefinition[] mutatorAssets;
     }
 }

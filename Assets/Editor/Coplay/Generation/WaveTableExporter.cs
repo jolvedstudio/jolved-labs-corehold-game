@@ -191,7 +191,7 @@ public static class WaveTableExporter
             WaveDefinition wave = level.waves[w];
             if (w > 0) sb.Append(',');
             sb.Append($"{{\"clear\":{wave.clearBonus}");
-            string muts = MutatorNames(wave.mutators);
+            string muts = MutatorNames(wave);
             if (muts.Length > 0)
                 sb.Append($",\"mutators\":[{muts}]");
             sb.Append(",\"groups\":[");
@@ -302,15 +302,70 @@ public static class WaveTableExporter
         return 220f;
     }
 
-    private static string MutatorNames(WaveMutator flags)
+    /// <summary>
+    /// The wave's mutators, as the balance model reads them.
+    ///
+    /// TWO SHAPES, on purpose. A legacy flag emits its BARE NAME exactly as it
+    /// always has — the model knows those four and their constants, and keeping
+    /// the form identical is what lets every table exported before R33 still
+    /// parse and still produce the same numbers. An authored mutator emits an
+    /// OBJECT carrying its own values, because the model cannot have a constant
+    /// for an asset that did not exist when it was written; the numbers travel
+    /// with the wave instead.
+    ///
+    /// Only non-default terms are written. A mutator that changes one thing
+    /// should read as one line in the table, not as seven, or nobody will read
+    /// the table.
+    /// </summary>
+    private static string MutatorNames(WaveDefinition wave)
     {
-        if (flags == WaveMutator.None)
-            return "";
-        var names = new List<string>(4);
-        if ((flags & WaveMutator.Storm) != 0) names.Add("\"storm\"");
-        if ((flags & WaveMutator.Convoy) != 0) names.Add("\"convoy\"");
-        if ((flags & WaveMutator.Overcharge) != 0) names.Add("\"overcharge\"");
-        if ((flags & WaveMutator.Blackout) != 0) names.Add("\"blackout\"");
-        return string.Join(",", names);
+        var parts = new List<string>(6);
+
+        WaveMutator flags = wave.mutators;
+        if ((flags & WaveMutator.Storm) != 0) parts.Add("\"storm\"");
+        if ((flags & WaveMutator.Convoy) != 0) parts.Add("\"convoy\"");
+        if ((flags & WaveMutator.Overcharge) != 0) parts.Add("\"overcharge\"");
+        if ((flags & WaveMutator.Blackout) != 0) parts.Add("\"blackout\"");
+
+        if (wave.mutatorAssets != null)
+        {
+            var seen = new HashSet<string>();
+            foreach (WaveMutatorDefinition d in wave.mutatorAssets)
+            {
+                // A bound asset whose flag is already ticked is the same
+                // mutator said twice; the flag has already spoken for it.
+                if (d == null || (d.legacyFlag != WaveMutator.None && (flags & d.legacyFlag) != 0))
+                    continue;
+                if (!seen.Add(d.ResolvedId))
+                    continue;
+
+                var fields = new List<string>(8) { $"\"id\":\"{Escape(d.ResolvedId)}\"" };
+                AddTerm(fields, "air_speed", d.airSpeedMultiplier);
+                AddTerm(fields, "ground_speed", d.groundSpeedMultiplier);
+                AddTerm(fields, "hp", d.healthMultiplier);
+                AddTerm(fields, "bounty", d.bountyMultiplier);
+                AddTerm(fields, "range", d.turretRangeMultiplier);
+                AddTerm(fields, "gap", d.spawnGapMultiplier);
+                if (d.singleApproach)
+                    fields.Add("\"convoy\":true");
+                parts.Add("{" + string.Join(",", fields) + "}");
+            }
+        }
+
+        return string.Join(",", parts);
     }
+
+    /// <summary>Same format as the exporter's local F: invariant culture, four
+    /// decimals, so a mutator term reads identically to every other number in
+    /// the table and cannot arrive comma-separated on a European machine.</summary>
+    private static string FS(float v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+
+    private static void AddTerm(List<string> fields, string key, float value)
+    {
+        if (!Mathf.Approximately(value, 1f))
+            fields.Add($"\"{key}\":{FS(value)}");
+    }
+
+    private static string Escape(string s) =>
+        string.IsNullOrEmpty(s) ? "" : s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

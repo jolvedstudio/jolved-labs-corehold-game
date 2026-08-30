@@ -517,11 +517,12 @@ namespace Corehold.UI
 
             WaveDefinition started = waveManager.PeekWave(-1);
             WaveMutator mutators = waveManager.MutatorsForWave(waveNumber);
+            var assets = waveManager.MutatorAssetsForWave(waveNumber);
             bool boss = WaveHasBoss(started);
 
-            if (mutators != WaveMutator.None)
+            if (mutators != WaveMutator.None || assets.Count > 0)
             {
-                (string title, string clause) = MutatorText(mutators);
+                (string title, string clause) = BannerText(mutators, assets);
                 Color c = boss && theme != null ? theme.danger
                         : theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f);
                 ShowBanner($"{title}\n<size=55%>{clause}</size>", c, mutatorBannerSeconds);
@@ -559,6 +560,47 @@ namespace Corehold.UI
         /// thing, not two. The narrative bible keeps its in-fiction names for
         /// briefing prose; player-facing HUD stays plain.
         /// </summary>
+        /// <summary>
+        /// The wave's stamp, from whichever authoring route produced it.
+        ///
+        /// An AUTHORED mutator carries its own words, so a designer who adds
+        /// one gets a banner without touching this file — the point of the
+        /// asset. One mutator speaks for itself; several share the mixed-wave
+        /// stamp, because four stacked clauses is a wall of text at the exact
+        /// moment the player needs to look at the field.
+        /// </summary>
+        private static (string, string) BannerText(
+            WaveMutator flags, System.Collections.Generic.List<WaveMutatorDefinition> assets)
+        {
+            int flagCount = CountFlags(flags);
+            // Assets bound to a set flag are the same mutator counted twice.
+            int assetOnly = 0;
+            foreach (WaveMutatorDefinition d in assets)
+                if (d != null && (d.legacyFlag == WaveMutator.None || (flags & d.legacyFlag) == 0))
+                    assetOnly++;
+
+            if (flagCount + assetOnly > 1)
+                return ("MIXED WAVE", "More than one rule is in force this wave");
+
+            if (assetOnly == 1)
+                foreach (WaveMutatorDefinition d in assets)
+                    if (d != null && (d.legacyFlag == WaveMutator.None || (flags & d.legacyFlag) == 0))
+                        return (string.IsNullOrWhiteSpace(d.title) ? "SPECIAL WAVE" : d.title,
+                                d.clause ?? string.Empty);
+
+            return MutatorText(flags);
+        }
+
+        private static int CountFlags(WaveMutator m)
+        {
+            int n = 0;
+            if ((m & WaveMutator.Storm) != 0) n++;
+            if ((m & WaveMutator.Convoy) != 0) n++;
+            if ((m & WaveMutator.Overcharge) != 0) n++;
+            if ((m & WaveMutator.Blackout) != 0) n++;
+            return n;
+        }
+
         private static (string, string) MutatorText(WaveMutator m)
         {
             bool storm = (m & WaveMutator.Storm) != 0;

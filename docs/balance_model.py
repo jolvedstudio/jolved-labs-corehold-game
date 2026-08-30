@@ -256,13 +256,77 @@ R22 = {
 }
 
 
+# The four originals, as effect vectors. A bare mutator NAME in a wave table
+# resolves through here, which is what keeps every table written before R33
+# producing exactly the numbers it always did — the constants above are still
+# the only source for them.
+BUILTIN_MUTATORS = {
+    "storm":      {"air_speed": MUTATOR_STORM_AIR_SPEED},
+    "convoy":     {"convoy": True},
+    "overcharge": {"hp": MUTATOR_OC_HP, "bounty": MUTATOR_OC_BOUNTY},
+    "blackout":   {"range": MUTATOR_BLACKOUT_RANGE},
+}
+
+# Every term a mutator may move, with its identity. CLOSED SET: an exporter
+# writing a key that is not here is rejected rather than silently ignored,
+# because a mutator the model cannot price is a mutator the gate would certify
+# without seeing. Adding a term means adding it here AND applying it below.
+MUTATOR_TERMS = {
+    "air_speed": 1.0,
+    "ground_speed": 1.0,
+    "hp": 1.0,
+    "bounty": 1.0,
+    "range": 1.0,
+    "gap": 1.0,
+}
+MUTATOR_SWITCHES = {"convoy": False}
+
+
 def r22_mutators(wave: dict, wave_number: int) -> frozenset:
-    """The mutator flags in force for a wave: authored on the table + forced."""
+    """The mutator IDS in force for a wave: authored on the table + forced.
+
+    Kept as a set of names because the advice lines and the wave report read
+    it to say WHICH mutator is on; the numbers come from r22_effects().
+    """
     if not R22["on"]:
         return frozenset()
     authored = wave.get("mutators", ())
     forced = R22["forced_mutators"].get(wave_number, ())
-    return frozenset(authored) | frozenset(forced)
+    names = set()
+    for m in list(authored) + list(forced):
+        names.add(m["id"] if isinstance(m, dict) else str(m))
+    return frozenset(names)
+
+
+def r22_effects(wave: dict, wave_number: int) -> dict:
+    """The COMPOSED effect of every mutator on a wave.
+
+    Multipliers multiply and switches OR, matching MutatorEffects.Fold on the
+    Unity side exactly — two implementations of one rule, which is the drift
+    this file exists to prevent, so if one changes, change both.
+
+    Two shapes arrive here. A NAME is one of the four originals and resolves
+    to the constants at the top of this file. An OBJECT is an authored mutator
+    asset carrying its own numbers, because the model cannot hold a constant
+    for a mutator that did not exist when it was written.
+    """
+    eff = dict(MUTATOR_TERMS)
+    eff.update(MUTATOR_SWITCHES)
+    if not R22["on"]:
+        return eff
+
+    authored = wave.get("mutators", ())
+    forced = R22["forced_mutators"].get(wave_number, ())
+    for m in list(authored) + list(forced):
+        vec = BUILTIN_MUTATORS.get(m, {}) if not isinstance(m, dict) else m
+        for key, value in vec.items():
+            if key == "id":
+                continue
+            if key in MUTATOR_SWITCHES:
+                eff[key] = eff[key] or bool(value)
+            elif key in MUTATOR_TERMS:
+                eff[key] *= float(value)
+    return eff
 
 
 def r22_dense(wave: dict) -> bool:
@@ -389,7 +453,7 @@ def tower_incoming(geom: Geometry, built: dict, groups: list,
             bx, bz = geom.air_target
             length = math.hypot(bx - ax, bz - az)
             n = max(2, int(length / COVERAGE_SAMPLE_STEP_M))
-            dt = (length / n) / (enemy["speed"] * g["air_speed_mult"])
+            dt = (length / n) / (enemy["speed"] * g["speed_mult"])
             for i in range(n):
                 t = (i + 0.5) / n
                 pad = _nearest_pad_in_range(geom, built,
@@ -863,11 +927,13 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                  wave: dict, difficulty: str):
     hp_mult = DIFFICULTY_HP_MULT[difficulty]
     scalar = wave_scalar(wave_number)
-    mutators = r22_mutators(wave, wave_number)
-    oc_hp = MUTATOR_OC_HP if "overcharge" in mutators else 1.0
-    storm = MUTATOR_STORM_AIR_SPEED if "storm" in mutators else 1.0
-    convoy = "convoy" in mutators
-    blackout_rng = MUTATOR_BLACKOUT_RANGE if "blackout" in mutators else 1.0
+    fx = r22_effects(wave, wave_number)
+    oc_hp = fx["hp"]
+    storm = fx["air_speed"]
+    ground_speed = fx["ground_speed"]
+    gap_scale = fx["gap"]
+    convoy = fx["convoy"]
+    blackout_rng = fx["range"]
 
     groups = []
     wave_duration = 0.0
@@ -895,13 +961,17 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
             # 1-leg generated map running the shipped wave table): those groups
             # walk the primary route instead, mirroring a single-entrance map.
             route = geom.routes.get(spawner) or geom.routes[min(geom.routes)]
-            traverse = traverse_time(enemy, route)
+            traverse = traverse_time(enemy, route) / ground_speed
         eff_hp = enemy["hp"] * scalar * hp_mult * count * oc_hp
+        # A mutator may compress or stretch the spawn cadence. The GAP scales
+        # and the OFFSET does not, mirroring SpawnGroupRoutine: offsets are the
+        # wave's composition, gaps are its tempo.
+        gap = gap * gap_scale
         groups.append(dict(id=enemy_id, enemy=enemy, count=count, gap=gap,
                            offset=offset, route=route, traverse=traverse,
                            eff_hp=eff_hp, delivered=0.0, exp_s=0.0,
                            lane=None if enemy["air"] else spawner,
-                           air_speed_mult=storm if enemy["air"] else 1.0))
+                           speed_mult=storm if enemy["air"] else ground_speed))
         wave_duration = max(wave_duration, offset + max(0, count - 1) * gap + traverse)
 
     # Deliverable damage, pad by pad. Each pad has a continuous-fire budget of
@@ -944,7 +1014,7 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                 continue
             if enemy["air"]:
                 covered = air_covered_length(geom, px, pz, rng, enemy["altitude"])
-                t_per = covered / (enemy["speed"] * g["air_speed_mult"])
+                t_per = covered / (enemy["speed"] * g["speed_mult"])
                 dwell = 1.0
             else:
                 intervals = covered_intervals(g["route"], px, pz, rng,
@@ -1089,8 +1159,7 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
         # waves chain them reliably. Bounty component only — clears are flat.
         streak = STREAK_INCOME_DENSE if r22_dense(wave) else STREAK_INCOME_SPARSE
         bounties *= 1.0 + streak
-        if "overcharge" in r22_mutators(wave, wave_number):
-            bounties *= MUTATOR_OC_BOUNTY
+        bounties *= r22_effects(wave, wave_number)["bounty"]
     clear = wave["clear"] if wave["clear"] > 0 else 60 + 18 * wave_number
     return round(bounties * eco) + round(clear * eco)
 
@@ -1930,10 +1999,41 @@ def main(argv=None) -> int:
                 groups = [(g["enemy"], int(g["count"]), float(g["gap"]),
                            float(g["offset"]), int(g["spawner"])) for g in w["groups"]]
                 d = dict(clear=int(w.get("clear", 0)), groups=groups)
-                muts = {str(m).strip().lower() for m in w.get("mutators", []) if str(m).strip()}
-                bad_m = muts - {"storm", "convoy", "overcharge", "blackout"}
-                if bad_m:
-                    raise ValueError(f"unknown mutator(s): {', '.join(sorted(bad_m))}")
+                # Two shapes: a NAME (one of the four originals, resolved from
+                # BUILTIN_MUTATORS) or an OBJECT carrying an authored mutator's
+                # own terms. The object form is checked against the CLOSED term
+                # list rather than against a list of known mutators — the whole
+                # point is that the model does not need to know the mutator,
+                # only that every term it moves is one this file prices.
+                muts = []
+                for m in w.get("mutators", []):
+                    if isinstance(m, dict):
+                        mid = str(m.get("id", "")).strip().lower()
+                        if not mid:
+                            raise ValueError("a mutator object has no id")
+                        bad_k = set(m) - {"id"} - set(MUTATOR_TERMS) - set(MUTATOR_SWITCHES)
+                        if bad_k:
+                            raise ValueError(
+                                f"mutator '{mid}': unknown term(s) {', '.join(sorted(bad_k))}. "
+                                f"Known terms: {', '.join(sorted(set(MUTATOR_TERMS) | set(MUTATOR_SWITCHES)))}")
+                        vec = {"id": mid}
+                        for k in MUTATOR_TERMS:
+                            if k in m:
+                                vec[k] = float(m[k])
+                        for k in MUTATOR_SWITCHES:
+                            if k in m:
+                                vec[k] = bool(m[k])
+                        muts.append(vec)
+                        continue
+                    name = str(m).strip().lower()
+                    if not name:
+                        continue
+                    if name not in BUILTIN_MUTATORS:
+                        raise ValueError(
+                            f"unknown mutator '{name}'. Bare names must be one of "
+                            f"{', '.join(sorted(BUILTIN_MUTATORS))}; an authored mutator must be "
+                            f"exported as an object carrying its own terms")
+                    muts.append(name)
                 if muts:
                     d["mutators"] = muts
                 parsed.append(d)

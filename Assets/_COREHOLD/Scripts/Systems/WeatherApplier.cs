@@ -182,11 +182,13 @@ namespace Corehold.Systems
         private void OnEnable()
         {
             WaveManager.ActiveMutatorsChanged += OnMutatorsChanged;
+            WaveManager.ActiveMutatorAssetsChanged += OnMutatorAssetsChanged;
         }
 
         private void OnDisable()
         {
             WaveManager.ActiveMutatorsChanged -= OnMutatorsChanged;
+            WaveManager.ActiveMutatorAssetsChanged -= OnMutatorAssetsChanged;
             if (_stateSubscribed && GameManager.Instance != null)
             {
                 GameManager.Instance.OnStateChanged -= OnGameStateChanged;
@@ -199,6 +201,29 @@ namespace Corehold.Systems
             if (_activeMutators == now)
                 return;
             _activeMutators = now;
+            if (Application.isPlaying && _baselineCaptured)
+                ApplyStack();
+        }
+
+        /// <summary>
+        /// Weather layers carried by the wave's AUTHORED mutators (R33).
+        ///
+        /// This is what makes a new mutator arrive complete: the asset names
+        /// its own layer, so a designer adding one gets its look without
+        /// opening a single scene. <see cref="mutatorLinks"/> stays for the
+        /// four legacy flags, whose layers are wired per scene.
+        /// </summary>
+        private readonly List<WeatherPreset> _mutatorAssetLayers = new List<WeatherPreset>(4);
+
+        private void OnMutatorAssetsChanged(IReadOnlyList<WaveMutatorDefinition> now)
+        {
+            _mutatorAssetLayers.Clear();
+            if (now != null)
+                foreach (WaveMutatorDefinition d in now)
+                    if (d != null && d.weatherLayer != null &&
+                        !_mutatorAssetLayers.Contains(d.weatherLayer))
+                        _mutatorAssetLayers.Add(d.weatherLayer);
+
             if (Application.isPlaying && _baselineCaptured)
                 ApplyStack();
         }
@@ -375,6 +400,14 @@ namespace Corehold.Systems
                 foreach (MutatorWeatherLink link in mutatorLinks)
                     if (link != null && link.layer != null && (_activeMutators & link.mutator) != 0)
                         Flatten(link.layer, stack, 0);
+
+            // Authored mutators bring their own layer, stacked AFTER the scene's
+            // links so an asset's look wins a tie with a flag's — the asset is
+            // the newer, more specific statement of intent. Guarded against a
+            // layer arriving twice when an asset is bound to a linked flag.
+            foreach (WeatherPreset layer in _mutatorAssetLayers)
+                if (layer != null && !stack.Contains(layer))
+                    Flatten(layer, stack, 0);
 
             if (stack.Count == 0)
             {

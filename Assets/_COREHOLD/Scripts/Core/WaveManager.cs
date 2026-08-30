@@ -92,6 +92,16 @@ namespace Corehold.Core
         [Tooltip("[TUNE] Blackout: acquisition-distance multiplier stamped on unlit units (2 = towers see them at half range). Floodlights (R24) restore full range inside their radius.")]
         [SerializeField] private float blackoutAcquisitionDistanceScale = 2f;
 
+        [Tooltip("Every authored mutator asset this level can use (R33). Waves reference the assets " +
+                 "they carry directly, so this list exists for TOOLING: the debug console cycles it, " +
+                 "and the exporter and validator read it to check that nothing a wave uses is missing. " +
+                 "Populate it with Tools → COREHOLD → Scene Setup → Wave Mutators.")]
+        [SerializeField] private WaveMutatorDefinition[] mutatorLibrary;
+
+        /// <summary>The authored mutators this scene knows about, for tooling.</summary>
+        public IReadOnlyList<WaveMutatorDefinition> MutatorLibrary =>
+            mutatorLibrary != null ? mutatorLibrary : NoMutatorAssets;
+
         // ----- Runtime rule values (resolved from the level or the fallbacks) -----
         private int _maxLiveEnemies = 14;
         private float _hpGrowthPerWave = 0.18f;
@@ -250,6 +260,105 @@ namespace Corehold.Core
             WaveDefinition w = GetWave(waveNumber - 1);
             WaveMutator m = w != null ? w.mutators : WaveMutator.None;
             return m | DebugForceMutators;
+        }
+
+        /// <summary>
+        /// Debug/test override (DebugConsole ⇧T): an authored mutator added to
+        /// every wave, the asset-shaped twin of <see cref="DebugForceMutators"/>.
+        /// A new mutator has to be testable without authoring a wave for it,
+        /// or nobody will iterate on one.
+        /// </summary>
+        public WaveMutatorDefinition DebugForceMutatorAsset { get; set; }
+
+        /// <summary>
+        /// The authored mutator ASSETS in force for a 1-based wave number:
+        /// whatever the wave carries, plus the debug override, plus the assets
+        /// standing in for any legacy flag the wave (or the debug override)
+        /// has set. Never returns null.
+        ///
+        /// Resolving flags to assets here is what lets the rest of the game ask
+        /// ONE question — "which mutators are on this wave?" — instead of every
+        /// caller checking bits and a list separately. The bits remain the
+        /// authority on WHETHER a legacy mutator is on; the asset only supplies
+        /// its words and its weather.
+        /// </summary>
+        public List<WaveMutatorDefinition> MutatorAssetsForWave(int waveNumber)
+        {
+            var result = new List<WaveMutatorDefinition>(4);
+            WaveDefinition w = GetWave(waveNumber - 1);
+
+            if (w != null && w.mutatorAssets != null)
+                foreach (WaveMutatorDefinition d in w.mutatorAssets)
+                    if (d != null && !result.Contains(d))
+                        result.Add(d);
+
+            if (DebugForceMutatorAsset != null && !result.Contains(DebugForceMutatorAsset))
+                result.Add(DebugForceMutatorAsset);
+
+            // Legacy flags borrow their library asset for presentation. Guarded
+            // against the asset ALSO being listed on the wave, which would
+            // otherwise stack one mutator's weather layer twice.
+            WaveMutator flags = MutatorsForWave(waveNumber);
+            if (flags != WaveMutator.None && mutatorLibrary != null)
+                foreach (WaveMutatorDefinition d in mutatorLibrary)
+                    if (d != null && d.legacyFlag != WaveMutator.None &&
+                        (flags & d.legacyFlag) != 0 && !result.Contains(d))
+                        result.Add(d);
+
+            return result;
+        }
+
+        /// <summary>
+        /// The composed mechanical effect of every mutator on a wave.
+        ///
+        /// The two authoring routes fold into one vector here, and each is
+        /// counted ONCE: a legacy flag contributes the WaveManager's own [TUNE]
+        /// values (so existing scenes keep the numbers they were tuned with,
+        /// and a designer editing this scene still edits them where they always
+        /// were), while an authored asset contributes its own — unless it is
+        /// bound to a legacy flag that is already set, in which case the flag
+        /// has already spoken for it.
+        ///
+        /// Derived from the wave number rather than threaded through spawn
+        /// state, for the same reason MutatorsForWave is: a unit admitted from
+        /// the pending queue thirty seconds late must read the same answer as
+        /// the one that spawned instantly.
+        /// </summary>
+        public MutatorEffects EffectsForWave(int waveNumber)
+        {
+            MutatorEffects e = MutatorEffects.Identity;
+            WaveMutator flags = MutatorsForWave(waveNumber);
+
+            // ---- the four originals, from this scene's tuned fields ----------
+            if ((flags & WaveMutator.Storm) != 0)
+                e.airSpeed *= stormAirSpeedMultiplier;
+            if ((flags & WaveMutator.Overcharge) != 0)
+            {
+                e.health *= overchargeHpMultiplier;
+                e.bounty *= overchargeBountyMultiplier;
+            }
+            if ((flags & WaveMutator.Blackout) != 0)
+                e.turretRange *= blackoutAcquisitionDistanceScale > 0.01f
+                    ? 1f / blackoutAcquisitionDistanceScale
+                    : 1f;
+            if ((flags & WaveMutator.Convoy) != 0)
+                e.singleApproach = true;
+
+            // ---- authored assets --------------------------------------------
+            WaveDefinition w = GetWave(waveNumber - 1);
+            if (w != null && w.mutatorAssets != null)
+                foreach (WaveMutatorDefinition d in w.mutatorAssets)
+                    if (d != null && (d.legacyFlag == WaveMutator.None || (flags & d.legacyFlag) == 0))
+                        e.Fold(d.Effects);
+
+            if (DebugForceMutatorAsset != null &&
+                (DebugForceMutatorAsset.legacyFlag == WaveMutator.None ||
+                 (flags & DebugForceMutatorAsset.legacyFlag) == 0) &&
+                (w == null || w.mutatorAssets == null ||
+                 System.Array.IndexOf(w.mutatorAssets, DebugForceMutatorAsset) < 0))
+                e.Fold(DebugForceMutatorAsset.Effects);
+
+            return e;
         }
 
         /// <summary>True while any wave still has enemies alive or unspawned in the queue.</summary>
@@ -692,16 +801,33 @@ namespace Corehold.Core
         /// </summary>
         public static event Action<WaveMutator> ActiveMutatorsChanged;
 
+        /// <summary>
+        /// The same moment, in asset form (R33): the authored mutators in force
+        /// right now, empty when the field clears.
+        ///
+        /// A second event rather than a wider payload on the first, because the
+        /// two answer different questions and one of them is legacy: the flag
+        /// event says WHICH OF THE FOUR, which is what scene-authored weather
+        /// links key on, while this one carries the assets — and an asset knows
+        /// its own weather layer, so a new mutator brings its look with it and
+        /// needs no wiring in any scene.
+        /// </summary>
+        public static event Action<IReadOnlyList<WaveMutatorDefinition>> ActiveMutatorAssetsChanged;
+
+        private static readonly WaveMutatorDefinition[] NoMutatorAssets =
+            System.Array.Empty<WaveMutatorDefinition>();
+
         private void StartWaveGroups(WaveDefinition wave, int waveNumber)
         {
             if (wave == null || wave.groups == null)
                 return;
 
             ActiveMutatorsChanged?.Invoke(MutatorsForWave(waveNumber));
+            ActiveMutatorAssetsChanged?.Invoke(MutatorAssetsForWave(waveNumber));
 
             // Convoy (R20): every ground group of the wave funnels into ONE
             // approach — the first ground group's resolved spawner wins for all.
-            bool convoy = (MutatorsForWave(waveNumber) & WaveMutator.Convoy) != 0;
+            bool convoy = EffectsForWave(waveNumber).singleApproach;
             int convoySpawner = -1;
 
             int groundOrdinal = 0;
@@ -876,6 +1002,14 @@ namespace Corehold.Core
         /// </summary>
         private IEnumerator SpawnGroupRoutine(SpawnGroup group, int waveNumber, int spawnerIndex)
         {
+            // A mutator may compress or stretch the wave's spawn cadence. The
+            // GAP moves and the OFFSET does not: offsets are composition (the
+            // air group arrives eight seconds after the ground push), and
+            // scaling them would reorder a wave the designer arranged, not just
+            // pace it. This is read once here rather than per unit so a wave
+            // cannot change tempo halfway through.
+            float gapScale = EffectsForWave(waveNumber).spawnGap;
+
             if (group.startOffset > 0f)
                 yield return new WaitForSeconds(group.startOffset);
 
@@ -883,8 +1017,9 @@ namespace Corehold.Core
             {
                 RequestSpawn(group.enemy, spawnerIndex, waveNumber);
 
-                if (i < group.count - 1 && group.spawnGap > 0f)
-                    yield return new WaitForSeconds(group.spawnGap);
+                float gap = group.spawnGap * gapScale;
+                if (i < group.count - 1 && gap > 0f)
+                    yield return new WaitForSeconds(gap);
             }
 
             _activeSpawnGroups = Mathf.Max(0, _activeSpawnGroups - 1);
@@ -1019,9 +1154,12 @@ namespace Corehold.Core
         {
             enemy.Configure(def);
 
-            // Mutators in force for this unit's wave (R20). Derived here, at the
-            // moment of the actual spawn, so pending-queue admissions match.
-            WaveMutator mutators = MutatorsForWave(waveNumber);
+            // Mutators in force for this unit's wave (R20/R33), composed into a
+            // single effect vector. Derived here, at the moment of the actual
+            // spawn, so pending-queue admissions match — and composed rather
+            // than branched, so two mutators that touch the same term compound
+            // instead of one silently winning.
+            MutatorEffects fx = EffectsForWave(waveNumber);
 
             // Route the mover: ground units walk the spawner's route; air units
             // fly straight from the spawner to the Core (EnemyMover reads isAir).
@@ -1058,13 +1196,17 @@ namespace Corehold.Core
                     }
                 }
 
-                bool convoy = (mutators & WaveMutator.Convoy) != 0 && !def.isAir;
+                bool convoy = fx.singleApproach && !def.isAir;
                 mover.Configure(def, route, core, convoy);
 
-                // Storm (R20): air units of the wave fly faster, through the wave
-                // multiplier slot so enrage/status effects still compose.
-                if ((mutators & WaveMutator.Storm) != 0 && def.isAir)
-                    mover.WaveSpeedMultiplier = stormAirSpeedMultiplier;
+                // Speed (R20 Storm, and any authored mutator that moves it):
+                // through the wave multiplier slot so enrage and status effects
+                // still compose over it. Air and ground carry separate terms —
+                // a headwind that slows the walkers should not also slow the
+                // fliers riding it.
+                float speed = def.isAir ? fx.airSpeed : fx.groundSpeed;
+                if (!Mathf.Approximately(speed, 1f))
+                    mover.WaveSpeedMultiplier = speed;
             }
 
             var bridge = enemy.GetComponent<EnemyAnimatorBridge>();
@@ -1073,10 +1215,13 @@ namespace Corehold.Core
 
             enemy.SetWaveNumber(waveNumber);
 
-            // Blackout (R20): unlit units count distance double at acquisition.
-            bool overcharge = (mutators & WaveMutator.Overcharge) != 0;
+            // Turret range (R20 Blackout, and anything authored that shortens
+            // sight). The unit carries the INVERSE as a distance scale — a
+            // range multiplier of 0.5 means every distance to it counts double
+            // — which is the form the acquisition test and the Floodlight
+            // exemption (R24) already speak.
             enemy.SetAcquisitionDistanceScale(
-                (mutators & WaveMutator.Blackout) != 0 ? blackoutAcquisitionDistanceScale : 1f);
+                fx.turretRange > 0.01f ? 1f / fx.turretRange : 1f);
 
             // Wave HP scalar (GDD §8.2): 1 + growth·(wave − 1).
             float waveScalar = 1f + _hpGrowthPerWave * (waveNumber - 1);
@@ -1087,15 +1232,11 @@ namespace Corehold.Core
             float ecoMul = DifficultyEconomyMultiplier(diff);
 
             // Overcharge (R20): more HP in, more bounty out.
-            float finalHp = def.baseHealth * waveScalar * hpMul;
-            if (overcharge)
-                finalHp *= overchargeHpMultiplier;
+            float finalHp = def.baseHealth * waveScalar * hpMul * fx.health;
             enemy.SetMaxHealth(finalHp);
 
             // Bounty scales with the economy multiplier; leak damage does not (GDD §8.2).
-            float bounty = def.bounty * ecoMul;
-            if (overcharge)
-                bounty *= overchargeBountyMultiplier;
+            float bounty = def.bounty * ecoMul * fx.bounty;
             enemy.SetBounty(Mathf.RoundToInt(bounty));
             enemy.SetLeakDamage(def.leakDamage);
         }
@@ -1196,7 +1337,10 @@ namespace Corehold.Core
             // never this event, so a held look cannot leak a held EFFECT into
             // the build phase or into the certified balance path.
             if (!HasNextWave)
+            {
                 ActiveMutatorsChanged?.Invoke(WaveMutator.None);
+                ActiveMutatorAssetsChanged?.Invoke(NoMutatorAssets);
+            }
 
             if (GameManager.Instance != null && GameManager.Instance.State == GameState.Wave)
             {
