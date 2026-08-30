@@ -71,8 +71,7 @@ namespace Corehold.Data
         [Tooltip("[TUNE] ExponentialSquared fog density while this preset is active. R11 solves the baseline as sqrt(-ln T)/d_far; scale around that rather than guessing.")]
         public float fogDensity = 0.004f;
 
-        [Header("Ground tint")]
-        [Tooltip("[TUNE] Tint the ground and silhouette band. Applied through a shared MaterialPropertyBlock — never a per-object material instance, which would break batching and leak materials.")]
+        [Header("Surface response")]
         [Tooltip("Surface response: how WET the ground looks (0 = dry). Darkens and desaturates the " +
                  "terrain rather than adding gloss — at 130-150 m wetness reads as darker ground, and a " +
                  "specular path would cost WebGL bandwidth for something nobody can resolve. Pairs " +
@@ -106,6 +105,8 @@ namespace Corehold.Data
                  "a blizzard erasing the army's passage; long = the field remembers every wave.")]
         [Range(5f, 300f)] public float trailMeltSeconds = 45f;
 
+        [Header("Ground tint")]
+        [Tooltip("[TUNE] Tint the ground and silhouette band. Applied through a shared MaterialPropertyBlock — never a per-object material instance, which would break batching and leak materials.")]
         public bool overrideGroundTint;
 
         [Tooltip("[TUNE] Multiplicative tint for the tinted renderers.")]
