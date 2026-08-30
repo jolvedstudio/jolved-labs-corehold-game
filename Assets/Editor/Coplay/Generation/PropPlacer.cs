@@ -51,8 +51,22 @@ public static class PropPlacer
     /// afterwards, so the sink survives on hills and on flat maps alike.</summary>
     private const float SinkIn = 0.10f;
 
-    /// <summary>[TUNE] Placement attempts per cluster satellite (cheap misses).</summary>
-    private const int SatelliteAttempts = 6;
+    /// <summary>[TUNE] Placement attempts per cluster satellite (cheap misses).
+    /// Raised from 6 after measurement: a field log showed 11 anchors yielding
+    /// 14 satellites where the knobs promised ~33 — satellites were failing
+    /// their budget, so clusterChance was running at roughly 40% of nominal
+    /// and the knob looked weaker than it is.</summary>
+    private const int SatelliteAttempts = 12;
+
+    /// <summary>[TUNE] Crowd shrink: above <see cref="CrowdShrinkStart"/> density
+    /// props scale DOWN toward <see cref="CrowdShrinkFloor"/>, reaching it at
+    /// the slider ceiling. This is what lets a saturated field cover everything
+    /// but the lanes without occluding more than a sparse one did — smaller
+    /// props hide less route and fewer pads, so density buys coverage instead
+    /// of buying gate failures.</summary>
+    private const float CrowdShrinkStart = 4f;
+    private const float CrowdShrinkCeiling = 8f;
+    private const float CrowdShrinkFloor = 0.7f;
 
     // Placement counts per role: a floor plus an area-scaled component, so a
     // bigger field gets proportionally more dressing. [TUNE]
@@ -175,7 +189,7 @@ public static class PropPlacer
                 entry.scaleRange.y > 0f ? entry.scaleRange.y : 1f,
                 rng.Range(0f, 1f));
             float j = theme.scaleJitter * RoleScaleJitter(entry.role);
-            return baseScale * (1f + rng.Range(-1f, 1f) * j);
+            return baseScale * (1f + rng.Range(-1f, 1f) * j) * CrowdScale(theme, entry.role);
         }
 
         // SUBSTRATE TEST (E1) — the one place uniform scatter becomes composed
@@ -237,16 +251,24 @@ public static class PropPlacer
         // Base counts are the [TUNE] floor; the THEME scales them — density is
         // an art-direction property (a forest is dense, a salt flat is not),
         // so the knob lives on the EnvPack, next to the props it multiplies.
+        //
+        // The bases were RAISED after a field screenshot at maximum density on
+        // every lever came back as a scattering: the old numbers gave one
+        // clutter item per 12×12 m and one mid-field per 17×17 m on the
+        // standard field, so the ceiling was never the 0-4 slider, it was
+        // these multiplicands. Saturating "everything but the lanes" needs
+        // hundreds of props, not dozens, and the clearance tests still decide
+        // what actually lands.
         PlaceRole(EnvPack.PropRole.Landmark,
-            Mathf.RoundToInt((2f * areaScale + 1f) * theme.landmarkDensity), true);
+            Mathf.RoundToInt((3f * areaScale + 1f) * theme.landmarkDensity), true);
         PlaceRole(EnvPack.PropRole.MidField,
-            Mathf.RoundToInt((7f * areaScale + 1f) * theme.midFieldDensity), true);
+            Mathf.RoundToInt((14f * areaScale + 2f) * theme.midFieldDensity), true);
         PlaceRole(EnvPack.PropRole.Clutter,
-            Mathf.RoundToInt((14f * areaScale + 3f) * theme.clutterDensity), true);
+            Mathf.RoundToInt((40f * areaScale + 4f) * theme.clutterDensity), true);
 
         // ---- silhouettes: the far band beyond the field's north edge ---------
         PlaceRole(EnvPack.PropRole.Silhouette,
-            Mathf.RoundToInt((7f * areaScale + 1f) * theme.silhouetteDensity), false);
+            Mathf.RoundToInt((14f * areaScale + 2f) * theme.silhouetteDensity), false);
 
         // ---- outfield: the VISIBLE APRON beyond the design box ---------------
         // The floor is frustum-fit (R11), far larger than the 130×75 design box
@@ -349,7 +371,11 @@ public static class PropPlacer
 
             float apron = Mathf.Max(0f,
                 fb.size.x * fb.size.z - blueprint.playfieldSize.x * blueprint.playfieldSize.y);
-            int target = Mathf.Clamp(Mathf.RoundToInt(apron / 180f * theme.outfieldDensity), 0, 80);
+            // The apron is the LARGEST surface on screen — often 200 000 m² of
+            // frustum-fit ground — and the old 80-prop clamp spread that to one
+            // prop per 2 500 m². Denser rate, far higher ceiling; the clearance
+            // suite and the visibility budget remain the real limits.
+            int target = Mathf.Clamp(Mathf.RoundToInt(apron / 90f * theme.outfieldDensity), 0, 400);
 
             int placedCount = 0, satellites = 0;
             var used = new HashSet<GameObject>();
@@ -715,6 +741,27 @@ public static class PropPlacer
                        $"lean ±{theme.uprightJitterDegrees:0.#}° by role, sink 0.06–0.15 × scale");
 
         return log.ToString();
+    }
+
+    /// <summary>
+    /// How much a role shrinks at this theme's density for that role. 1 below
+    /// <see cref="CrowdShrinkStart"/>, easing to <see cref="CrowdShrinkFloor"/>
+    /// at the ceiling.
+    ///
+    /// LANDMARKS ARE EXEMPT: they are the navigation anchors and the scale
+    /// contrast the whole look depends on — shrinking them to fit more of
+    /// everything else would trade the one thing the references are about for
+    /// more gravel.
+    /// </summary>
+    private static float CrowdScale(EnvPack theme, EnvPack.PropRole role)
+    {
+        if (role == EnvPack.PropRole.Landmark || role == EnvPack.PropRole.Silhouette)
+            return 1f;
+        float density = role == EnvPack.PropRole.MidField
+            ? theme.midFieldDensity
+            : theme.clutterDensity;
+        return Mathf.Lerp(1f, CrowdShrinkFloor,
+                          Mathf.InverseLerp(CrowdShrinkStart, CrowdShrinkCeiling, density));
     }
 
     /// <summary>Scale-jitter damping per role: landmarks are navigation anchors

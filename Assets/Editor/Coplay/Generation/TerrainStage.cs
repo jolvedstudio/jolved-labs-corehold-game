@@ -45,9 +45,17 @@ public static class TerrainStage
     /// just past the 1.0 m pad visual so the slope seam hides under art.</summary>
     private const float SocketRadius = 1.15f;
 
-    /// <summary>[TUNE] Relief mesh resolution in cells per side. 96 → 9,409
-    /// vertices, inside the 16-bit index budget with headroom.</summary>
-    private const int MeshCells = 96;
+    /// <summary>[TUNE] Relief mesh resolution in cells per side. 160 → 25,921
+    /// vertices, still well inside the 16-bit index budget.
+    ///
+    /// Raised from 96 because vertex colours are the ground's ONLY defence
+    /// against tiling, and 96 cells over a frustum-fit floor (~600 m) put a
+    /// vertex every 6.25 m — so a 38 m substrate zone got six samples, the
+    /// 20 m worn corridor band got three, and the triangulation was visible as
+    /// faceting in play. At 160 it is 3.75 m: the substrate reads as ground
+    /// rather than as a wash. Purely visual — the gates sample the ANALYTIC
+    /// field, never this mesh.</summary>
+    private const int MeshCells = 160;
 
     /// <summary>[TUNE] T3 gate: fraction of a pad's nearby route samples the
     /// terrain may hide before the seed is discarded (R29).</summary>

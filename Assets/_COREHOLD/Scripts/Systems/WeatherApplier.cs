@@ -794,6 +794,17 @@ namespace Corehold.Systems
                 _precipitationMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                 _precipitationMaterial.DisableKeyword("_ALPHATEST_ON");
                 _precipitationMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 80;
+
+                // A particle material with NO base map draws a flat opaque
+                // QUAD — which is why dust rendered as a field of hard grey
+                // squares over the whole map instead of soft motes. Generated
+                // rather than authored, so it needs no asset and cannot go
+                // missing in a build: a 32×32 radial alpha falloff.
+                Texture2D sprite = BuildMoteSprite();
+                if (_precipitationMaterial.HasProperty("_BaseMap"))
+                    _precipitationMaterial.SetTexture("_BaseMap", sprite);
+                if (_precipitationMaterial.HasProperty("_MainTex"))
+                    _precipitationMaterial.SetTexture("_MainTex", sprite);
             }
             renderer.sharedMaterial = _precipitationMaterial;
             renderer.renderMode = rain
@@ -815,6 +826,54 @@ namespace Corehold.Systems
 
             ps.Clear();
             ps.Play();
+        }
+
+        /// <summary>
+        /// The soft round mote every precipitation particle wears: a 32×32
+        /// radial alpha falloff, generated once and shared.
+        ///
+        /// Generated rather than authored for the same reason the terrain
+        /// detail noise is — an asset can be missing, mis-imported or stripped
+        /// from a build, and this must never be any of those. Without it a
+        /// URP particle material has no base map and draws a flat opaque QUAD,
+        /// which is exactly how dust came out as a field of hard grey squares
+        /// across the whole map.
+        ///
+        /// Alpha is squared so the edge fades faster than linearly — a linear
+        /// falloff still reads as a disc with a visible rim at this size.
+        /// </summary>
+        private static Texture2D _moteSprite;
+
+        private static Texture2D BuildMoteSprite()
+        {
+            if (_moteSprite != null)
+                return _moteSprite;
+
+            const int size = 32;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, true, true)
+            {
+                name = "Weather_Mote (generated)",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            var px = new Color32[size * size];
+            const float centre = (size - 1) * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x - centre) / centre, dy = (y - centre) / centre;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float a = Mathf.Clamp01(1f - d);
+                    a *= a;
+                    px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+                }
+            }
+            tex.SetPixels32(px);
+            tex.Apply(true, false);
+            _moteSprite = tex;
+            return tex;
         }
     }
 }

@@ -177,27 +177,27 @@ namespace Corehold.Data
                  "the full value, mid-field ×0.6, silhouettes ×0.8, landmarks ×0.25 (a leaning " +
                  "building reads as a mistake, a leaning rock reads as geology). Composes with the " +
                  "terrain slope settle. 0 keeps everything perfectly plumb.")]
-        [Range(0f, 10f)] public float uprightJitterDegrees = 2.5f;
+        [Range(0f, 20f)] public float uprightJitterDegrees = 2.5f;
 
         [Header("Dressing density")]
 
         [Tooltip("Multiplier on LANDMARK placements inside the design box (1 ≈ 3 on the standard field). 0 disables the role for this theme.")]
-        [Range(0f, 4f)] public float landmarkDensity = 1f;
+        [Range(0f, 8f)] public float landmarkDensity = 1f;
 
         [Tooltip("Multiplier on MID-FIELD placements (1 ≈ 8 on the standard field).")]
-        [Range(0f, 4f)] public float midFieldDensity = 1f;
+        [Range(0f, 8f)] public float midFieldDensity = 1f;
 
         [Tooltip("Multiplier on CLUTTER placements (1 ≈ 17 on the standard field).")]
-        [Range(0f, 4f)] public float clutterDensity = 1f;
+        [Range(0f, 8f)] public float clutterDensity = 1f;
 
         [Tooltip("Multiplier on the far-band SILHOUETTES beyond the north edge (1 ≈ 8).")]
-        [Range(0f, 4f)] public float silhouetteDensity = 1f;
+        [Range(0f, 8f)] public float silhouetteDensity = 1f;
 
         [Tooltip("Fills the VISIBLE APRON — the frustum-fit ground beyond the design box, where the " +
                  "terrain hills live — with this theme's non-silhouette props: roughly one per 180 m² " +
                  "at 1. The apron used to stay completely bare, which is most of why maps read as " +
                  "empty. 0 restores the bare apron.")]
-        [Range(0f, 4f)] public float outfieldDensity = 1f;
+        [Range(0f, 8f)] public float outfieldDensity = 1f;
 
         [Header("Look & lighting (M-d)")]
 
