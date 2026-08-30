@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using Corehold.Core;
 using Corehold.Data;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Corehold.Systems
 {
@@ -99,10 +101,76 @@ namespace Corehold.Systems
         /// <summary>The preset currently applied, or null when the scene is on its baseline.</summary>
         public WeatherPreset Active { get; private set; }
 
+        // ------------------------------------------------ mutator → weather links
+
+        /// <summary>A weather LAYER stacked over the base preset while a wave with
+        /// the given mutator is in flight — a Storm wave that looks like a storm.</summary>
+        [Serializable]
+        public class MutatorWeatherLink
+        {
+            public WaveMutator mutator;
+            public WeatherPreset layer;
+        }
+
+        [Tooltip("Weather layers stacked over the active preset while a wave with the linked mutator " +
+                 "runs, removed when the field clears. Composition rules are the preset's layer rules. " +
+                 "Presentation only — nothing gameplay reads weather.")]
+        public MutatorWeatherLink[] mutatorLinks;
+
+        private WaveMutator _activeMutators;
+
+        // ------------------------------------------------------ composed runtime
+        // All of this idles at ZERO cost: Update early-outs on one time compare,
+        // and the throttled tick early-outs again when every current equals its
+        // target and no gust or lightning is configured.
+
+        private WeatherPreset _merged;         // the flattened stack, as one carrier
+        private ParticleSystem _sheetPs;       // procedural sheet, cached at build
+        private Vector3 _sheetBaseVel;         // camera-local wind+fall it was built with
+        private float _resolvedRate;
+
+        private float _surfaceSeconds = 10f;
+        private float _targetSnow, _targetWet;
+        private Color _targetFilm = Color.white;
+        private float _curSnow, _curWet;
+        private float _envelope = 1f;          // 0→1 ramp shared by rate + surfaces
+        private float _nextTick;
+        private const float TickSeconds = 0.15f;
+
+        private float _gustStrength;
+        private float _gustPeriod = 7f;
+
+        private float _strikesPerMinute;
+        private float _lightningIntensity = 3.5f;
+        private Color _lightningColor = Color.white;
+        private float _nextStrikeAt = float.PositiveInfinity;
+        private float _flashStartedAt = -1f;
+        private float _stackSunIntensity;      // restore point after a flash
+        private Color _stackSunColor;
+
         private void Start()
         {
             CaptureBaseline();
             Apply(preset);
+        }
+
+        private void OnEnable()
+        {
+            WaveManager.ActiveMutatorsChanged += OnMutatorsChanged;
+        }
+
+        private void OnDisable()
+        {
+            WaveManager.ActiveMutatorsChanged -= OnMutatorsChanged;
+        }
+
+        private void OnMutatorsChanged(WaveMutator now)
+        {
+            if (_activeMutators == now)
+                return;
+            _activeMutators = now;
+            if (Application.isPlaying && _baselineCaptured)
+                ApplyStack();
         }
 
         private void OnDestroy()
@@ -235,19 +303,60 @@ namespace Corehold.Systems
         /// </summary>
         public void Apply(WeatherPreset next)
         {
+            Active = next;
+            ApplyStack();
+        }
+
+        /// <summary>
+        /// Apply the FULL stack: the active preset, its declared layers
+        /// (depth-first, cycle-guarded), and any mutator-linked layers for the
+        /// wave in flight — flattened, merged by the composition rules, and
+        /// applied exactly once. One grade volume, one particle sheet, one set
+        /// of channel writes, however tall the stack: layers add authoring
+        /// freedom, never draw cost.
+        /// </summary>
+        private void ApplyStack()
+        {
             CaptureBaseline();
 
-            // Always start from the baseline so presets never stack.
+            // Always start from the baseline so stacks never stack on stacks.
             RestoreBaseline();
-            Active = next;
 
-            if (next == null)
+            // A restart also ends any in-flight flash and gust authority; the
+            // merged stack below re-establishes both from scratch.
+            _flashStartedAt = -1f;
+            _nextStrikeAt = float.PositiveInfinity;
+            _gustStrength = 0f;
+            _sheetPs = null;
+
+            var stack = new List<WeatherPreset>(8);
+            Flatten(Active, stack, 0);
+            if (mutatorLinks != null && _activeMutators != WaveMutator.None)
+                foreach (MutatorWeatherLink link in mutatorLinks)
+                    if (link != null && link.layer != null && (_activeMutators & link.mutator) != 0)
+                        Flatten(link.layer, stack, 0);
+
+            if (stack.Count == 0)
             {
                 SetPrecipitationActive(false);
+                // Dry out rather than snap when playing: clearing a snowstorm
+                // melts, it does not blink. Edit mode snaps for honest preview.
+                _targetSnow = 0f;
+                _targetWet = 0f;
+                if (!Application.isPlaying)
+                {
+                    _curSnow = 0f;
+                    _curWet = 0f;
+                    PushSurface();
+                }
                 if (Application.isPlaying && AudioDirector.Instance != null)
                     AudioDirector.Instance.StopWeatherLoop();
                 return;
             }
+
+            DestroyEitherMode(_merged);
+            _merged = Merge(stack);
+            WeatherPreset next = _merged;
 
             if (next.overrideAmbient)
             {
@@ -284,11 +393,23 @@ namespace Corehold.Systems
             if (next.overrideGroundTint)
                 TintTargets(next.groundTint);
 
-            // Surface response, written UNCONDITIONALLY (zeros included): this
-            // is what makes clearing weather restore dry ground instead of
-            // leaving the previous preset's snow lying on a sunny map.
-            ApplySurfaceResponse(next.groundWetness, next.groundSnow, next.snowColor);
-            PropSnow.Apply(next.groundSnow, next.groundWetness, next.snowColor);
+            // Surface response goes to TARGETS, not straight to the ground: the
+            // throttled tick walks the currents there over surfaceChangeSeconds,
+            // because snow that pops on in one frame reads as a bug while snow
+            // that builds over ten seconds reads as weather. Edit mode snaps —
+            // a preview that ramps is a preview that lies about the end state.
+            _targetWet = next.groundWetness;
+            _targetSnow = next.groundSnow;
+            _targetFilm = next.snowColor;
+            _surfaceSeconds = next.surfaceChangeSeconds <= 0f ? 10f : next.surfaceChangeSeconds;
+            _envelope = 0f;
+            if (!Application.isPlaying)
+            {
+                _curWet = _targetWet;
+                _curSnow = _targetSnow;
+                _envelope = 1f;
+                PushSurface();
+            }
 
             // sharedProfile, not profile: assigning the asset directly avoids
             // instantiating a runtime copy per apply (the same reason ground tinting
@@ -313,6 +434,212 @@ namespace Corehold.Systems
                         next.precipitation == WeatherPreset.Precipitation.Rain,
                         next.ambientVolume);
             }
+
+            // The flash restore point: whatever sun the STACK just applied is
+            // what a lightning strike must come back to — override or baseline.
+            if (_sun != null)
+            {
+                _stackSunIntensity = _sun.intensity;
+                _stackSunColor = _sun.color;
+            }
+            _gustStrength = next.gustStrength;
+            _gustPeriod = Mathf.Max(1f, next.gustPeriodSeconds);
+            _strikesPerMinute = next.lightningStrikesPerMinute;
+            _lightningIntensity = next.lightningIntensity;
+            _lightningColor = next.lightningColor;
+            if (Application.isPlaying && _strikesPerMinute > 0f)
+                _nextStrikeAt = Time.time + (60f / _strikesPerMinute) * UnityEngine.Random.Range(0.3f, 1f);
+        }
+
+        /// <summary>Depth-first flatten: the preset, then its layers in order —
+        /// so a layer OVERRIDES what it modifies (last wins). Cycle-guarded and
+        /// depth-capped; a self-referencing preset degrades to itself.</summary>
+        private static void Flatten(WeatherPreset p, List<WeatherPreset> into, int depth)
+        {
+            if (p == null || depth > 4 || into.Contains(p))
+                return;
+            into.Add(p);
+            if (p.layers == null)
+                return;
+            foreach (WeatherPreset layer in p.layers)
+                Flatten(layer, into, depth + 1);
+        }
+
+        /// <summary>
+        /// Merge a flattened stack into one carrier. The rules, per channel:
+        /// flagged channels (ambient/sun/fog/tint/post) go to the LAST layer
+        /// that sets the flag; surface film and wetness take the MAX (heavy
+        /// snow plus anything stays heavy snow); precipitation, wind, gust,
+        /// lightning and audio go to the last layer that uses them.
+        /// </summary>
+        private static WeatherPreset Merge(List<WeatherPreset> stack)
+        {
+            var m = ScriptableObject.CreateInstance<WeatherPreset>();
+            m.name = "Weather(MergedStack)";
+            m.hideFlags = HideFlags.HideAndDontSave;
+            m.windStrength = 0f;
+            m.gustStrength = 0f;
+            m.lightningStrikesPerMinute = 0f;
+            m.surfaceChangeSeconds = 0f;
+            m.groundSnow = 0f;
+            m.groundWetness = 0f;
+
+            foreach (WeatherPreset l in stack)
+            {
+                if (l.overrideAmbient) { m.overrideAmbient = true; m.ambientColor = l.ambientColor; }
+                if (l.overrideSun)
+                {
+                    m.overrideSun = true;
+                    m.sunTemperatureKelvin = l.sunTemperatureKelvin;
+                    m.sunFilter = l.sunFilter;
+                    m.sunIntensityMult = l.sunIntensityMult;
+                    m.sunShadowStrengthMult = l.sunShadowStrengthMult;
+                }
+                if (l.overrideFog)
+                {
+                    m.overrideFog = true;
+                    m.fogColor = l.fogColor;
+                    m.fogDensity = l.fogDensity;
+                }
+                if (l.overrideGroundTint) { m.overrideGroundTint = true; m.groundTint = l.groundTint; }
+                if (l.overridePostProfile && l.postProfile != null)
+                {
+                    m.overridePostProfile = true;
+                    m.postProfile = l.postProfile;
+                    m.postWeight = l.postWeight;
+                }
+
+                if (l.groundSnow > m.groundSnow) { m.groundSnow = l.groundSnow; m.snowColor = l.snowColor; }
+                m.groundWetness = Mathf.Max(m.groundWetness, l.groundWetness);
+                if (l.surfaceChangeSeconds > 0f) m.surfaceChangeSeconds = l.surfaceChangeSeconds;
+
+                if (l.precipitation != WeatherPreset.Precipitation.None)
+                {
+                    m.precipitation = l.precipitation;
+                    m.precipitationPrefab = l.precipitationPrefab;
+                    m.precipitationRate = l.precipitationRate;
+                    m.fallSpeed = l.fallSpeed;
+                    m.particleSize = l.particleSize;
+                    m.streakLength = l.streakLength;
+                    m.particleColor = l.particleColor;
+                    m.ambientLoop = l.ambientLoop;
+                    m.ambientVolume = l.ambientVolume;
+                }
+
+                if (l.windStrength > 0f)
+                {
+                    m.windDirection = l.windDirection;
+                    m.windStrength = l.windStrength;
+                }
+                if (l.gustStrength > 0f)
+                {
+                    m.gustStrength = l.gustStrength;
+                    m.gustPeriodSeconds = l.gustPeriodSeconds;
+                }
+                if (l.lightningStrikesPerMinute > 0f)
+                {
+                    m.lightningStrikesPerMinute = l.lightningStrikesPerMinute;
+                    m.lightningIntensity = l.lightningIntensity;
+                    m.lightningColor = l.lightningColor;
+                }
+            }
+            return m;
+        }
+
+        // -------------------------------------------------------- the live loop
+
+        private void Update()
+        {
+            float now = Time.time;
+
+            // Per-frame work exists ONLY while a flash is live (a 0.12 s pulse
+            // needs frame resolution); everything else rides the throttled tick.
+            if (_flashStartedAt >= 0f)
+                FlashEnvelope(now);
+
+            if (now < _nextTick)
+                return;
+            _nextTick = now + TickSeconds;
+            Tick(now);
+        }
+
+        private void Tick(float now)
+        {
+            // ---- progressive surfaces + precipitation ramp -------------------
+            bool moving = _envelope < 1f ||
+                          !Mathf.Approximately(_curSnow, _targetSnow) ||
+                          !Mathf.Approximately(_curWet, _targetWet);
+            if (moving)
+            {
+                float step = TickSeconds / Mathf.Max(0.5f, _surfaceSeconds);
+                _envelope = Mathf.Min(1f, _envelope + step);
+                _curSnow = Mathf.MoveTowards(_curSnow, _targetSnow, step);
+                _curWet = Mathf.MoveTowards(_curWet, _targetWet, step);
+                PushSurface();
+
+                if (_sheetPs != null)
+                {
+                    var emission = _sheetPs.emission;
+                    emission.rateOverTime = _resolvedRate * Mathf.SmoothStep(0f, 1f, _envelope);
+                }
+            }
+
+            // ---- gusts -------------------------------------------------------
+            // Two incommensurate sines so the rhythm never quite repeats. The
+            // envelope multiplies the HORIZONTAL drift only: gusts push sideways,
+            // they do not make snow fall faster.
+            if (_gustStrength > 0f && _sheetPs != null)
+            {
+                float g = 0.6f * Mathf.Sin(now * (2f * Mathf.PI) / _gustPeriod) +
+                          0.4f * Mathf.Sin(now * (2f * Mathf.PI) * 2.7f / _gustPeriod + 1.7f);
+                float factor = 1f + _gustStrength * g;
+                var vel = _sheetPs.velocityOverLifetime;
+                vel.x = new ParticleSystem.MinMaxCurve(_sheetBaseVel.x * factor);
+                vel.z = new ParticleSystem.MinMaxCurve(_sheetBaseVel.z * factor);
+            }
+
+            // ---- lightning scheduling ---------------------------------------
+            if (_strikesPerMinute > 0f && _flashStartedAt < 0f && now >= _nextStrikeAt)
+            {
+                _flashStartedAt = now;
+                _nextStrikeAt = now + (60f / _strikesPerMinute) * UnityEngine.Random.Range(0.45f, 1.6f);
+            }
+        }
+
+        /// <summary>Push the CURRENT surface values to terrain and props.</summary>
+        private void PushSurface()
+        {
+            ApplySurfaceResponse(_curWet, _curSnow, _targetFilm);
+            PropSnow.Apply(_curSnow, _curWet, _targetFilm);
+        }
+
+        /// <summary>The strike: a sharp main pulse and a dimmer echo, ~0.4 s
+        /// total, written straight onto the sun and restored exactly to what the
+        /// stack applied. Brief on purpose — a long bright flash costs the
+        /// readability doctrine more than it buys drama.</summary>
+        private void FlashEnvelope(float now)
+        {
+            if (_sun == null)
+            {
+                _flashStartedAt = -1f;
+                return;
+            }
+
+            float t = now - _flashStartedAt;
+            float e;
+            if (t < 0.10f) e = 1f - t / 0.10f;                       // main pulse
+            else if (t < 0.22f) e = 0f;
+            else if (t < 0.34f) e = 0.4f * (1f - (t - 0.22f) / 0.12f); // echo
+            else
+            {
+                _sun.intensity = _stackSunIntensity;
+                _sun.color = _stackSunColor;
+                _flashStartedAt = -1f;
+                return;
+            }
+
+            _sun.intensity = _stackSunIntensity * Mathf.Lerp(1f, _lightningIntensity, e);
+            _sun.color = Color.Lerp(_stackSunColor, _lightningColor, e * 0.8f);
         }
 
         /// <summary>Clear back to the authored look.</summary>
@@ -794,7 +1121,13 @@ namespace Corehold.Systems
 
             var emission = ps.emission;
             emission.enabled = true;
-            emission.rateOverTime = p.precipitationRate;
+            // In play the rate starts at the envelope (0 on a fresh apply) and
+            // the throttled tick ramps it in with the surfaces — precipitation
+            // that snaps to full blast reads as a switch, not as weather.
+            emission.rateOverTime = Application.isPlaying
+                ? p.precipitationRate * Mathf.SmoothStep(0f, 1f, _envelope)
+                : p.precipitationRate;
+            _resolvedRate = p.precipitationRate;
 
             var vel = ps.velocityOverLifetime;
             vel.enabled = true;
@@ -863,6 +1196,11 @@ namespace Corehold.Systems
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
             renderer.alignment = ParticleSystemRenderSpace.View;
+
+            // Cache for the live loop: gusts modulate THESE base velocities and
+            // the ramp raises THIS system's rate, without a GetComponent per tick.
+            _sheetPs = ps;
+            _sheetBaseVel = localVel;
 
             ps.Clear();
             ps.Play();

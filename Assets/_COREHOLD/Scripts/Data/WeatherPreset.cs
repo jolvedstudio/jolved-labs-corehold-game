@@ -79,11 +79,18 @@ namespace Corehold.Data
                  "naturally with Rain, but it is independent: ground stays wet after the rain stops.")]
         [Range(0f, 1f)] public float groundWetness;
 
-        [Tooltip("Surface response: how much SNOW lies on the ground (0 = none). Accumulates by the " +
-                 "surface normal, so flat ground whitens while slopes stay bare — which is the whole " +
-                 "read of snow at a distance. Props whiten too, through the shared tone-variant " +
-                 "materials, so the field does not end up white ground under untouched brown rocks.")]
+        [Tooltip("Surface response: how much FILM lies on the ground (0 = none). Accumulates by the " +
+                 "surface normal, so flat ground coats while slopes stay bare. With the default cool " +
+                 "colour this is SNOW; with a warm colour it is DUST — a sandstorm preset uses this " +
+                 "same lane with sand-coloured film. Props coat too, so the field does not end up " +
+                 "white ground under untouched brown rocks.")]
         [Range(0f, 1f)] public float groundSnow;
+
+        [Tooltip("Seconds for the surface film and wetness to reach their values after the preset " +
+                 "applies (and for the precipitation rate to ramp in). Progressive on purpose — snow " +
+                 "that pops on in one frame reads as a bug, snow that builds over ten seconds reads " +
+                 "as weather. 0 = the 10 s default; edit-mode preview is always instant.")]
+        [Range(0f, 60f)] public float surfaceChangeSeconds;
 
         [Tooltip("The colour snow lies as. Slightly blue-shifted off white reads as snow; pure white " +
                  "reads as blown-out ground.")]
@@ -139,5 +146,35 @@ namespace Corehold.Data
 
         [Tooltip("[TUNE] Wind strength in metres/second, applied as lateral drift on precipitation.")]
         [Range(0f, 20f)] public float windStrength = 2f;
+
+        [Tooltip("GUSTING: fraction the wind strength swings by (0 = steady). A constant wind reads " +
+                 "as mechanical; gusts are what make dust and snow feel alive. Costs one curve write " +
+                 "per throttled tick, nothing per frame.")]
+        [Range(0f, 1f)] public float gustStrength;
+
+        [Tooltip("Seconds per gust cycle.")]
+        [Range(1f, 20f)] public float gustPeriodSeconds = 7f;
+
+        [Header("Lightning")]
+        [Tooltip("Strikes per minute (0 = none). A strike is a two-pulse flash on the sun and " +
+                 "ambient — enormous drama for the cost of two light writes per frame, only while a " +
+                 "flash is live. Keep flashes brief; a long bright flash costs readability.")]
+        [Range(0f, 20f)] public float lightningStrikesPerMinute;
+
+        [Tooltip("How bright the flash peaks, as a multiplier on the sun's applied intensity.")]
+        [Range(1.5f, 6f)] public float lightningIntensity = 3.5f;
+
+        [Tooltip("Flash colour — cold blue-white reads as lightning.")]
+        public Color lightningColor = new Color(0.85f, 0.9f, 1f, 1f);
+
+        [Header("Composition")]
+        [Tooltip("Sub-presets stacked OVER this one, in order — 'Heavy Snow' + a gust layer + a " +
+                 "lightning layer composes without authoring a combined preset. Rules: flagged " +
+                 "channels (ambient/sun/fog/tint/post) go to the LAST layer that sets the flag; " +
+                 "surface film and wetness take the MAX across layers; precipitation, wind and " +
+                 "lightning go to the last layer that uses them. One post volume, one particle " +
+                 "sheet, whatever the stack says — layers add authoring freedom, never draw cost. " +
+                 "Cycles are guarded; depth caps at 4.")]
+        public WeatherPreset[] layers;
     }
 }

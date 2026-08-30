@@ -58,20 +58,29 @@ namespace Corehold.Systems
             Color tint = Color.Lerp(Color.white, new Color(0.62f, 0.64f, 0.68f), wet);
             tint = Color.Lerp(tint, snowColor, snow);
 
-            _tinted.Clear();
-            foreach (PlacedProp prop in Object.FindObjectsByType<PlacedProp>(
-                         FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            // The renderer list is CACHED: the progressive ramp calls this every
+            // throttled tick for ~10 s, and re-finding a few hundred PlacedProps
+            // each time would be the exact per-frame cost the weather system
+            // promises not to have. Dressing is static during play; a scene
+            // change empties the cache via the destroyed-renderer check below.
+            if (_tinted.Count == 0 || _tinted[0] == null)
             {
-                foreach (Renderer r in prop.GetComponentsInChildren<Renderer>(false))
-                {
-                    if (r == null || r is ParticleSystemRenderer)
-                        continue;
-                    r.GetPropertyBlock(_block);
-                    _block.SetColor(BaseColorId, tint);
-                    _block.SetColor(ColorId, tint);
-                    r.SetPropertyBlock(_block);
-                    _tinted.Add(r);
-                }
+                _tinted.Clear();
+                foreach (PlacedProp prop in Object.FindObjectsByType<PlacedProp>(
+                             FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                    foreach (Renderer r in prop.GetComponentsInChildren<Renderer>(false))
+                        if (r != null && !(r is ParticleSystemRenderer))
+                            _tinted.Add(r);
+            }
+
+            foreach (Renderer r in _tinted)
+            {
+                if (r == null)
+                    continue;
+                r.GetPropertyBlock(_block);
+                _block.SetColor(BaseColorId, tint);
+                _block.SetColor(ColorId, tint);
+                r.SetPropertyBlock(_block);
             }
         }
 

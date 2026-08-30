@@ -682,10 +682,22 @@ namespace Corehold.Core
         private readonly Dictionary<int, int> _portalPending = new Dictionary<int, int>();
         private readonly Dictionary<int, float> _portalMult = new Dictionary<int, float>();
 
+        /// <summary>
+        /// The mutators in force RIGHT NOW — raised once at each wave start with
+        /// that wave's mutators, and with None when the field clears. Exists so
+        /// presentation systems (WeatherApplier layers storm weather over the
+        /// scene during a Storm wave) can follow the fight without the
+        /// WaveManager knowing they exist. Purely observational: nothing about
+        /// spawning, speed or the certified balance path reads it.
+        /// </summary>
+        public static event Action<WaveMutator> ActiveMutatorsChanged;
+
         private void StartWaveGroups(WaveDefinition wave, int waveNumber)
         {
             if (wave == null || wave.groups == null)
                 return;
+
+            ActiveMutatorsChanged?.Invoke(MutatorsForWave(waveNumber));
 
             // Convoy (R20): every ground group of the wave funnels into ONE
             // approach — the first ground group's resolved spawner wins for all.
@@ -1171,6 +1183,7 @@ namespace Corehold.Core
 
             PayClearBonus(lastWaveNumber);
             OnWaveComplete?.Invoke(lastWaveNumber);
+            ActiveMutatorsChanged?.Invoke(WaveMutator.None);
 
             if (GameManager.Instance != null && GameManager.Instance.State == GameState.Wave)
             {
