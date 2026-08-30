@@ -822,40 +822,63 @@ namespace Corehold.Systems
         /// shallow pool still has a shape.</summary>
         private const float ShorelineFeather = 0.45f;
 
-        /// <summary>The terrain's own vertical extent, measured once from the
-        /// resolved ground renderers. The water table climbs through THIS, so a
-        /// map with 12 m of relief floods differently from a map with 2 m —
-        /// which is right, and needs nothing authored per map.</summary>
-        private float _groundMinY, _groundRangeY = 1f;
+        /// <summary>The lowest point of the WALKABLE ground — where water goes.</summary>
+        private float _groundMinY;
         private bool _groundMeasured;
 
+        /// <summary>
+        /// How far above the lowest ground a full <c>puddleDepth</c> raises the
+        /// water, in METRES.
+        ///
+        /// Deliberately absolute rather than a fraction of the terrain's height
+        /// range, which is what the first version did and got badly wrong: the
+        /// range it measured included the silhouette massifs (tens of metres of
+        /// background cliff that nothing pools on), so `puddleDepth` meant
+        /// something different on every map and the storm preset put the water
+        /// line metres up the hillsides. A puddle is a puddle at any map scale,
+        /// so the band is fixed and legible: 2.5 m from the deepest ground, of
+        /// which the storm preset uses about a third.
+        /// </summary>
+        private const float PuddleBandMetres = 2.5f;
+
+        /// <summary>
+        /// Find the lowest point of the ground water can actually stand on.
+        ///
+        /// Measured from the RELIEF MESH alone, not from the resolved weather
+        /// targets, because that list is built for tinting and contains two
+        /// things that must never set a water line: the flat Floor, which the
+        /// terrain stage drops 3 m as a void-catcher and which therefore sits
+        /// well below any real valley, and the silhouette props, which are
+        /// background scenery. The Floor is used only when there is no relief
+        /// at all, which is exactly the case where it IS the ground.
+        /// </summary>
         private void MeasureGround()
         {
             if (_groundMeasured)
                 return;
             _groundMeasured = true;
 
-            bool any = false;
-            float min = float.PositiveInfinity, max = float.NegativeInfinity;
-            for (int i = 0; i < _resolvedTargets.Count; i++)
-            {
-                Renderer r = _resolvedTargets[i];
-                if (r == null)
-                    continue;
-                Bounds b = r.bounds;
-                min = Mathf.Min(min, b.min.y);
-                max = Mathf.Max(max, b.max.y);
-                any = true;
-            }
-            if (!any)
-                return;
+            var relief = GameObject.Find("TerrainRelief");
+            Renderer[] sources = relief != null
+                ? relief.GetComponentsInChildren<Renderer>(true)
+                : null;
 
-            _groundMinY = min;
-            // A FLAT map measures ~0 range, which would make the water table a
-            // switch rather than a rise. Flooring it keeps pools patchy there
-            // (the shoreline wobble does the work) instead of tiling the whole
-            // floor with water the instant it rains.
-            _groundRangeY = Mathf.Max(max - min, 1.2f);
+            if (sources == null || sources.Length == 0)
+            {
+                var floor = GameObject.Find("Floor");
+                var fr = floor != null ? floor.GetComponent<Renderer>() : null;
+                if (fr == null)
+                    return;
+                _groundMinY = fr.bounds.min.y;
+                return;
+            }
+
+            float min = float.PositiveInfinity;
+            foreach (Renderer r in sources)
+                if (r != null)
+                    min = Mathf.Min(min, r.bounds.min.y);
+            if (!float.IsPositiveInfinity(min))
+                _groundMinY = min;
         }
 
         /// <summary>Raise the water table and hand the shaders the sky that wet
@@ -872,7 +895,14 @@ namespace Corehold.Systems
                            _merged.precipitation == WeatherPreset.Precipitation.Rain &&
                            _resolvedRate > 0f ? 1f : 0f;
 
-            float level = _groundMinY + _groundRangeY * _puddleDepth * Mathf.Clamp01(wet);
+            // Wetness GATES the water rather than scaling its height. Two
+            // sub-1 numbers multiplied together is what made the first version
+            // invisible: rain at 0.45 wet and 0.18 depth moved the table by a
+            // fifth of a metre, which on rolling ground is nothing. Wet decides
+            // WHETHER water stands and how it fades in; puddleDepth alone
+            // decides how high it comes.
+            float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.15f, 0.7f, wet));
+            float level = _groundMinY + PuddleBandMetres * _puddleDepth * gate;
             Shader.SetGlobalVector(WaterId,
                 new Vector4(level, ShorelineFeather, ripple, _wetShine));
 
