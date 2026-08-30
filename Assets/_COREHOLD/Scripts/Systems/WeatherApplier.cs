@@ -513,7 +513,17 @@ namespace Corehold.Systems
                     m.postWeight = l.postWeight;
                 }
 
-                if (l.groundSnow > m.groundSnow) { m.groundSnow = l.groundSnow; m.snowColor = l.snowColor; }
+                // Trail knobs travel WITH the film that wins: found dead in
+                // review — the merged carrier kept its field defaults, so the
+                // per-preset knobs did nothing through the only path the
+                // runtime applies.
+                if (l.groundSnow > m.groundSnow)
+                {
+                    m.groundSnow = l.groundSnow;
+                    m.snowColor = l.snowColor;
+                    m.trailStrength = l.trailStrength;
+                    m.trailMeltSeconds = l.trailMeltSeconds;
+                }
                 m.groundWetness = Mathf.Max(m.groundWetness, l.groundWetness);
                 if (l.surfaceChangeSeconds > 0f) m.surfaceChangeSeconds = l.surfaceChangeSeconds;
 
