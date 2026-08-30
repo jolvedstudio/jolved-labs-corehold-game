@@ -17,7 +17,7 @@ namespace Corehold.UI
     /// gesture before gameplay (mirrors <see cref="TitleScreen"/>'s gate).
     ///
     /// Lives in a dedicated menu scene built by
-    /// Tools → COREHOLD → Campaign → Build Welcome + Closing Scenes (stub).
+    /// Tools → COREHOLD → Campaign → Build Welcome + Closing Scenes.
     /// References a <see cref="CampaignManifest"/> — the runtime-only campaign
     /// asset — never blueprints or authoring data.
     /// </summary>

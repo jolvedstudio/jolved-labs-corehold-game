@@ -393,6 +393,16 @@ namespace CoreholdEditor
             var bmSo = new SerializedObject(buildMenu);
             SetRef(bmSo, "towerPanel", towerPanel);
             bmSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // cross-link pause -> settings. The SAME panel instance the title
+            // overlay uses, so the two doors lead to one room: volume set from
+            // pause and volume set from the title cannot disagree. Wired here
+            // rather than inside BuildPauseScreen because the panel is built
+            // after it, and reordering the builds would move the pause screen's
+            // canvas siblings — which is what decides what draws over what.
+            var psSo = new SerializedObject(pauseScreen);
+            SetRef(psSo, "settingsPanel", settingsPanel);
+            psSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
         static Canvas BuildMenuCanvas(UITheme theme, StringBuilder sb)
@@ -717,14 +727,21 @@ namespace CoreholdEditor
             var root = MakeFullscreenDim(canvas.transform, "PauseScreen");
             var comp = canvas.gameObject.AddComponent<PauseScreen>();
 
-            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 640), theme.popup);
+            // Seven rows now, so the panel grows with them rather than letting
+            // the last button hang off the frame.
+            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 722), theme.popup);
             MakeText(panel, "Title", "PAUSED", _large, TextAlignmentOptions.Top, new Vector2(0, -20), new Vector2(480, 44)).color = Cyan;
             var resume = MakeButton(panel, "Resume", "RESUME", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -90), new Vector2(400, 70));
             var retry = MakeButton(panel, "Retry", "RETRY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -172), new Vector2(400, 70));
             var menu = MakeButton(panel, "Menu", "MAIN MENU", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -254), new Vector2(400, 70));
             var mute = MakeButton(panel, "Mute", "SOUND: ON", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -336), new Vector2(400, 70));
-            var almanac = MakeButton(panel, "Almanac", "FIELD GUIDE", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -418), new Vector2(400, 70));
-            var howTo = MakeButton(panel, "HowToPlay", "HOW TO PLAY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -500), new Vector2(400, 70));
+            // SETTINGS sits with Sound because they are the same errand. Before
+            // this the panel existed in every level scene and only the title
+            // overlay could open it, so changing the volume mid-run meant
+            // abandoning the level.
+            var settings = MakeButton(panel, "Settings", "SETTINGS", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -418), new Vector2(400, 70));
+            var almanac = MakeButton(panel, "Almanac", "FIELD GUIDE", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -500), new Vector2(400, 70));
+            var howTo = MakeButton(panel, "HowToPlay", "HOW TO PLAY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -582), new Vector2(400, 70));
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -735,6 +752,7 @@ namespace CoreholdEditor
             SetRef(so, "muteLabel", mute.GetComponentInChildren<TMP_Text>());
             SetRef(so, "almanacButton", almanac.GetComponent<Button>());
             SetRef(so, "howToPlayButton", howTo.GetComponent<Button>());
+            SetRef(so, "settingsButton", settings.GetComponent<Button>());
             so.ApplyModifiedPropertiesWithoutUndo();
 
             root.gameObject.SetActive(false);
