@@ -204,17 +204,29 @@ public static class LookdevStager
 
         var props = new GameObject("Staging");
 
-        // Massif arc: slots spread across the back, one distinct entry each
-        // before any repeats, so the horizon shows the pack's whole range.
+        // Massif band where the GENERATOR actually puts silhouettes: the
+        // north band just past the field edge (z ≈ halfD + 8–22 m, x within
+        // ±halfW×1.2 — PropPlacer's !inField draw), roughly 150 m from the
+        // camera. The first sheet placed them at 180–320 m and undersold how
+        // much they loom in play by 2×; a review surface that flatters is
+        // worse than none. One distinct entry per slot before any repeats,
+        // and footprint spacing so meshes read as a range, not a fused wall.
         var sil = ListFor(pack, EnvPack.PropRole.Silhouette);
         massifs = 0;
-        int slots = Mathf.Min(7, sil.Count > 0 ? 7 : 0);
+        int slots = sil.Count > 0 ? 12 : 0;
+        float lastX = float.NegativeInfinity, lastR = 0f;
         for (int i = 0; i < slots; i++)
         {
             EnvPack.Entry e = sil[i % sil.Count];
-            float x = Mathf.Lerp(-320f, 320f, (i + 0.5f) / slots) + rng.Range(-35f, 35f);
-            float z = rng.Range(180f, 320f);
+            float x = Mathf.Lerp(-85f, 85f, (i + 0.5f) / slots) + rng.Range(-10f, 10f);
+            float z = rng.Range(46f, 68f);
+            float estR = e.footprintRadius *
+                         Mathf.Max(1f, (e.scaleRange.x + e.scaleRange.y) * 0.5f);
+            if (x - lastX < (lastR + estR) * 0.6f)
+                continue;   // would fuse with the previous massif — skip the slot
             Place(e, new Vector3(x, 0f, z), ref rng, props.transform);
+            lastX = x;
+            lastR = estR;
             massifs++;
         }
 
