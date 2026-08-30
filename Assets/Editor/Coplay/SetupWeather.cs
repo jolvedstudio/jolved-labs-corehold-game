@@ -70,6 +70,7 @@ public static class SetupWeather
         AuthorHeavySnowStorm(gust, log);
         WireApplier(rain, log);
         WireMutatorLinks(storm, blackout, log);
+        EnsurePropShaderIncluded(log);
 
         AssetDatabase.SaveAssets();
         EditorSceneManager.MarkSceneDirty(scene);
@@ -105,6 +106,7 @@ public static class SetupWeather
         p.precipitationRate = 260f;
         p.fallSpeed = 18f;
         p.particleSize = 0.018f;   // ~1.2 px wide at 907x510
+        p.particleSizeJitter = 0.35f;  // modest: rain streaks read by length, not girth
         p.streakLength = 18f;      // -> ~21 px long: a streak, not a dash
         p.particleColor = new Color(0.78f, 0.85f, 0.98f, 0.30f);
 
@@ -146,6 +148,7 @@ public static class SetupWeather
         p.precipitationRate = 180f;
         p.fallSpeed = 1.6f;
         p.particleSize = 0.065f;   // ~4.4 px motes at the 12 m layer (was 0.12 × a hidden 3 = 24 px)
+        p.particleSizeJitter = 0.6f;   // grit is never one grade
         p.particleColor = new Color(0.85f, 0.76f, 0.60f, 0.16f);
 
         p.windDirection = new Vector3(1f, 0.05f, -0.35f);
@@ -205,10 +208,12 @@ public static class SetupWeather
         p.precipitationRate = 130f;                          // fewer, larger, slower than dust
         p.fallSpeed = 1.2f;
         p.particleSize = 0.09f;
+        p.particleSizeJitter = 0.55f;                        // depth: near flakes fat, far ones fine
         p.particleColor = new Color(0.97f, 0.98f, 1.00f, 0.55f);
 
         p.windDirection = new Vector3(0.45f, -0.05f, -0.2f);
         p.windStrength = 1.8f;                               // gentle: keeps it in the drift branch
+        p.propSway = 0.6f;                                   // a light snow barely moves the scrub
         p.ambientVolume = 0.22f;                             // quiet — snow muffles
 
         p.overridePostProfile = true;
@@ -367,6 +372,7 @@ public static class SetupWeather
         p.precipitationRate = 420f;
         p.fallSpeed = 1.2f;
         p.particleSize = 0.08f;
+        p.particleSizeJitter = 0.7f;   // a sandstorm is coarse grit and fine haze at once
         p.particleColor = new Color(0.80f, 0.66f, 0.46f, 0.22f);
         p.groundSnow = 0.4f;                                   // the FILM lane…
         p.snowColor = new Color(0.84f, 0.70f, 0.50f, 1f);      // …in sand, not snow
@@ -397,21 +403,81 @@ public static class SetupWeather
         p.fogColor = new Color(0.70f, 0.74f, 0.81f, 1f);
         p.fogDensity = 0.008f;
         p.precipitation = WeatherPreset.Precipitation.Snow;
-        p.precipitationRate = 320f;
-        p.fallSpeed = 1.6f;
-        p.particleSize = 0.11f;
-        p.particleColor = new Color(0.97f, 0.98f, 1f, 0.6f);
+        // A blizzard is not a snowfall with the rate turned up: it is a WIDE
+        // SPREAD of sizes moving fast across the frame. The spread is what
+        // sells depth on a flat sheet — without it 500 identical dots read as
+        // a screen texture no matter how many there are.
+        p.precipitationRate = 520f;
+        p.fallSpeed = 2.2f;
+        p.particleSize = 0.13f;
+        p.particleSizeJitter = 0.75f;                        // 0.03 m to 0.23 m in the same sheet
+        p.particleColor = new Color(0.97f, 0.98f, 1f, 0.55f);
         p.groundSnow = 0.95f;
         p.groundWetness = 0.2f;
         p.snowColor = new Color(0.92f, 0.94f, 0.98f, 1f);
         p.surfaceChangeSeconds = 18f;
         p.windDirection = new Vector3(0.6f, -0.05f, -0.25f);
-        p.windStrength = 4f;
+        p.windStrength = 7f;                                 // hard sideways drift
+        p.propSway = 1f;                                     // and the trees know it
         p.ambientVolume = 0.3f;
         p.layers = new[] { gustLayer };
         EditorUtility.SetDirty(p);
         log.AppendLine("[ok] HeavySnowStorm authored — composed with the gust layer");
         return p;
+    }
+
+    /// <summary>
+    /// Put COREHOLD/Prop Lit in Always Included Shaders.
+    ///
+    /// It has to be here and it is easy to miss: PropSnow builds its prop
+    /// materials at RUNTIME with Shader.Find, so no scene, prefab or material
+    /// asset ever references the shader, and Unity's build pass — which
+    /// includes shaders by reference — strips it. Everything works in the
+    /// editor and props stay brown in the WebGL build, which is the worst
+    /// possible failure: invisible until it is in front of a player.
+    ///
+    /// Idempotent, and does nothing when the entry is already present.
+    /// </summary>
+    private static void EnsurePropShaderIncluded(StringBuilder log)
+    {
+        Shader shader = Shader.Find("COREHOLD/Prop Lit");
+        if (shader == null)
+        {
+            log.AppendLine("[warn] COREHOLD/Prop Lit not found — props will not take snow or wind. " +
+                           "Is COREHOLD_PropLit.shader imported?");
+            return;
+        }
+
+        var settings = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
+        Object graphics = settings != null && settings.Length > 0 ? settings[0] : null;
+        if (graphics == null)
+        {
+            log.AppendLine("[warn] could not open GraphicsSettings — add COREHOLD/Prop Lit to " +
+                           "Always Included Shaders by hand, or it will be stripped from builds");
+            return;
+        }
+
+        var so = new SerializedObject(graphics);
+        SerializedProperty list = so.FindProperty("m_AlwaysIncludedShaders");
+        if (list == null || !list.isArray)
+        {
+            log.AppendLine("[warn] GraphicsSettings has no m_AlwaysIncludedShaders array");
+            return;
+        }
+
+        for (int i = 0; i < list.arraySize; i++)
+            if (list.GetArrayElementAtIndex(i).objectReferenceValue == shader)
+            {
+                log.AppendLine("[ok] COREHOLD/Prop Lit already in Always Included Shaders");
+                return;
+            }
+
+        list.arraySize++;
+        list.GetArrayElementAtIndex(list.arraySize - 1).objectReferenceValue = shader;
+        so.ApplyModifiedProperties();
+        AssetDatabase.SaveAssets();
+        log.AppendLine("[ok] COREHOLD/Prop Lit added to Always Included Shaders " +
+                       "(runtime-built materials would otherwise be stripped from the build)");
     }
 
     /// <summary>Wire the mutator→weather links: Storm waves look like storms,

@@ -141,6 +141,9 @@ namespace Corehold.Systems
 
         private float _gustStrength;
         private float _gustPeriod = 7f;
+        private Vector3 _windDirection = Vector3.forward;
+        private float _windStrength;
+        private float _propSway = 1f;
 
         private float _strikesPerMinute;
         private float _lightningIntensity = 3.5f;
@@ -154,6 +157,26 @@ namespace Corehold.Systems
         {
             CaptureBaseline();
             Apply(preset);
+
+            // The wave manager now HOLDS the mutator look across the wave
+            // boundary (a storm should not switch off the instant the last
+            // frame dies), which means the end of the RUN is the one moment
+            // left with no next wave to clear it. Subscribed here rather than
+            // in OnEnable because GameManager.Instance is not guaranteed to
+            // exist that early.
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.OnStateChanged += OnGameStateChanged;
+                _stateSubscribed = true;
+            }
+        }
+
+        private bool _stateSubscribed;
+
+        private void OnGameStateChanged(GameState state)
+        {
+            if (state == GameState.Victory || state == GameState.Defeat)
+                OnMutatorsChanged(WaveMutator.None);
         }
 
         private void OnEnable()
@@ -164,6 +187,11 @@ namespace Corehold.Systems
         private void OnDisable()
         {
             WaveManager.ActiveMutatorsChanged -= OnMutatorsChanged;
+            if (_stateSubscribed && GameManager.Instance != null)
+            {
+                GameManager.Instance.OnStateChanged -= OnGameStateChanged;
+                _stateSubscribed = false;
+            }
         }
 
         private void OnMutatorsChanged(WaveMutator now)
@@ -180,6 +208,10 @@ namespace Corehold.Systems
             // Leave the editor's scene state as we found it.
             if (_baselineCaptured)
                 RestoreBaseline();
+            // Props hold SWAPPED materials while weather is up; a scene change
+            // must put the dressing back on its own before the variants die
+            // with the domain, or the next scene inherits pink renderers.
+            PropSnow.Restore();
             if (Application.isPlaying && AudioDirector.Instance != null)
                 AudioDirector.Instance.StopWeatherLoop();
             if (_precipitationMaterial != null)
@@ -329,6 +361,12 @@ namespace Corehold.Systems
             _flashStartedAt = -1f;
             _nextStrikeAt = float.PositiveInfinity;
             _gustStrength = 0f;
+            // Wind authority is re-established from the merged stack below, so
+            // it has to be surrendered here as well: left standing, a cleared
+            // preset's wind would keep the dressing swaying (and keep it
+            // swapped onto the weather shader) with no weather to justify it.
+            _windStrength = 0f;
+            _propSway = 0f;
             _sheetPs = null;
 
             var stack = new List<WeatherPreset>(8);
@@ -448,6 +486,9 @@ namespace Corehold.Systems
             }
             _gustStrength = next.gustStrength;
             _gustPeriod = Mathf.Max(1f, next.gustPeriodSeconds);
+            _windDirection = next.windDirection;
+            _windStrength = next.windStrength;
+            _propSway = next.propSway;
             _strikesPerMinute = next.lightningStrikesPerMinute;
             _lightningIntensity = next.lightningIntensity;
             _lightningColor = next.lightningColor;
@@ -534,6 +575,7 @@ namespace Corehold.Systems
                     m.precipitationRate = l.precipitationRate;
                     m.fallSpeed = l.fallSpeed;
                     m.particleSize = l.particleSize;
+                    m.particleSizeJitter = l.particleSizeJitter;
                     m.streakLength = l.streakLength;
                     m.particleColor = l.particleColor;
                     m.ambientLoop = l.ambientLoop;
@@ -544,6 +586,11 @@ namespace Corehold.Systems
                 {
                     m.windDirection = l.windDirection;
                     m.windStrength = l.windStrength;
+                    // Sway travels WITH the wind that carries it: a layer that
+                    // brings its own wind brings its own answer for how hard
+                    // that wind bends things. Left behind, a calm base preset's
+                    // sway would silently govern a gale layered over it.
+                    m.propSway = l.propSway;
                 }
                 if (l.gustStrength > 0f)
                 {
@@ -602,14 +649,27 @@ namespace Corehold.Systems
             // Two incommensurate sines so the rhythm never quite repeats. The
             // envelope multiplies the HORIZONTAL drift only: gusts push sideways,
             // they do not make snow fall faster.
-            if (_gustStrength > 0f && _sheetPs != null)
+            if (_gustStrength > 0f)
             {
                 float g = 0.6f * Mathf.Sin(now * (2f * Mathf.PI) / _gustPeriod) +
                           0.4f * Mathf.Sin(now * (2f * Mathf.PI) * 2.7f / _gustPeriod + 1.7f);
                 float factor = 1f + _gustStrength * g;
-                var vel = _sheetPs.velocityOverLifetime;
-                vel.x = new ParticleSystem.MinMaxCurve(_sheetBaseVel.x * factor);
-                vel.z = new ParticleSystem.MinMaxCurve(_sheetBaseVel.z * factor);
+                if (_sheetPs != null)
+                {
+                    var vel = _sheetPs.velocityOverLifetime;
+                    vel.x = new ParticleSystem.MinMaxCurve(_sheetBaseVel.x * factor);
+                    vel.z = new ParticleSystem.MinMaxCurve(_sheetBaseVel.z * factor);
+                }
+
+                // The SAME gust drives the vegetation, so a gust that pushes
+                // the snow sideways bends the trees on the same beat. Falling
+                // motes and standing props reacting to different winds is the
+                // detail that gives the whole effect away. Not gated on the
+                // particle sheet: a windy clear day has no sheet and still has
+                // trees. One global write per throttled tick.
+                if (_propSway > 0f && _windStrength > 0f)
+                    PropSnow.PushWind(_windDirection,
+                        PropSnow.SwayAmplitude(_windStrength * factor * _envelope, _propSway));
             }
 
             // ---- lightning scheduling ---------------------------------------
@@ -624,7 +684,9 @@ namespace Corehold.Systems
         private void PushSurface()
         {
             ApplySurfaceResponse(_curWet, _curSnow, _targetFilm);
-            PropSnow.Apply(_curSnow, _curWet, _targetFilm);
+            ApplyRoadwayCover(_curSnow);
+            PropSnow.Apply(_curSnow, _curWet, _targetFilm,
+                           _windDirection, _windStrength * _envelope, _propSway);
             // Trails follow the RAMPED film, so they fade in with the snowfall
             // and stop mattering as it melts — and the map self-clears when the
             // film is gone, so the next storm starts unmarked.
@@ -768,6 +830,8 @@ namespace Corehold.Systems
                         _resolvedTargets.AddRange(prop.GetComponentsInChildren<Renderer>(true));
             }
 
+            ResolveRoadways();
+
             // Capture each target's authored material colour once — the value the
             // multiplicative tint composes over and the restore returns to.
             _baseTints.Clear();
@@ -782,6 +846,75 @@ namespace Corehold.Systems
                     else if (m.HasProperty(ColorId)) baseColor = m.GetColor(ColorId);
                 }
                 _baseTints.Add(baseColor);
+            }
+        }
+
+        // ---------------------------------------------------------- roadways
+
+        /// <summary>
+        /// The generated worn-path ribbons (LookStage): dark unlit transparent
+        /// bands floating 5 cm over the ground along every route.
+        ///
+        /// They matter to weather for a reason that is easy to miss and ruins
+        /// the effect: enemies walk EXACTLY on them, so the trails carved into
+        /// the terrain's snow film are drawn underneath a ribbon that covers
+        /// them and does not itself respond to weather. Snow settling over a
+        /// path should bury the path — that is what makes tracks the only thing
+        /// left to read — so the ribbon's alpha falls as the film rises.
+        ///
+        /// Not folded into the tint targets: a roadway must NOT take the ground
+        /// tint or the snow colour (it would stop being a road), and it is the
+        /// alpha, not the colour, that has to move.
+        /// </summary>
+        private readonly List<Renderer> _roadways = new List<Renderer>();
+        private readonly List<Color> _roadwayBase = new List<Color>();
+
+        /// <summary>How much of the ribbon a full film covers. Not 1: the lane
+        /// is gameplay-critical reading, and a path that vanishes entirely
+        /// costs the player more than the snow buys.</summary>
+        private const float RoadwaySnowCover = 0.75f;
+
+        private void ResolveRoadways()
+        {
+            _roadways.Clear();
+            _roadwayBase.Clear();
+            var root = GameObject.Find("Roadways");
+            if (root == null)
+                return;
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || r.sharedMaterial == null)
+                    continue;
+                Color c = r.sharedMaterial.HasProperty(BaseColorId)
+                    ? r.sharedMaterial.GetColor(BaseColorId)
+                    : r.sharedMaterial.HasProperty(ColorId)
+                        ? r.sharedMaterial.GetColor(ColorId)
+                        : Color.white;
+                _roadways.Add(r);
+                _roadwayBase.Add(c);
+            }
+        }
+
+        /// <summary>Sink the worn-path ribbons under the accumulating film.</summary>
+        private void ApplyRoadwayCover(float snow)
+        {
+            if (_roadways.Count == 0)
+                return;
+            if (_block == null)
+                _block = new MaterialPropertyBlock();
+
+            float keep = 1f - RoadwaySnowCover * Mathf.Clamp01(snow);
+            for (int i = 0; i < _roadways.Count; i++)
+            {
+                Renderer r = _roadways[i];
+                if (r == null)
+                    continue;
+                Color c = _roadwayBase[i];
+                c.a *= keep;
+                r.GetPropertyBlock(_block);
+                _block.SetColor(BaseColorId, c);
+                _block.SetColor(ColorId, c);
+                r.SetPropertyBlock(_block);
             }
         }
 
@@ -989,9 +1122,12 @@ namespace Corehold.Systems
                     main.startLifetime = Mathf.Clamp(t1, t0, t0 * 8f);
                 }
 
-                // Size cap (dust motes): never enlarge an authored look.
+                // Size cap (dust motes): never enlarge an authored look. The cap
+                // carries the preset's spread with it, so an authored system
+                // brought down to size gains the depth cue rather than becoming
+                // a field of identical dots.
                 if (p.particleSize > 0.004f && main.startSize.constantMax > p.particleSize)
-                    main.startSize = p.particleSize;
+                    main.startSize = SizeCurve(p);
 
                 // Rate: proportional reshape toward the preset total.
                 var emission = ps.emission;
@@ -1041,6 +1177,26 @@ namespace Corehold.Systems
             else DestroyImmediate(o);
         }
 
+        /// <summary>
+        /// The preset's size as a RANGE rather than a constant — the sheet's
+        /// only depth cue.
+        ///
+        /// The spread is applied around the authored size, not above it, so
+        /// raising the jitter never raises the average: the mean stays exactly
+        /// `particleSize` and the R14 legibility budget (alpha layers, overdraw)
+        /// is unchanged. Jitter 0 collapses back to the constant the preset
+        /// asked for, which is what keeps every already-authored asset looking
+        /// the way it looked.
+        /// </summary>
+        private static ParticleSystem.MinMaxCurve SizeCurve(WeatherPreset p)
+        {
+            float j = Mathf.Clamp(p.particleSizeJitter, 0f, 0.9f);
+            if (j <= 0.001f)
+                return new ParticleSystem.MinMaxCurve(p.particleSize);
+            return new ParticleSystem.MinMaxCurve(p.particleSize * (1f - j),
+                                                  p.particleSize * (1f + j));
+        }
+
         private void ConfigureProceduralParticles(GameObject host, WeatherPreset p, Camera cam)
         {
             var ps = host.GetComponent<ParticleSystem>();
@@ -1063,7 +1219,14 @@ namespace Corehold.Systems
             // driven by the layer distance (12 m), where one pixel at 907×510 is
             // roughly 0.015 m, so these numbers are far smaller than world-scale
             // intuition suggests.
-            main.startSize = p.particleSize;
+            //
+            // SPREAD is the depth cue. The sheet is a flat plane, so nothing in
+            // it is genuinely nearer or further; identical dots therefore read
+            // as a texture laid over the screen rather than as weather the
+            // camera is inside. A size range fakes the parallax the flat sheet
+            // cannot have — big motes read as close, small as far — and costs
+            // one MinMaxCurve at build time, no per-frame work and no extra draw.
+            main.startSize = SizeCurve(p);
             main.startColor = p.particleColor;
             main.gravityModifier = 0f;
 

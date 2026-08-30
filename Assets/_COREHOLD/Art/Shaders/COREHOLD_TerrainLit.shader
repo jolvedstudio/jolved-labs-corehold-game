@@ -77,6 +77,11 @@ Shader "COREHOLD/Terrain Lit"
         SAMPLER(sampler_CoreholdTrailMap);
         float4 _CoreholdTrailArea;      // xy = world min, zw = 1/size
         half _CoreholdTrailStrength;
+        // How dark a fully carved track goes, multiplied over the exposed
+        // ground. A global rather than a material property so the one value
+        // covers every terrain material a scene happens to use; TrailMap sets
+        // it, and the 1.0 default leaves a scene without one unchanged.
+        half3 _TrailDarken;
 
         CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
@@ -187,6 +192,16 @@ Shader "COREHOLD/Terrain Lit"
                 snow *= saturate(1.0h - trail);
 
                 albedo = lerp(albedo, _SnowColor.rgb, snow);
+
+                // ...and then the track DARKENS what it exposed. Removing the
+                // film alone is not enough to see a track: on pale ground —
+                // sand, most of this project's themes — the snow and the ground
+                // beneath it sit at nearly the same luminance, so carving one
+                // away leaves no contrast and the trail is invisible. Real
+                // tracks read dark because the surface is compressed and in its
+                // own shadow, so the shader says that outright and the effect
+                // stops depending on the ground being darker than the snow.
+                albedo *= lerp(1.0h, _TrailDarken, trail);
 
                 float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);
                 Light mainLight = GetMainLight(shadowCoord);

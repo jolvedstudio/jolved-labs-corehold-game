@@ -43,9 +43,15 @@ namespace Corehold.Systems
         private const float AreaSize = 200f;
 
         /// <summary>Stamp radius in metres, and how hard one footprint marks.
-        /// Repeat passage deepens the track (additive, clamps at full carve).</summary>
-        private const float StampRadius = 0.9f;
-        private const float StampAlpha = 0.5f;
+        /// Repeat passage deepens the track (additive, clamps at full carve).
+        ///
+        /// Sized against the ROADWAY, not against a footprint: a lane band is
+        /// ~4 m across, and a track narrower than about a third of it reads as
+        /// noise at 130-150 m rather than as something an army did. One pass of
+        /// one unit should already be legible, so the first stamp lands most of
+        /// the carve and repeat passage saturates it.</summary>
+        private const float StampRadius = 1.35f;
+        private const float StampAlpha = 0.7f;
 
         /// <summary>Seconds between melt passes. The melt RATE comes from the
         /// weather preset; this is only how often it is applied.</summary>
@@ -56,9 +62,19 @@ namespace Corehold.Systems
         private const float FilmFloor = 0.15f;
         private const float FilmFull = 0.4f;
 
+        /// <summary>How dark a fully carved track goes, multiplied over the
+        /// ground the film was carved off. Removing the film is not enough to
+        /// SEE a track: on the pale ground this project's themes mostly use,
+        /// snow and sand sit at nearly the same luminance. Tracks read dark in
+        /// life because the surface is packed and shadowed, so the shader says
+        /// that outright and the effect no longer depends on the ground beneath
+        /// happening to be darker than the snow on top of it.</summary>
+        private static readonly Color TrailDarken = new Color(0.62f, 0.64f, 0.70f, 1f);
+
         private static readonly int TrailMapId = Shader.PropertyToID("_CoreholdTrailMap");
         private static readonly int TrailAreaId = Shader.PropertyToID("_CoreholdTrailArea");
         private static readonly int TrailStrengthId = Shader.PropertyToID("_CoreholdTrailStrength");
+        private static readonly int TrailDarkenId = Shader.PropertyToID("_TrailDarken");
 
         private static TrailMap _i;
 
@@ -168,6 +184,8 @@ namespace Corehold.Systems
                 UnityEngine.Rendering.BlendMode.Zero, UnityEngine.Rendering.BlendMode.SrcColor);
 
             Shader.SetGlobalTexture(TrailMapId, _rt);
+            Shader.SetGlobalVector(TrailDarkenId,
+                new Vector4(TrailDarken.r, TrailDarken.g, TrailDarken.b, 1f));
             float half = AreaSize * 0.5f;
             Shader.SetGlobalVector(TrailAreaId,
                 new Vector4(-half, -half, 1f / AreaSize, 1f / AreaSize));

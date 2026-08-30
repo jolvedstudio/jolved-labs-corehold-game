@@ -1183,7 +1183,20 @@ namespace Corehold.Core
 
             PayClearBonus(lastWaveNumber);
             OnWaveComplete?.Invoke(lastWaveNumber);
-            ActiveMutatorsChanged?.Invoke(WaveMutator.None);
+
+            // The field's LOOK is HELD across the wave boundary. Clearing here
+            // snapped the storm off the instant the last frame died, while the
+            // player was still standing in the aftermath choosing what to build
+            // — which read as a bug, not as weather passing. The next wave
+            // publishes its own flags the moment it starts (StartWaveGroups),
+            // so a plain wave clears the look then, at a moment that means
+            // something. Only the END of the run has no next wave to do it.
+            //
+            // Presentation only: gameplay reads MutatorsForWave(waveNumber),
+            // never this event, so a held look cannot leak a held EFFECT into
+            // the build phase or into the certified balance path.
+            if (!HasNextWave)
+                ActiveMutatorsChanged?.Invoke(WaveMutator.None);
 
             if (GameManager.Instance != null && GameManager.Instance.State == GameState.Wave)
             {

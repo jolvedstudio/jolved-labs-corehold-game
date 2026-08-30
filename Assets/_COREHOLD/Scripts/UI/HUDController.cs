@@ -76,11 +76,12 @@ namespace Corehold.UI
         [SerializeField] private float closeCallBannerSeconds = 1.6f;
 
         [Header("Wave banners (R-UI-6)")]
-        [Tooltip("[TUNE] Unscaled seconds for a plain wave-start banner (0 disables plain banners; boss/doctrine banners still show).")]
+        [Tooltip("[TUNE] Unscaled seconds for a plain wave-start banner (0 disables plain banners; boss and mutator banners still show).")]
         [SerializeField] private float waveBannerSeconds = 0.9f;
 
-        [Tooltip("[TUNE] Unscaled seconds for boss and doctrine banners — the moments that deserve weight.")]
-        [SerializeField] private float doctrineBannerSeconds = 1.5f;
+        [Tooltip("[TUNE] Unscaled seconds for boss and mutator banners — the moments that deserve weight.")]
+        [UnityEngine.Serialization.FormerlySerializedAs("doctrineBannerSeconds")]
+        [SerializeField] private float mutatorBannerSeconds = 1.5f;
 
         [Tooltip("[TUNE] An enemy with base health at or above this marks its wave as a BOSS wave in banners and the queue (matches the Colossus class).")]
         [SerializeField] private float bossPreviewHpThreshold = 1000f;
@@ -477,7 +478,7 @@ namespace Corehold.UI
 
         /// <summary>
         /// One shared banner for every stamped moment (close call, wave start,
-        /// boss contact, doctrine call-outs — R-UI-6). One line, centred high,
+        /// boss contact, mutator call-outs — R-UI-6). One line, centred high,
         /// pop-in/fade-out on UNSCALED time, never blocks input, and a new
         /// banner REPLACES the current one — moments never queue into a backlog.
         /// </summary>
@@ -496,8 +497,9 @@ namespace Corehold.UI
         /// <summary>
         /// Wave-start stamp (R-UI-6): a plain wave gets a short, quiet banner; a
         /// wave with a boss-class unit or a mutator gets the weighted moment —
-        /// doctrine name + plain-words effect line, or HEAVY CONTACT. Names come
-        /// from the narrative bible; the effect line stays plain gameplay words.
+        /// the mutator's own name + a plain-words effect line, or HEAVY CONTACT.
+        /// Player-facing text stays plain: the in-fiction names live in the
+        /// narrative bible and are used in briefing prose, not on the HUD.
         /// </summary>
         private void HandleWaveStartedBanner(int waveNumber)
         {
@@ -509,7 +511,7 @@ namespace Corehold.UI
             if (waveNumber == 1 && waveManager.AssaultPacing)
             {
                 ShowBanner("ASSAULT PROTOCOL\n<size=55%>Waves keep coming while the field is clear</size>",
-                           theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f), doctrineBannerSeconds);
+                           theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f), mutatorBannerSeconds);
                 return;
             }
 
@@ -519,15 +521,15 @@ namespace Corehold.UI
 
             if (mutators != WaveMutator.None)
             {
-                (string title, string clause) = DoctrineText(mutators);
+                (string title, string clause) = MutatorText(mutators);
                 Color c = boss && theme != null ? theme.danger
                         : theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f);
-                ShowBanner($"{title}\n<size=55%>{clause}</size>", c, doctrineBannerSeconds);
+                ShowBanner($"{title}\n<size=55%>{clause}</size>", c, mutatorBannerSeconds);
             }
             else if (boss)
             {
                 ShowBanner($"WAVE {waveNumber} — HEAVY CONTACT",
-                           theme != null ? theme.danger : Color.red, doctrineBannerSeconds);
+                           theme != null ? theme.danger : Color.red, mutatorBannerSeconds);
             }
             else if (waveNumber > 1)
             {
@@ -547,9 +549,17 @@ namespace Corehold.UI
             return false;
         }
 
-        /// <summary>Doctrine names per the narrative bible; effect clauses in
-        /// plain gameplay words. Multiple flags fall back to a combined stamp.</summary>
-        private static (string, string) DoctrineText(WaveMutator m)
+        /// <summary>
+        /// The wave-start stamp for a mutated wave: what it IS on top, what it
+        /// DOES underneath, both in plain words.
+        ///
+        /// The title is the mutator's own name — the same word the wave table,
+        /// the debug console and this HUD all use — so a player who reads
+        /// "BLACKOUT" here and hears "blackout" anywhere else is looking at one
+        /// thing, not two. The narrative bible keeps its in-fiction names for
+        /// briefing prose; player-facing HUD stays plain.
+        /// </summary>
+        private static (string, string) MutatorText(WaveMutator m)
         {
             bool storm = (m & WaveMutator.Storm) != 0;
             bool convoy = (m & WaveMutator.Convoy) != 0;
@@ -557,11 +567,11 @@ namespace Corehold.UI
             bool black = (m & WaveMutator.Blackout) != 0;
             int flags = (storm ? 1 : 0) + (convoy ? 1 : 0) + (over ? 1 : 0) + (black ? 1 : 0);
             if (flags > 1)
-                return ("COMBINED DOCTRINES", "The machines adapt — expect everything");
-            if (storm) return ("TAILWIND DOCTRINE", "Air units move faster");
-            if (convoy) return ("COLUMN DOCTRINE", "Everything comes down one approach");
-            if (over) return ("BURNOUT DOCTRINE", "Tougher units, richer salvage");
-            return ("GRIDCUT DOCTRINE", "Turrets see half as far — light them up");
+                return ("MIXED WAVE", "More than one rule is in force this wave");
+            if (storm) return ("STORM", "Air units move faster");
+            if (convoy) return ("CONVOY", "Everything comes down one approach");
+            if (over) return ("OVERCHARGE", "Tougher units, richer salvage");
+            return ("BLACKOUT", "Turrets see half as far — light them up");
         }
 
         private void EnsureCloseCallBanner()
@@ -575,7 +585,7 @@ namespace Corehold.UI
             rt.SetParent(transform, false);
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.70f);
             rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(760f, 150f);   // room for a doctrine two-liner
+            rt.sizeDelta = new Vector2(760f, 150f);   // room for a mutator two-liner
 
             _closeCallGroup = _closeCallBanner.GetComponent<CanvasGroup>();
             _closeCallGroup.blocksRaycasts = false;

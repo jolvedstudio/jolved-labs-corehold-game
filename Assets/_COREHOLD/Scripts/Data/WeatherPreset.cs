@@ -135,6 +135,14 @@ namespace Corehold.Data
         [Tooltip("[TUNE] Particle WIDTH in metres — this is the literal size, no hidden multiplier. Read it in pixels, not world scale: the layer sits 12 m from the camera, so at 907×510 one pixel is roughly 0.015 m. A 0.05 m drop is ~3.4 px wide, which is already fat for rain.")]
         [Range(0.005f, 1f)] public float particleSize = 0.02f;
 
+        [Tooltip("SIZE SPREAD, as a fraction of particleSize (0 = every flake identical). This is the " +
+                 "depth cue: the sheet is a flat plane 12 m from the camera, so nothing in it is " +
+                 "actually nearer or further, and a field of identical dots reads as a texture rather " +
+                 "than as weather you are standing inside. Big motes read as close, small ones as far. " +
+                 "0.6 means sizes run from 0.4x to 1.6x. Free — one MinMaxCurve at build, no per-frame " +
+                 "cost and no extra draw.")]
+        [Range(0f, 0.9f)] public float particleSizeJitter = 0.5f;
+
         [Tooltip("[TUNE] Rain only: streak length as a multiple of the particle WIDTH (Unity's stretched-billboard Length Scale). ~15-20 reads as rain; 2-3 reads as a fat dash. Ignored by Dust, which billboards.")]
         [Range(1f, 40f)] public float streakLength = 18f;
 
@@ -157,6 +165,13 @@ namespace Corehold.Data
 
         [Tooltip("[TUNE] Wind strength in metres/second, applied as lateral drift on precipitation.")]
         [Range(0f, 20f)] public float windStrength = 2f;
+
+        [Tooltip("How hard the wind BENDS VEGETATION (0 = props stand rigid). Trees, scrub and grass " +
+                 "lean and sway on the same wind and the same gusts as the falling snow — props that " +
+                 "ignore a storm they are standing in are what make weather read as a screen effect. " +
+                 "Classed by prop name, so rocks never sway. Costs a vertex-stage displacement on the " +
+                 "dressing while weather is up, and nothing at all when the wind is zero.")]
+        [Range(0f, 1f)] public float propSway = 1f;
 
         [Tooltip("GUSTING: fraction the wind strength swings by (0 = steady). A constant wind reads " +
                  "as mechanical; gusts are what make dust and snow feel alive. Costs one curve write " +
