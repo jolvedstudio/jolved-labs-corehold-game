@@ -366,6 +366,7 @@ namespace Corehold.Enemies
 
             TryPhaseChange();
             TryFootfall();
+            TryTrailStamp(pos);
 
             // Arrival at the STANDOFF, not the route end: the route runs to the
             // Core's centre, and finishing there sank the model into the
@@ -412,6 +413,26 @@ namespace Corehold.Enemies
 
             tangent = transform.forward;
             return transform.position;
+        }
+
+        /// <summary>
+        /// Stamp the weather trail map every ~1.2 m of GROUND travel. The call
+        /// into <see cref="Corehold.Systems.TrailMap.Stamp"/> is statically
+        /// guarded, so when no snow film is up this whole path costs one
+        /// squared-distance compare per frame — the mover must never pay for
+        /// weather it is not standing in. Air units leave no tracks.
+        /// </summary>
+        private Vector3 _lastTrailStamp;
+
+        private void TryTrailStamp(Vector3 pos)
+        {
+            if (_isAir)
+                return;
+            float dx = pos.x - _lastTrailStamp.x, dz = pos.z - _lastTrailStamp.z;
+            if (dx * dx + dz * dz < 1.44f)
+                return;
+            _lastTrailStamp = pos;
+            Corehold.Systems.TrailMap.Stamp(pos);
         }
 
         private void TryFootfall()

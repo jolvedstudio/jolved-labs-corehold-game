@@ -68,6 +68,16 @@ Shader "COREHOLD/Terrain Lit"
         TEXTURE2D(_RockDetailMap);
         SAMPLER(sampler_RockDetailMap);
 
+        // Enemy trail map — GLOBALS, set by TrailMap at runtime, deliberately
+        // outside the per-material cbuffer: one map serves every terrain
+        // material in the scene, and a scene without a TrailMap leaves
+        // _CoreholdTrailStrength at its default 0, which zeroes the sample
+        // whatever an unbound texture returns.
+        TEXTURE2D(_CoreholdTrailMap);
+        SAMPLER(sampler_CoreholdTrailMap);
+        float4 _CoreholdTrailArea;      // xy = world min, zw = 1/size
+        half _CoreholdTrailStrength;
+
         CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
             half4 _BaseColor;
@@ -167,6 +177,15 @@ Shader "COREHOLD/Terrain Lit"
                 // reads as accumulation rather than as a wash over everything.
                 half up = saturate(normalWS.y);
                 half snow = saturate(_SnowAmount) * pow(up, _SnowUpBias);
+
+                // Enemy trails carve the FILM, not the ground: where units have
+                // walked, the snow thins back toward the base albedo. Strength
+                // is 0 unless a live TrailMap is feeding the globals.
+                float2 tuv = (input.positionWS.xz - _CoreholdTrailArea.xy) * _CoreholdTrailArea.zw;
+                half trail = SAMPLE_TEXTURE2D(_CoreholdTrailMap, sampler_CoreholdTrailMap, tuv).r
+                             * _CoreholdTrailStrength;
+                snow *= saturate(1.0h - trail);
+
                 albedo = lerp(albedo, _SnowColor.rgb, snow);
 
                 float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);

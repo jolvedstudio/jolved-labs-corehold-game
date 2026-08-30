@@ -131,6 +131,8 @@ namespace Corehold.Systems
 
         private float _surfaceSeconds = 10f;
         private float _targetSnow, _targetWet;
+        private float _trailStrength = 0.8f;
+        private float _trailMeltSeconds = 45f;
         private Color _targetFilm = Color.white;
         private float _curSnow, _curWet;
         private float _envelope = 1f;          // 0→1 ramp shared by rate + surfaces
@@ -401,6 +403,8 @@ namespace Corehold.Systems
             _targetWet = next.groundWetness;
             _targetSnow = next.groundSnow;
             _targetFilm = next.snowColor;
+            _trailStrength = next.trailStrength;
+            _trailMeltSeconds = next.trailMeltSeconds;
             _surfaceSeconds = next.surfaceChangeSeconds <= 0f ? 10f : next.surfaceChangeSeconds;
             _envelope = 0f;
             if (!Application.isPlaying)
@@ -611,6 +615,10 @@ namespace Corehold.Systems
         {
             ApplySurfaceResponse(_curWet, _curSnow, _targetFilm);
             PropSnow.Apply(_curSnow, _curWet, _targetFilm);
+            // Trails follow the RAMPED film, so they fade in with the snowfall
+            // and stop mattering as it melts — and the map self-clears when the
+            // film is gone, so the next storm starts unmarked.
+            TrailMap.Push(gameObject, _curSnow, _trailStrength, _trailMeltSeconds);
         }
 
         /// <summary>The strike: a sharp main pulse and a dimmer echo, ~0.4 s

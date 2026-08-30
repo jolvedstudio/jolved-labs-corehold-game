@@ -96,6 +96,16 @@ namespace Corehold.Data
                  "reads as blown-out ground.")]
         public Color snowColor = new Color(0.92f, 0.94f, 0.98f, 1f);
 
+        [Tooltip("How hard ground enemies carve TRAILS through the snow film as they walk (0 = no " +
+                 "trails). Trails darken the film back toward the ground beneath — carving, not " +
+                 "deformation, because at 130-150 m darkening is all a track reads as anyway. " +
+                 "Meaningful only while groundSnow is up: tracks need something to be tracks in.")]
+        [Range(0f, 1f)] public float trailStrength = 0.8f;
+
+        [Tooltip("Seconds for a carved trail to fill back in while the snow keeps falling. Short = " +
+                 "a blizzard erasing the army's passage; long = the field remembers every wave.")]
+        [Range(5f, 300f)] public float trailMeltSeconds = 45f;
+
         public bool overrideGroundTint;
 
         [Tooltip("[TUNE] Multiplicative tint for the tinted renderers.")]
