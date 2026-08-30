@@ -46,8 +46,31 @@ public static class PrefabIndexer
         public bool colorValid;
     }
 
+    /// <summary>
+    /// A candidate SURFACE — a ground material or a skybox. Indexed alongside
+    /// the prefabs because the scale ladder is only half a look: the first
+    /// lookdev sheet's loudest problem was the ground, and the builder could
+    /// not see a single ground texture in the project.
+    /// </summary>
     [System.Serializable]
-    private class IndexData { public List<Rec> recs = new List<Rec>(); }
+    public class MatRec
+    {
+        public string path;
+        public string guid;
+        public string sourcePack;
+        public long stamp;
+        public bool isSkybox;        // its shader is a Skybox/* family
+        public bool hasTexture;      // a flat colour material makes poor ground
+        public float r, g, b;        // base texture average × tint
+        public bool colorValid;
+    }
+
+    [System.Serializable]
+    private class IndexData
+    {
+        public List<Rec> recs = new List<Rec>();
+        public List<MatRec> mats = new List<MatRec>();
+    }
 
     // ------------------------------------------------------------------ menu
 
@@ -78,19 +101,17 @@ public static class PrefabIndexer
     // ------------------------------------------------------------------ API
 
     /// <summary>Load the cached index (empty list when never scanned).</summary>
-    public static List<Rec> Load()
+    public static List<Rec> Load() => LoadData()?.recs ?? new List<Rec>();
+
+    /// <summary>The cached SURFACE candidates — ground materials and skyboxes.</summary>
+    public static List<MatRec> LoadMaterials() => LoadData()?.mats ?? new List<MatRec>();
+
+    private static IndexData LoadData()
     {
         if (!File.Exists(CachePath))
-            return new List<Rec>();
-        try
-        {
-            return JsonUtility.FromJson<IndexData>(File.ReadAllText(CachePath))?.recs
-                   ?? new List<Rec>();
-        }
-        catch
-        {
-            return new List<Rec>();
-        }
+            return null;
+        try { return JsonUtility.FromJson<IndexData>(File.ReadAllText(CachePath)); }
+        catch { return null; }
     }
 
     /// <summary>
@@ -176,7 +197,44 @@ public static class PrefabIndexer
             pru.Cleanup();
         }
 
-        File.WriteAllText(CachePath, JsonUtility.ToJson(new IndexData { recs = recs }));
+        // ---- surfaces: ground materials and skyboxes -------------------------
+        var cachedMats = LoadMaterials().ToDictionary(m => m.guid, m => m);
+        var mats = new List<MatRec>();
+        int matReused = 0, matMeasured = 0;
+        foreach (string guid in AssetDatabase.FindAssets("t:Material", valid.ToArray())
+                     .OrderBy(g => AssetDatabase.GUIDToAssetPath(g), System.StringComparer.Ordinal))
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            long stamp = Stamp(path);
+            if (cachedMats.TryGetValue(guid, out MatRec oldMat) && oldMat.stamp == stamp)
+            {
+                oldMat.path = path;
+                mats.Add(oldMat);
+                matReused++;
+                continue;
+            }
+
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null || mat.shader == null)
+                continue;
+
+            var rec = new MatRec
+            {
+                path = path,
+                guid = guid,
+                sourcePack = SourcePack(path),
+                stamp = stamp,
+                isSkybox = mat.shader.name.StartsWith("Skybox/", System.StringComparison.Ordinal) ||
+                           mat.shader.name.Contains("Skybox"),
+            };
+            rec.colorValid = TryMaterialColor(mat, out Color c, out bool textured);
+            rec.hasTexture = textured;
+            rec.r = c.r; rec.g = c.g; rec.b = c.b;
+            mats.Add(rec);
+            matMeasured++;
+        }
+
+        File.WriteAllText(CachePath, JsonUtility.ToJson(new IndexData { recs = recs, mats = mats }));
 
         log.AppendLine($"  {recs.Count} prefab(s) indexed ({measured} measured, {reused} cached, " +
                        $"{failed} skipped meshless) across {valid.Count} folder(s):");
@@ -186,6 +244,11 @@ public static class PrefabIndexer
             log.AppendLine($"    {group.Key,-52} {group.Count(),4}  " +
                            $"heights {heights.First():0.0}–{heights.Last():0.0} m");
         }
+        int skies = mats.Count(m => m.isSkybox);
+        log.AppendLine($"  {mats.Count} material(s) indexed as surface candidates " +
+                       $"({matMeasured} measured, {matReused} cached): " +
+                       $"{skies} skybox(es), {mats.Count - skies} ground candidate(s)");
+
         var tall = recs.Where(r => r.height >= 40f).ToList();
         log.AppendLine(tall.Count > 0
             ? $"  massif-band candidates (≥40 m authored): {tall.Count}"
@@ -218,6 +281,63 @@ public static class PrefabIndexer
         if (parts.Length >= 3 && (parts[1] == "Vendor" || parts[1] == "Yoge"))
             return $"{parts[0]}/{parts[1]}/{parts[2]}";
         return parts.Length >= 2 ? $"{parts[0]}/{parts[1]}" : path;
+    }
+
+    /// <summary>
+    /// A material's dominant colour: its base texture averaged, multiplied by
+    /// its tint. The texture is read by BLITTING through a RenderTexture, so no
+    /// Read/Write import flag is needed and nothing about the asset changes.
+    /// A cubemap (six-sided skybox) cannot blit that way, so those fall back to
+    /// their tint — which for a sky is the meaningful colour anyway.
+    /// </summary>
+    private static bool TryMaterialColor(Material mat, out Color color, out bool textured)
+    {
+        color = Color.gray;
+        textured = false;
+
+        Texture tex = null;
+        foreach (string p in new[] { "_BaseMap", "_MainTex", "_Tex", "_FrontTex" })
+            if (mat.HasProperty(p) && mat.GetTexture(p) != null) { tex = mat.GetTexture(p); break; }
+
+        Color tint = Color.white;
+        foreach (string p in new[] { "_BaseColor", "_Color", "_SkyTint", "_Tint" })
+            if (mat.HasProperty(p)) { tint = mat.GetColor(p); break; }
+
+        if (!(tex is Texture2D tex2d))
+        {
+            color = tint;
+            return true;   // flat or cubemap: the tint IS the colour we can know
+        }
+        textured = true;
+
+        const int S = 32;
+        RenderTexture rt = RenderTexture.GetTemporary(S, S, 0);
+        RenderTexture prev = RenderTexture.active;
+        var tmp = new Texture2D(S, S, TextureFormat.RGB24, false) { hideFlags = HideFlags.HideAndDontSave };
+        try
+        {
+            Graphics.Blit(tex2d, rt);
+            RenderTexture.active = rt;
+            tmp.ReadPixels(new Rect(0, 0, S, S), 0, 0);
+            tmp.Apply();
+            Color sum = Color.black;
+            Color[] px = tmp.GetPixels();
+            foreach (Color p in px) sum += p;
+            Color avg = sum / px.Length;
+            color = new Color(avg.r * tint.r, avg.g * tint.g, avg.b * tint.b);
+            return true;
+        }
+        catch
+        {
+            color = tint;
+            return true;
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+            Object.DestroyImmediate(tmp);
+        }
     }
 
     private static void SetupPreviewRig(PreviewRenderUtility pru)

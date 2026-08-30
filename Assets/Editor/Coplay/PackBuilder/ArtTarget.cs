@@ -81,16 +81,22 @@ public class ArtTarget : ScriptableObject
     [Tooltip("Replaces the pack's weather pool. Duplicates weight the draw — [Clear, Clear, Dust] is 2:1 clear.")]
     public WeatherPreset[] weatherPool;
 
-    [Header("Ground — written only when this is ticked")]
-    [Tooltip("OFF by default so the builder never clobbers hand-tuned ground. Tick it when the " +
-             "target owns the ground look — e.g. after buying a texture set for this biome — and " +
-             "the fields below replace the pack's. Skybox and post profile always stay the pack's.")]
+    [Header("Ground & sky")]
+    [Tooltip("An EMPTY slot on the pack is always FILLED — from the field below, or auto-picked from " +
+             "the scan folders. This switch controls the other case: tick it to REPLACE ground and " +
+             "skybox the pack already has. Off by default so the builder never clobbers hand tuning " +
+             "silently. The post profile always stays the pack's.")]
     public bool overrideGroundTextures;
 
-    [Tooltip("Base ground material. Wants a SEAMLESS, LOW-CONTRAST albedo: the substrate tint and " +
-             "both detail lanes multiply over it, so contrast in the base map fights all of them " +
-             "and reads as tiling.")]
+    [Tooltip("Base ground material — leave EMPTY to let the builder pick one from the scan folders " +
+             "(scored on name and on colour against groundTint). Wants a SEAMLESS, LOW-CONTRAST " +
+             "albedo: the substrate tint and both detail lanes multiply over it, so contrast in the " +
+             "base map fights all of them and reads as tiling.")]
     public Material groundMaterial;
+
+    [Tooltip("Skybox material — leave EMPTY to let the builder pick one from the scan folders " +
+             "(any Skybox/* shader, scored on name and on colour against fogColor).")]
+    public Material skyboxMaterial;
 
     [Tooltip("Texture repeats per metre. 0.2 = a repeat every 5 m.")]
     public float groundTilingPerMetre = 0.2f;

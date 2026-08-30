@@ -90,22 +90,47 @@ public static class PackWriter
         if (target.weatherPool != null && target.weatherPool.Length > 0)
             pack.weatherPool = target.weatherPool.Where(w => w != null).ToArray();
 
-        // Ground is opt-in: a builder that silently replaced a hand-tuned
-        // ground would teach people not to run it. Ticking the box says the
-        // target owns the ground now — typically once a texture set is bought
-        // for the biome.
-        string groundNote = "Untouched: ground material+tiling, detail maps, skybox, post profile.";
+        // Surfaces: FILL AN EMPTY SLOT ALWAYS, replace a filled one only when
+        // asked. An empty slot has no hand tuning to destroy, so refusing to
+        // fill it was the tool being timid rather than safe — and it is why
+        // "nothing is happening with the ground" was the honest report.
+        var surfaceNotes = new List<string>();
+
+        Material groundPick = target.groundMaterial != null
+            ? target.groundMaterial
+            : match.ground?.Load();
+        if (groundPick != null && (pack.groundMaterial == null || target.overrideGroundTextures))
+        {
+            bool filled = pack.groundMaterial == null;
+            pack.groundMaterial = groundPick;
+            surfaceNotes.Add($"ground {(filled ? "filled" : "REPLACED")} with '{groundPick.name}'");
+        }
+
+        Material skyPick = target.skyboxMaterial != null
+            ? target.skyboxMaterial
+            : match.skybox?.Load();
+        if (skyPick != null && (pack.skyboxMaterial == null || target.overrideGroundTextures))
+        {
+            bool filled = pack.skyboxMaterial == null;
+            pack.skyboxMaterial = skyPick;
+            surfaceNotes.Add($"skybox {(filled ? "filled" : "REPLACED")} with '{skyPick.name}'");
+        }
+
+        // Tiling and the detail lanes are tuning, not content: they follow the
+        // explicit override only.
         if (target.overrideGroundTextures)
         {
-            if (target.groundMaterial != null) pack.groundMaterial = target.groundMaterial;
             if (target.groundTilingPerMetre > 0f) pack.groundTilingPerMetre = target.groundTilingPerMetre;
             pack.groundDetail = target.groundDetail;
             pack.groundDetailStrength = target.groundDetailStrength;
             pack.groundDetailScale = target.groundDetailScale;
             pack.groundRockDetail = target.groundRockDetail;
-            groundNote = "Ground WRITTEN from the target (override ticked): material, tiling, both " +
-                         "detail lanes. Untouched: skybox, post profile.";
+            surfaceNotes.Add("tiling + both detail lanes written from the target");
         }
+
+        string groundNote = surfaceNotes.Count > 0
+            ? "Surfaces: " + string.Join("; ", surfaceNotes) + ". Untouched: post profile."
+            : "Surfaces untouched (pack already has them and override is off — see the match report).";
 
         EditorUtility.SetDirty(pack);
         AssetDatabase.SaveAssets();

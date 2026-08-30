@@ -35,12 +35,38 @@ public static class PackMatcher
         public bool needsLocalizing;
     }
 
+    /// <summary>A chosen SURFACE — the ground material or the skybox.</summary>
+    public class SurfacePick
+    {
+        public PrefabIndexer.MatRec rec;
+        public float score;
+        public bool needsLocalizing;
+        public Material Load() => UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(rec.path);
+    }
+
     public class Result
     {
         public List<Pick> picks = new List<Pick>();
+        public SurfacePick ground;    // null = nothing in the index scored well enough
+        public SurfacePick skybox;
         public string report;
         public EnvPack pack;   // the pack the target resolves to (null = not found)
     }
+
+    // Name evidence for surfaces. Colour alone cannot separate "desert sand"
+    // from "beige plastic crate", and a vendor pack holds hundreds of the
+    // latter — so a token match is most of the score, and a candidate with
+    // neither token nor a close colour is refused rather than forced.
+    private static readonly string[] GroundTokens =
+    {
+        "sand", "ground", "terrain", "desert", "dirt", "soil", "floor",
+        "gravel", "dune", "rock", "stone", "cliff", "mud", "earth",
+    };
+
+    private static readonly string[] SkyTokens =
+    {
+        "sky", "skybox", "day", "dusk", "dawn", "sunset", "clear", "cloud", "horizon",
+    };
 
     /// <summary>Git-ignored roots (from .gitignore): a pick under one of these
     /// dangles on every other machine until localized under _COREHOLD.</summary>
@@ -70,6 +96,10 @@ public static class PackMatcher
     }
 
     public static Result Match(ArtTarget target, List<PrefabIndexer.Rec> index)
+        => Match(target, index, PrefabIndexer.LoadMaterials());
+
+    public static Result Match(ArtTarget target, List<PrefabIndexer.Rec> index,
+                               List<PrefabIndexer.MatRec> materials)
     {
         var res = new Result();
         var log = new StringBuilder();
@@ -167,6 +197,15 @@ public static class PackMatcher
                                "Prune Pack To Bands to reconcile the pack with the target's ladder.");
         }
 
+        // ---- surfaces: ground + sky -----------------------------------------
+        res.ground = PickSurface(materials, target, wantSky: false);
+        res.skybox = PickSurface(materials, target, wantSky: true);
+        AppendSurfaceLine(log, "ground", res.ground, res.pack != null ? res.pack.groundMaterial : null,
+                          target.groundMaterial, target.overrideGroundTextures, materials.Count);
+        AppendSurfaceLine(log, "skybox", res.skybox, res.pack != null ? res.pack.skyboxMaterial : null,
+                          target.skyboxMaterial, target.overrideGroundTextures,
+                          materials.Count(m => m.isSkybox));
+
         int toLocalize = res.picks.Count(p => p.needsLocalizing);
         if (toLocalize > 0)
             log.AppendLine($"  ⚠ {toLocalize} pick(s) live in git-ignored vendor folders. They work " +
@@ -176,6 +215,64 @@ public static class PackMatcher
         log.AppendLine("  Dry run — nothing written. Step 4 applies these picks to the EnvPack.");
         res.report = log.ToString();
         return res;
+    }
+
+    // ---------------------------------------------------------------- surfaces
+
+    private static SurfacePick PickSurface(List<PrefabIndexer.MatRec> materials,
+                                           ArtTarget target, bool wantSky)
+    {
+        Color want = wantSky ? target.fogColor : target.groundTint;
+        string[] tokens = wantSky ? SkyTokens : GroundTokens;
+
+        SurfacePick best = null;
+        foreach (PrefabIndexer.MatRec m in materials.OrderBy(m => m.path, System.StringComparer.Ordinal))
+        {
+            if (m.isSkybox != wantSky)
+                continue;   // a sky is never ground, and ground is never a sky
+
+            float colorFit = 0.5f;
+            if (m.colorValid)
+            {
+                float dr = m.r - want.r, dg = m.g - want.g, db = m.b - want.b;
+                colorFit = 1f - Mathf.Clamp01(Mathf.Sqrt(dr * dr + dg * dg + db * db) / 1.2f);
+            }
+            string lower = System.IO.Path.GetFileNameWithoutExtension(m.path).ToLowerInvariant();
+            float token = tokens.Any(t => lower.Contains(t)) ? 1f : 0f;
+            // Ground wants a real texture; a flat colour reads as a tabletop.
+            float textured = wantSky || m.hasTexture ? 1f : 0f;
+
+            float score = 1.5f * token + 1.2f * colorFit + 0.8f * textured;
+            if (best == null || score > best.score)
+                best = new SurfacePick { rec = m, score = score, needsLocalizing = NeedsLocalizing(m.path) };
+        }
+
+        // Refuse rather than force: without a name token AND without a close
+        // colour, "best" is just the least bad of hundreds of vendor materials.
+        return best != null && best.score >= 2.2f ? best : null;
+    }
+
+    private static void AppendSurfaceLine(StringBuilder log, string what, SurfacePick pick,
+                                          Material packHas, Material targetHas,
+                                          bool overrideOn, int candidates)
+    {
+        string chosen = targetHas != null
+            ? $"target's own '{targetHas.name}'"
+            : pick != null
+                ? $"'{System.IO.Path.GetFileNameWithoutExtension(pick.rec.path)}' (score {pick.score:0.00})" +
+                  (pick.needsLocalizing ? " ⚠ NEEDS LOCALIZING" : "")
+                : $"nothing scored high enough among {candidates} candidate(s)";
+
+        // The "why is nothing happening" line: an empty slot always gets
+        // filled, a filled one is only replaced on request.
+        string fate = packHas == null
+            ? (targetHas != null || pick != null ? "→ WILL FILL (pack slot is empty)" : "→ pack slot stays empty")
+            : overrideOn
+                ? $"→ WILL REPLACE the pack's '{packHas.name}' (override ticked)"
+                : $"→ KEPT: the pack already has '{packHas.name}'. Tick overrideGroundTextures on the " +
+                  "ArtTarget to replace it";
+
+        log.AppendLine($"  {what,-8} {chosen}  {fate}");
     }
 
     // ------------------------------------------------------------------ score
