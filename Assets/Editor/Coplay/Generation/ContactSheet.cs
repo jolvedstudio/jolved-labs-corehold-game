@@ -293,25 +293,14 @@ public static class ContactSheet
         labelGo.transform.localPosition =
             new Vector3(-visW * 0.45f, visH * 0.45f, dist);
 
-        var rt = new RenderTexture(GameCellW, GameCellH, 24);
-        var shot = new Texture2D(GameCellW, GameCellH, TextureFormat.RGB24, false);
-        RenderTexture previousTarget = cam.targetTexture;
         try
         {
-            cam.targetTexture = rt;
-            cam.Render();
-            RenderTexture.active = rt;
-            shot.ReadPixels(new Rect(0, 0, GameCellW, GameCellH), 0, 0);
-            shot.Apply();
+            return EditorShot.Capture(cam, GameCellW, GameCellH);
         }
         finally
         {
-            RenderTexture.active = null;
-            cam.targetTexture = previousTarget;
-            Object.DestroyImmediate(rt);
             Object.DestroyImmediate(labelGo);
         }
-        return shot;
     }
 
     private static Texture2D ShootTopDown(int seed, string theme)
