@@ -149,20 +149,7 @@ public static class LookdevStager
     private static Camera BuildStage(EnvPack pack, ArtTarget target, ref Rng rng, float yawJitter,
                                      out int massifs, out int outcrops, out int mids, out int bits)
     {
-        // Ground: one big plane wearing the pack's material. A scene-embedded
-        // material INSTANCE (the TerrainStage "(Baked)" pattern) so tiling can
-        // be set without editing the shared asset.
-        var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
-        ground.name = "LookdevGround";
-        ground.transform.localScale = Vector3.one * 70f;   // 700×700 m
-        var mr = ground.GetComponent<MeshRenderer>();
-        Material mat = pack.groundMaterial != null
-            ? new Material(pack.groundMaterial)
-            : new Material(Shader.Find("Universal Render Pipeline/Lit"));
-        mat.name = "LookdevGround(Baked)";
-        if (pack.groundTilingPerMetre > 0f)
-            mat.mainTextureScale = Vector2.one * (700f * pack.groundTilingPerMetre);
-        mr.sharedMaterial = mat;
+        BuildGround(pack, rngSeedForGround: 20240607);
 
         // Sun + fog + sky: the pack's BASE look, straight from the target.
         var sunGo = new GameObject("Sun");
@@ -239,6 +226,81 @@ public static class LookdevStager
             r => new Vector3(r.Range(-50f, 50f), 0f, r.Range(-35f, 50f)));
 
         return cam;
+    }
+
+    /// <summary>
+    /// The review ground, built by the REAL pipeline: TerrainStage's rasteriser
+    /// over a TerrainField, vertex colours from a SubstrateField, and the
+    /// project's Terrain Lit shader carrying the pack's base map plus both
+    /// detail lanes.
+    ///
+    /// The first sheet used a primitive plane wearing the raw ground material,
+    /// which showed none of E2 — no substrate tint, no worn corridor band, no
+    /// coarse/fine detail crossfade — and the ground read as a repeating
+    /// tabletop mat. That was the review lying about the ground, in the
+    /// pessimistic direction this time. A ground review that does not run the
+    /// ground pipeline reviews nothing.
+    ///
+    /// The corridor is synthetic — one straight lane down the middle — because
+    /// lookdev has no routes. That is enough for the relief mask and the
+    /// disturbance band to behave as they will on a real map.
+    /// </summary>
+    private static void BuildGround(EnvPack pack, int rngSeedForGround)
+    {
+        var corridor = new List<Vector3[]>
+        {
+            new[] { new Vector3(0f, 0f, -160f), new Vector3(0f, 0f, 160f) },
+        };
+        var field = new TerrainField(rngSeedForGround, corridor, new Vector3[0], Vector3.zero);
+        var substrate = new SubstrateField(rngSeedForGround * 31 + 7, field, true);
+
+        float uvPerMetre = pack.groundTilingPerMetre > 0f ? pack.groundTilingPerMetre : 0.08f;
+        var bounds = new Bounds(new Vector3(0f, 0f, 60f), new Vector3(700f, 1f, 700f));
+
+        var go = new GameObject("LookdevGround");
+        go.AddComponent<MeshFilter>().sharedMesh =
+            TerrainStage.BuildMesh(field, substrate, pack.groundZoneStrength, bounds, uvPerMetre);
+        var mr = go.AddComponent<MeshRenderer>();
+
+        Shader terrainShader = Shader.Find("COREHOLD/Terrain Lit");
+        if (terrainShader == null)
+        {
+            mr.sharedMaterial = pack.groundMaterial != null
+                ? new Material(pack.groundMaterial)
+                : new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            return;
+        }
+
+        var mat = new Material(terrainShader) { name = "LookdevGround(Baked)" };
+        if (pack.groundMaterial != null)
+        {
+            Texture baseTex =
+                pack.groundMaterial.HasProperty("_BaseMap") && pack.groundMaterial.GetTexture("_BaseMap") != null
+                    ? pack.groundMaterial.GetTexture("_BaseMap")
+                    : pack.groundMaterial.HasProperty("_MainTex") ? pack.groundMaterial.GetTexture("_MainTex") : null;
+            if (baseTex != null)
+                mat.SetTexture("_BaseMap", baseTex);
+            if (pack.groundMaterial.HasProperty("_BaseColor"))
+                mat.SetColor("_BaseColor", pack.groundMaterial.GetColor("_BaseColor"));
+            else if (pack.groundMaterial.HasProperty("_Color"))
+                mat.SetColor("_BaseColor", pack.groundMaterial.GetColor("_Color"));
+        }
+
+        float detailScale = Mathf.Max(2f, pack.groundDetailScale);
+        float detailStrength = Mathf.Clamp01(pack.groundDetailStrength);
+        mat.SetTexture("_DetailMap", pack.groundDetail != null
+            ? pack.groundDetail
+            : TerrainStage.BuildDetailNoise());
+        mat.SetFloat("_DetailScale", detailScale);
+        mat.SetFloat("_DetailStrength", detailStrength);
+        mat.SetTexture("_RockDetailMap", pack.groundRockDetail != null
+            ? pack.groundRockDetail
+            : TerrainStage.BuildDetailNoise("TerrainRockDetail(Noise)", cells: 8, contrast: 1.35f,
+                                            seedA: 71, seedB: 137));
+        mat.SetFloat("_RockDetailScale", Mathf.Max(1f, detailScale * 0.45f));
+        mat.SetFloat("_RockDetailStrength", Mathf.Clamp01(detailStrength * 1.5f));
+        mat.SetFloat("_RockDetailBlend", Mathf.Clamp01(pack.groundZoneStrength));
+        mr.sharedMaterial = mat;
     }
 
     private static List<EnvPack.Entry> ListFor(EnvPack pack, EnvPack.PropRole role)

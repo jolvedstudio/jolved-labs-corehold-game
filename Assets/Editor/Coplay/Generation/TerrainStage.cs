@@ -382,8 +382,11 @@ public static class TerrainStage
     /// the theme's tiles-per-metre so texel density matches the flat floor it
     /// replaces.
     /// </summary>
-    private static Mesh BuildMesh(TerrainField field, SubstrateField substrate,
-                                  float zoneStrength, Bounds bounds, float uvPerMetre)
+    /// <summary>Internal so the lookdev stager builds its review ground with
+    /// THIS rasteriser rather than a primitive plane — a ground review that
+    /// does not run the ground pipeline reviews nothing.</summary>
+    internal static Mesh BuildMesh(TerrainField field, SubstrateField substrate,
+                                   float zoneStrength, Bounds bounds, float uvPerMetre)
     {
         int n = MeshCells;
         var verts = new Vector3[(n + 1) * (n + 1)];

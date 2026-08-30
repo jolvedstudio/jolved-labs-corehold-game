@@ -81,6 +81,31 @@ public class ArtTarget : ScriptableObject
     [Tooltip("Replaces the pack's weather pool. Duplicates weight the draw — [Clear, Clear, Dust] is 2:1 clear.")]
     public WeatherPreset[] weatherPool;
 
+    [Header("Ground — written only when this is ticked")]
+    [Tooltip("OFF by default so the builder never clobbers hand-tuned ground. Tick it when the " +
+             "target owns the ground look — e.g. after buying a texture set for this biome — and " +
+             "the fields below replace the pack's. Skybox and post profile always stay the pack's.")]
+    public bool overrideGroundTextures;
+
+    [Tooltip("Base ground material. Wants a SEAMLESS, LOW-CONTRAST albedo: the substrate tint and " +
+             "both detail lanes multiply over it, so contrast in the base map fights all of them " +
+             "and reads as tiling.")]
+    public Material groundMaterial;
+
+    [Tooltip("Texture repeats per metre. 0.2 = a repeat every 5 m.")]
+    public float groundTilingPerMetre = 0.2f;
+
+    [Tooltip("Fine near-field detail, GRAYSCALE, where 0.5 is neutral. Sand ripples, grain. " +
+             "Empty = a generated noise, which already works.")]
+    public Texture2D groundDetail;
+
+    [Range(0f, 1f)] public float groundDetailStrength = 0.35f;
+    [Range(2f, 32f)] public float groundDetailScale = 9f;
+
+    [Tooltip("Coarse detail for ROCKY ground (E2) — gravel, scree. Grain size is most of what " +
+             "separates gravel from sand at this camera distance. Empty = a generated coarse noise.")]
+    public Texture2D groundRockDetail;
+
     [Header("Builder")]
     [Tooltip("Hard cap on total pack entries (existing + new picks).")]
     public int maxEntries = 50;

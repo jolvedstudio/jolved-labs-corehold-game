@@ -90,12 +90,29 @@ public static class PackWriter
         if (target.weatherPool != null && target.weatherPool.Length > 0)
             pack.weatherPool = target.weatherPool.Where(w => w != null).ToArray();
 
+        // Ground is opt-in: a builder that silently replaced a hand-tuned
+        // ground would teach people not to run it. Ticking the box says the
+        // target owns the ground now — typically once a texture set is bought
+        // for the biome.
+        string groundNote = "Untouched: ground material+tiling, detail maps, skybox, post profile.";
+        if (target.overrideGroundTextures)
+        {
+            if (target.groundMaterial != null) pack.groundMaterial = target.groundMaterial;
+            if (target.groundTilingPerMetre > 0f) pack.groundTilingPerMetre = target.groundTilingPerMetre;
+            pack.groundDetail = target.groundDetail;
+            pack.groundDetailStrength = target.groundDetailStrength;
+            pack.groundDetailScale = target.groundDetailScale;
+            pack.groundRockDetail = target.groundRockDetail;
+            groundNote = "Ground WRITTEN from the target (override ticked): material, tiling, both " +
+                         "detail lanes. Untouched: skybox, post profile.";
+        }
+
         EditorUtility.SetDirty(pack);
         AssetDatabase.SaveAssets();
 
         log.AppendLine($"[PackWriter] WROTE {AssetDatabase.GetAssetPath(pack)}: {added} entr(ies) added " +
                        $"({pack.entries.Length} total), densities/sun/fog/weather applied. " +
-                       "Untouched: ground material+tiling, detail maps, skybox, post profile.");
+                       groundNote);
         if (added == 0 && match.picks.Count == 0)
             log.AppendLine("  note: zero picks survived matching (bands already full, or the cap ate " +
                            "them) — this run applied look values only.");

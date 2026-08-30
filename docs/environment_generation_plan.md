@@ -131,6 +131,46 @@ Limitation: this rides the relief mesh, and `TerrainStage` skips entirely when
 `terrainRelief` is off. Blueprints default it on, so this is the normal path —
 but a deliberately flat map still gets a single-material ground.
 
+## Terrain: what it is, what it needs to buy
+
+Worth stating plainly, because it decides what NOT to spend money on.
+
+COREHOLD's terrain is **analytic and code-owned**. There is no Unity Terrain
+asset, no splat map, no sculpting, no heightmap import: `TerrainField` is a
+deterministic function, `TerrainStage` rasterises it once into a 96×96 mesh,
+and vertex colours carry the relief tint plus E2's substrate zoning. The
+gameplay gates sample the function directly.
+
+**So terrain generators, terrain shaders, splat/layer systems and sculpting
+tools are all wasted purchases here.** They solve authoring problems this
+project does not have. What terrain actually consumes is **three textures**:
+
+| Slot | What | Spec |
+|---|---|---|
+| `groundMaterial` | the base albedo | **seamless, LOW-CONTRAST** sand. The substrate tint and both detail lanes multiply over it, so contrast in the base fights all of them and reads as tiling. 1024 (the project caps at 1024). |
+| `groundDetail` | fine near-field grain | **grayscale**, 0.5 = neutral. Ripples, grain. 128–256 is plenty. |
+| `groundRockDetail` | coarse grain for rocky ground | **grayscale**, higher contrast, chunkier. Gravel/scree. 128–256. |
+
+**Do not buy normal maps for the ground.** The Terrain Lit shader has no
+normal-map path on purpose (WebGL), and at 130–150 m a ground normal map buys
+nothing you can see. That is a real saving, not a compromise.
+
+Both detail slots are optional — empty means a generated noise, which already
+works. The base albedo is the one that matters, and the first lookdev sheet
+showed why: a patterned base reads as a tabletop mat no matter what is layered
+over it.
+
+### Where the massif meets the ground
+
+The one genuine terrain gap the Wadi Rum direction creates: a 60 m mesa prop
+standing on a plane has a hard seam where mesh meets ground, while real mesas
+have talus aprons. Two options when it becomes visible — rubble-ring props at
+massif bases (the cluster satellites already do a small version), or a pedestal
+term in `TerrainField` that lifts the surface under large silhouettes. The
+second is cleaner and safe (silhouettes live outside the corridor mask, so the
+balance model's planar assumptions are untouched), but neither is worth
+building before real massifs are in the project.
+
 ## E3 — terrain that reads from above *(advise first)*
 
 Mesas, escarpments and dry riverbeds outside the corridor mask, instead of the
