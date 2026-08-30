@@ -12,11 +12,19 @@ using UnityEngine;
 internal static class EditorShot
 {
     /// <summary>Render <paramref name="cam"/> once at w×h and return the pixels
-    /// as an RGB24 texture. The caller owns (and must destroy) the result.</summary>
+    /// as an RGB24 texture. The caller owns (and must destroy) the result.
+    ///
+    /// The result is marked HideAndDontSave because the editor DESTROYS
+    /// non-asset objects without that flag on scene operations — the lookdev
+    /// stager held ten captures across ten NewScene calls and every one of
+    /// them was dead by sheet-composition time (MissingReferenceException in
+    /// the field). Callers that cycle scenes should still prefer copying
+    /// GetPixels() out immediately: managed arrays are beyond Unity's reach.</summary>
     internal static Texture2D Capture(Camera cam, int w, int h)
     {
         var rt = new RenderTexture(w, h, 24);
-        var shot = new Texture2D(w, h, TextureFormat.RGB24, false);
+        var shot = new Texture2D(w, h, TextureFormat.RGB24, false)
+        { hideFlags = HideFlags.HideAndDontSave };
         RenderTexture previousTarget = cam.targetTexture;
         RenderTexture previousActive = RenderTexture.active;
         try

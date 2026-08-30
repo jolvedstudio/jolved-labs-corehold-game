@@ -338,25 +338,19 @@ public static class ContactSheet
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0.03f, 0.04f, 0.06f, 1f);
 
-        var rt = new RenderTexture(PlanCellPx, PlanCellPx, 24);
-        var shot = new Texture2D(PlanCellPx, PlanCellPx, TextureFormat.RGB24, false);
+        // Through the shared capture path: EditorShot marks the texture
+        // DontSave, which matters HERE more than anywhere — these shots are
+        // held across nine full pipeline runs' worth of scene operations, any
+        // of which the editor may use to sweep unmarked non-asset objects.
         try
         {
-            cam.targetTexture = rt;
-            cam.Render();
-            RenderTexture.active = rt;
-            shot.ReadPixels(new Rect(0, 0, PlanCellPx, PlanCellPx), 0, 0);
-            shot.Apply();
+            return EditorShot.Capture(cam, PlanCellPx, PlanCellPx);
         }
         finally
         {
-            RenderTexture.active = null;
-            cam.targetTexture = null;
-            Object.DestroyImmediate(rt);
             Object.DestroyImmediate(camGo);
             Object.DestroyImmediate(labelGo);
         }
-        return shot;
     }
 
     // ------------------------------------------------------------ outputs

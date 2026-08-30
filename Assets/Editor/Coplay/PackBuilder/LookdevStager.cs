@@ -104,7 +104,12 @@ public static class LookdevStager
                        $"{byRole[EnvPack.PropRole.Clutter].Count} clutter");
         log.AppendLine($"  camera: {CamPitch}° pitch, {CamPos.y:0} m up, FOV {CamFov}° — base look only, no weather");
 
-        var shots = new List<Texture2D>();
+        // Pixels go straight into MANAGED memory and the texture dies on the
+        // spot: the editor destroys non-asset objects on scene operations, and
+        // this loop performs twenty of them — holding live Texture2Ds across
+        // it is how the first field run lost all ten captures. A Color[] is
+        // beyond Unity's reach.
+        var shots = new List<Color[]>();
         var rows = new List<string>();
         for (int v = 0; v < Variants; v++)
         {
@@ -118,14 +123,16 @@ public static class LookdevStager
 
             string scenePath = $"{OutDir}/Lookdev_{pack.themeName}_s{seed}.unity";
             EditorSceneManager.SaveScene(SceneManager.GetActiveScene(), scenePath);
-            shots.Add(EditorShot.Capture(cam, CellW, CellH));
+
+            Texture2D shot = EditorShot.Capture(cam, CellW, CellH);
+            shots.Add(shot.GetPixels());
+            Object.DestroyImmediate(shot);
+
             rows.Add($"| {v + 1} | {seed} | {massifs} | {outcrops} | {mids} | {bits} | " +
                      $"{target.sunAngles.y + yawJitter:0}° |");
         }
 
         WriteSheet(pack.themeName, shots, rows, log);
-        foreach (Texture2D s in shots)
-            Object.DestroyImmediate(s);
 
         if (!string.IsNullOrEmpty(returnScene))
             EditorSceneManager.OpenScene(returnScene, OpenSceneMode.Single);
@@ -261,20 +268,18 @@ public static class LookdevStager
 
     // ------------------------------------------------------------- the sheet
 
-    private static void WriteSheet(string theme, List<Texture2D> shots,
+    private static void WriteSheet(string theme, List<Color[]> shots,
                                    List<string> rows, StringBuilder log)
     {
         int cols = SheetCols, rowsN = Mathf.CeilToInt(shots.Count / (float)cols);
-        var sheet = new Texture2D(cols * CellW, rowsN * CellH, TextureFormat.RGB24, false);
+        var sheet = new Texture2D(cols * CellW, rowsN * CellH, TextureFormat.RGB24, false)
+        { hideFlags = HideFlags.HideAndDontSave };
         var filler = Enumerable.Repeat(new Color(0.06f, 0.07f, 0.09f, 1f), CellW * CellH).ToArray();
         for (int cell = 0; cell < cols * rowsN; cell++)
         {
             int cx = (cell % cols) * CellW;
             int cy = (rowsN - 1 - cell / cols) * CellH;
-            if (cell < shots.Count)
-                sheet.SetPixels(cx, cy, CellW, CellH, shots[cell].GetPixels());
-            else
-                sheet.SetPixels(cx, cy, CellW, CellH, filler);
+            sheet.SetPixels(cx, cy, CellW, CellH, cell < shots.Count ? shots[cell] : filler);
         }
         sheet.Apply();
 
