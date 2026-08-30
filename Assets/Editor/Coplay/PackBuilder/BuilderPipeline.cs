@@ -156,7 +156,9 @@ public static class BuilderPipeline
 
     private static string StWrite(Ctx ctx)
     {
-        string report = PackWriter.Build(ctx.target);
+        // Reuse the stage-3 match — re-matching here both wastes the work and
+        // printed the whole report twice in the first field run.
+        string report = PackWriter.Build(ctx.target, ctx.match);
         ctx.detail.AppendLine(report);
         if (report.Contains("ABORTED"))
             return "the writer refused (see detail).";
@@ -175,7 +177,9 @@ public static class BuilderPipeline
 
         int total = ctx.pack.entries?.Count(e => e.prefab != null) ?? 0;
         if (total > ctx.target.maxEntries)
-            return $"{total} entries exceed the {ctx.target.maxEntries} cap — prune the pack.";
+            return $"{total} entries exceed the {ctx.target.maxEntries} cap — run Env Pack Builder → " +
+                   "Prune Pack To Bands… (it keeps each band's best wantDistinct, lists every " +
+                   "removal, and is one Undo step), then re-run the pipeline.";
 
         int vendor = ctx.pack.entries != null
             ? ctx.pack.entries.Count(e => e.prefab != null &&

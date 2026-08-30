@@ -133,21 +133,38 @@ public static class PackMatcher
             log.AppendLine($"  {band.name,-8} {already} existing + {bandPicks.Count} picked " +
                            $"of {band.wantDistinct} wanted — {verdict}");
             foreach (Pick p in bandPicks)
-                log.AppendLine($"     + {System.IO.Path.GetFileNameWithoutExtension(p.rec.path),-34}" +
+            {
+                // A pick that matched NO theme token was chosen on size and
+                // shape alone — a 44 m space-station module fills a massif
+                // band honestly when no mesa exists, but a human must decide
+                // whether that is a look or a placeholder.
+                string file = System.IO.Path.GetFileNameWithoutExtension(p.rec.path);
+                string lower = file.ToLowerInvariant();
+                bool tok = band.nameTokens != null && band.nameTokens.Any(t => lower.Contains(t));
+                log.AppendLine($"     + {file,-34}" +
                                $" h {p.rec.height,5:0.0} m  aspect {p.rec.aspect,4:0.0}  " +
                                $"score {p.score:0.00}  ×[{p.band.scaleRange.x:0.0},{p.band.scaleRange.y:0.0}]" +
-                               (p.needsLocalizing ? "  ⚠ NEEDS LOCALIZING (vendor)" : ""));
+                               (p.needsLocalizing ? "  ⚠ NEEDS LOCALIZING (vendor)" : "") +
+                               (tok ? "" : "  (no theme token — verify by eye)"));
+            }
         }
 
         // ---- the entry cap ---------------------------------------------------
+        // Clamped to what dropping picks can actually achieve: the first field
+        // run asked this block to shed 65 entries by dropping 16 picks, which
+        // silently wiped every pick and left the overflow standing anyway.
         int projected = existing.Count + totalNew;
         if (projected > target.maxEntries)
         {
-            int drop = projected - target.maxEntries;
+            int drop = Mathf.Min(projected - target.maxEntries, res.picks.Count);
             foreach (Pick p in res.picks.OrderBy(p => p.score).Take(drop).ToList())
                 res.picks.Remove(p);
             log.AppendLine($"  cap: {projected} entries would exceed {target.maxEntries} — " +
-                           $"dropped the {drop} lowest-scoring pick(s).");
+                           $"dropped the {drop} lowest-scoring pick(s) of {totalNew}.");
+            if (existing.Count > target.maxEntries)
+                log.AppendLine($"  ⚠ the pack's EXISTING {existing.Count} entries exceed the cap on their " +
+                               "own — no amount of pick-dropping fixes that. Run Env Pack Builder → " +
+                               "Prune Pack To Bands to reconcile the pack with the target's ladder.");
         }
 
         int toLocalize = res.picks.Count(p => p.needsLocalizing);
@@ -163,8 +180,11 @@ public static class PackMatcher
 
     // ------------------------------------------------------------------ score
 
-    private static float Score(PrefabIndexer.Rec rec, ArtTarget.Band band,
-                               ArtTarget target, List<Pick> picked)
+    /// <summary>Internal so the pruner can score EXISTING entries with the very
+    /// same function the matcher scores candidates with — two scorers would
+    /// disagree, and the disagreement would decide what gets deleted.</summary>
+    internal static float Score(PrefabIndexer.Rec rec, ArtTarget.Band band,
+                                ArtTarget target, List<Pick> picked)
     {
         // Height: 1 inside the window, linear falloff to 0 at half/double.
         float h = rec.height;

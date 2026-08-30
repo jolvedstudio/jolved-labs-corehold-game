@@ -34,8 +34,14 @@ public static class PackWriter
     public static string Build(ArtTarget target)
     {
         PackMatcher.Result match = PackMatcher.Match(target, PrefabIndexer.Load());
+        return match.report + Build(target, match);
+    }
+
+    /// <summary>Apply an already-computed match — the pipeline path, which has
+    /// printed the match report once already and must not print it twice.</summary>
+    public static string Build(ArtTarget target, PackMatcher.Result match)
+    {
         var log = new StringBuilder();
-        log.Append(match.report);
 
         EnvPack pack = match.pack;
         if (pack == null)
@@ -90,6 +96,9 @@ public static class PackWriter
         log.AppendLine($"[PackWriter] WROTE {AssetDatabase.GetAssetPath(pack)}: {added} entr(ies) added " +
                        $"({pack.entries.Length} total), densities/sun/fog/weather applied. " +
                        "Untouched: ground material+tiling, detail maps, skybox, post profile.");
+        if (added == 0 && match.picks.Count == 0)
+            log.AppendLine("  note: zero picks survived matching (bands already full, or the cap ate " +
+                           "them) — this run applied look values only.");
         log.AppendLine("  Next: step 5 stages lookdev scenes; the Generator window makes real levels.");
         return log.ToString();
     }
