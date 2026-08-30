@@ -42,6 +42,13 @@ public static class SetupWaveMutators
         // The four originals. Numbers mirror the WaveManager's shipped [TUNE]
         // defaults so both authoring routes agree; the flag still wins when a
         // wave sets it, so a scene with tuned values keeps them.
+        // Ordering note: the Storm and Blackout assets want weather layers the
+        // WEATHER setup authors. Running that first is the happy path; running
+        // this first is caught by the backfill in Author().
+        if (Load($"{WeatherDir}/WeatherLayer_Storm.asset") == null)
+            log.AppendLine("[note] no weather layers found — run Scene Setup → Weather, then this " +
+                           "tool again to give Storm and Blackout their looks");
+
         WaveMutatorDefinition storm = Author(
             "Mutator_Storm", "storm", "STORM", "Air units move faster",
             WaveMutator.Storm, log, airSpeed: 1.3f,
@@ -83,7 +90,23 @@ public static class SetupWaveMutators
         var existing = AssetDatabase.LoadAssetAtPath<WaveMutatorDefinition>(path);
         if (existing != null)
         {
-            log.AppendLine($"[ok] {fileName} exists — left untouched");
+            // One exception to leaving an existing asset alone: BACKFILL a
+            // missing weather layer. Running this tool before the weather setup
+            // authors an asset whose layer resolved to null, and since the
+            // asset then exists, no later run would ever fix it — the mutator
+            // would silently have no look forever, and the ordering that caused
+            // it happened once, minutes ago, with no error. Only a NULL slot is
+            // filled: a layer someone chose is never overruled.
+            if (existing.weatherLayer == null && weather != null)
+            {
+                existing.weatherLayer = weather;
+                EditorUtility.SetDirty(existing);
+                log.AppendLine($"[ok] {fileName} exists — backfilled its weather layer ({weather.name})");
+            }
+            else
+            {
+                log.AppendLine($"[ok] {fileName} exists — left untouched");
+            }
             return existing;
         }
 
