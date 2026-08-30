@@ -47,7 +47,7 @@ One honest exception: **palette extraction** from an image is pure arithmetic
 smuggling a vision model into the project.
 
 Your uncommitted `SandyDesertPackSetup` is this idea with the data hardcoded as
-code. Its values become `ArtTarget_WadiRum.asset`; the class retires. Commit
+code. Its values become `ArtTarget_SandyDesert.asset`; the class retires. Commit
 what you have first so nothing is lost in the reshape.
 
 ## What already exists — do not rebuild these
@@ -138,7 +138,7 @@ public class ArtTarget : ScriptableObject
 }
 ```
 
-Then author `ArtTarget_WadiRum.asset` by transcribing the parameter table in
+Then author `ArtTarget_SandyDesert.asset` by transcribing the parameter table in
 `docs/art_direction_wadi_rum.md`. One hour, and the "vision" requirement is
 satisfied for this theme.
 
@@ -187,7 +187,7 @@ hand-authored values on existing entries, same as `FillMissing` does.
 The report is half the product:
 
 ```
-=== ENVPACK BUILDER — ArtTarget_WadiRum → EnvPack_SandyDesert ===
+=== ENVPACK BUILDER — ArtTarget_SandyDesert → EnvPack_SandyDesert ===
   Massif    4/12 picked — UNFILLED (shopping list below)
      MesaRock_A   h 52 m  aspect 1.1  Δcolor 0.08  ×[1.5,3.0]  (Vendor/Mesa — NEEDS LOCALIZING)
   Outcrop  12/14 picked

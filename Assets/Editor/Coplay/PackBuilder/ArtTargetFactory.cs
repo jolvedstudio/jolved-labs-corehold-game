@@ -6,11 +6,13 @@ using UnityEngine;
 /// <summary>
 /// The vision step's output, as code that creates data (EnvPack Builder L1).
 ///
-/// Claude read the Wadi Rum / Petra references and produced
-/// docs/art_direction_wadi_rum.md; this factory transcribes that document into
-/// an <see cref="ArtTarget"/> asset, so the "AI reads the picture" half of the
-/// pipeline is DONE for this theme the moment the menu item runs. A new biome
-/// gets a new factory method (or a hand-authored asset) — never new tool code.
+/// The BUILDER is generic — any theme is an ArtTarget, made three ways: this
+/// factory (a reading Claude already did, shipped as code), an imported
+/// reading JSON (<see cref="ReadingImporter"/> — produced by any Claude
+/// surface from reference images, see docs/art_reading_prompt.md), or a blank
+/// asset via Create → COREHOLD → Art Target, filled by hand. Only the VALUES
+/// here are theme-specific: they transcribe docs/art_direction_wadi_rum.md,
+/// Claude's reading of the desert references, targeting the SandyDesert pack.
 ///
 /// Also creates Weather_Clear if missing: the art doc's finding was that the
 /// pack's own look had never been on screen because its only weather preset
@@ -22,14 +24,37 @@ using UnityEngine;
 /// </summary>
 public static class ArtTargetFactory
 {
-    private const string TargetDir = "Assets/_COREHOLD/Data/ArtTargets";
-    private const string TargetPath = TargetDir + "/ArtTarget_WadiRum.asset";
+    internal const string TargetDir = "Assets/_COREHOLD/Data/ArtTargets";
+    private const string TargetPath = TargetDir + "/ArtTarget_SandyDesert.asset";
     private const string WeatherDir = "Assets/_COREHOLD/Data/Weather";
     private const string ClearPath = WeatherDir + "/Weather_Clear.asset";
     private const string DustPath = WeatherDir + "/Weather_Dust.asset";
 
-    [MenuItem("Tools/COREHOLD/Level/Env Pack Builder/1. Create Wadi Rum Art Target", false, 70)]
-    public static void CreateWadiRum()
+    /// <summary>Ensure the folder the targets live in exists.</summary>
+    internal static void EnsureTargetDir()
+    {
+        if (!AssetDatabase.IsValidFolder(TargetDir))
+            AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "ArtTargets");
+    }
+
+    /// <summary>The default weather split for any new target: a clear preset
+    /// (created if missing) weighted 2:1 over dust, so the base look is what
+    /// most maps actually draw.</summary>
+    internal static WeatherPreset[] DefaultWeatherPool()
+    {
+        var clear = AssetDatabase.LoadAssetAtPath<WeatherPreset>(ClearPath);
+        if (clear == null)
+        {
+            clear = ScriptableObject.CreateInstance<WeatherPreset>();
+            clear.name = "Weather_Clear";
+            AssetDatabase.CreateAsset(clear, ClearPath);
+        }
+        var dust = AssetDatabase.LoadAssetAtPath<WeatherPreset>(DustPath);
+        return dust != null ? new[] { clear, clear, dust } : new[] { clear };
+    }
+
+    [MenuItem("Tools/COREHOLD/Level/Env Pack Builder/1. Create Art Target (Claude's desert reading)", false, 70)]
+    public static void CreateSandyDesert()
     {
         if (AssetDatabase.LoadAssetAtPath<ArtTarget>(TargetPath) != null)
         {
@@ -39,18 +64,7 @@ public static class ArtTargetFactory
             return;
         }
 
-        if (!AssetDatabase.IsValidFolder(TargetDir))
-            AssetDatabase.CreateFolder("Assets/_COREHOLD/Data", "ArtTargets");
-
-        // Weather split (art doc §weather): base look must exist and outweigh dust.
-        var clear = AssetDatabase.LoadAssetAtPath<WeatherPreset>(ClearPath);
-        if (clear == null)
-        {
-            clear = ScriptableObject.CreateInstance<WeatherPreset>();
-            clear.name = "Weather_Clear";
-            AssetDatabase.CreateAsset(clear, ClearPath);
-        }
-        var dust = AssetDatabase.LoadAssetAtPath<WeatherPreset>(DustPath);
+        EnsureTargetDir();
 
         var t = ScriptableObject.CreateInstance<ArtTarget>();
         t.themeName = "SandyDesert";
@@ -109,9 +123,7 @@ public static class ArtTargetFactory
         t.slopeTiltMaxDegrees = 8f;  // a leaning massif is a mistake, not geology
         t.groundZoneStrength = 0.45f;
 
-        t.weatherPool = dust != null
-            ? new[] { clear, clear, dust }   // 2:1 — most maps show the base look
-            : new[] { clear };
+        t.weatherPool = DefaultWeatherPool();
         t.maxEntries = 50;
 
         AssetDatabase.CreateAsset(t, TargetPath);
@@ -120,7 +132,7 @@ public static class ArtTargetFactory
         EditorGUIUtility.PingObject(t);
 
         Debug.Log($"[ArtTarget] Created {TargetPath} from docs/art_direction_wadi_rum.md" +
-                  (dust == null ? "  (Weather_Dust not found — pool is clear-only)" : "") +
+                  (t.weatherPool.Length == 1 ? "  (Weather_Dust not found — pool is clear-only)" : "") +
                   "\n  Drop the reference images into its referenceImages slots for the record" +
                   " (and for Extract Palette, if wanted). Then run step 2: Scan Prefab Index.");
     }

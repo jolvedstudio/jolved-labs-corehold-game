@@ -50,6 +50,13 @@ public static class PackMatcher
         "Assets/Eric VFX Studio/", "Assets/Free Slash VFX/",
     };
 
+    /// <summary>Whether an asset path lives in a git-ignored vendor root and
+    /// therefore needs localizing before the pack referencing it is committed.
+    /// Public because the pipeline's verify gate audits the WRITTEN pack too.</summary>
+    public static bool NeedsLocalizing(string path)
+        => !string.IsNullOrEmpty(path) &&
+           IgnoredRoots.Any(r => path.StartsWith(r, System.StringComparison.Ordinal));
+
     [UnityEditor.MenuItem("Tools/COREHOLD/Level/Env Pack Builder/3. Match && Report (dry run)", false, 72)]
     public static void MatchMenu()
     {
@@ -113,8 +120,7 @@ public static class PackMatcher
                 }
                 if (best == null || best.score < 0.75f)
                     break;   // nothing acceptable left — the rest is the gap
-                best.needsLocalizing = IgnoredRoots.Any(r =>
-                    best.rec.path.StartsWith(r, System.StringComparison.Ordinal));
+                best.needsLocalizing = NeedsLocalizing(best.rec.path);
                 bandPicks.Add(best);
             }
             res.picks.AddRange(bandPicks);
