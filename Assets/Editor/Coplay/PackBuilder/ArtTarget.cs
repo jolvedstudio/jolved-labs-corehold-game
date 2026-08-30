@@ -110,7 +110,11 @@ public class ArtTarget : ScriptableObject
     [Tooltip("Hard cap on total pack entries (existing + new picks).")]
     public int maxEntries = 50;
 
-    [Tooltip("Folders the prefab indexer scans. Vendor folders are machine-local; picks from them are flagged NEEDS LOCALIZING in the report.")]
+    [Tooltip("EXACTLY the roots the prefab indexer scans — each one recursively (every subfolder), " +
+             "nothing outside them, no silent defaults. If a root is missing on this machine the scan " +
+             "says so loudly. Asset Store packs import to Assets/<PackName> by default: move them " +
+             "under Assets/Vendor (git-ignored, per vendor policy) or add their folder here. Picks " +
+             "from vendor roots are flagged NEEDS LOCALIZING in the report.")]
     public string[] scanFolders =
     {
         "Assets/Vendor",

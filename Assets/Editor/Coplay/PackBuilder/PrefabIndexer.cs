@@ -54,11 +54,25 @@ public static class PrefabIndexer
     [MenuItem("Tools/COREHOLD/Level/Env Pack Builder/2. Scan Prefab Index", false, 71)]
     public static void ScanMenu()
     {
+        // STRICT: the scan uses the selected ArtTarget's folder list, exactly —
+        // no silent defaults. A fallback list once masked the real problem
+        // (a purchased pack imported OUTSIDE the listed roots) behind a scan
+        // that looked like it had run properly.
         var target = Selection.activeObject as ArtTarget;
-        string[] folders = target != null && target.scanFolders != null && target.scanFolders.Length > 0
-            ? target.scanFolders
-            : new[] { "Assets/Vendor", "Assets/Authoring/EnvPack", "Assets/_COREHOLD/Authoring/EnvPack" };
-        Debug.Log(Scan(folders));
+        if (target == null)
+        {
+            Debug.LogError("[PrefabIndexer] Select an ArtTarget — the scan uses ITS scanFolders, " +
+                           "exactly those roots and everything underneath.");
+            return;
+        }
+        if (target.scanFolders == null || target.scanFolders.Length == 0)
+        {
+            Debug.LogError($"[PrefabIndexer] '{target.name}' has an empty scanFolders list — add the " +
+                           "roots to scan. Note: Asset Store packs import to Assets/<PackName> by " +
+                           "default; move them under Assets/Vendor (git-ignored) or add their folder.");
+            return;
+        }
+        Debug.Log(Scan(target.scanFolders));
     }
 
     // ------------------------------------------------------------------ API
@@ -86,12 +100,27 @@ public static class PrefabIndexer
     public static string Scan(string[] folders)
     {
         var log = new StringBuilder();
-        log.AppendLine("=== PREFAB INDEX SCAN ===");
+        log.AppendLine("=== PREFAB INDEX SCAN — exactly these roots, all subfolders ===");
 
-        var valid = folders.Where(AssetDatabase.IsValidFolder).ToArray();
-        foreach (string f in folders.Except(valid))
-            log.AppendLine($"  (skip) {f} — not present on this machine");
-        if (valid.Length == 0)
+        // Every listed root gets its own line, INCLUDING zeros and missing
+        // ones, so "the scanner skipped my pack" and "my pack is not where the
+        // list points" stop being indistinguishable. Nothing inside a listed
+        // root is excluded except meshless prefabs (nothing to measure).
+        var valid = new List<string>();
+        foreach (string f in folders)
+        {
+            if (!AssetDatabase.IsValidFolder(f))
+            {
+                log.AppendLine($"  ⚠ {f,-44} MISSING on this machine — if a purchased pack lives " +
+                               "elsewhere (Asset Store imports to Assets/<PackName>), move it under " +
+                               "Assets/Vendor or add its folder to scanFolders");
+                continue;
+            }
+            int inRoot = AssetDatabase.FindAssets("t:Prefab", new[] { f }).Length;
+            log.AppendLine($"  ✓ {f,-44} {inRoot,5} prefab(s), recursive");
+            valid.Add(f);
+        }
+        if (valid.Count == 0)
         {
             log.AppendLine("  no scannable folders — nothing indexed.");
             return log.ToString();
@@ -101,7 +130,7 @@ public static class PrefabIndexer
         var recs = new List<Rec>();
         int reused = 0, measured = 0, failed = 0;
 
-        string[] guids = AssetDatabase.FindAssets("t:Prefab", valid);
+        string[] guids = AssetDatabase.FindAssets("t:Prefab", valid.ToArray());
         var pru = new PreviewRenderUtility();
         try
         {
@@ -150,7 +179,7 @@ public static class PrefabIndexer
         File.WriteAllText(CachePath, JsonUtility.ToJson(new IndexData { recs = recs }));
 
         log.AppendLine($"  {recs.Count} prefab(s) indexed ({measured} measured, {reused} cached, " +
-                       $"{failed} skipped meshless) across {valid.Length} folder(s):");
+                       $"{failed} skipped meshless) across {valid.Count} folder(s):");
         foreach (var group in recs.GroupBy(r => r.sourcePack).OrderBy(g => g.Key, System.StringComparer.Ordinal))
         {
             var heights = group.Select(r => r.height).OrderBy(h => h).ToArray();
