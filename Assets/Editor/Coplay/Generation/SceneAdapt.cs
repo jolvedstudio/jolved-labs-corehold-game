@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Corehold.Core;
+using Corehold.Data;                      // LevelBlueprint
 using Corehold.Systems;
 using Corehold.Towers;
 using CoreholdEditor;                     // HardpointMarkers, HardpointAura
