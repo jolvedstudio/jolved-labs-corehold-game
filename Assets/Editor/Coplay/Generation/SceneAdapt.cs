@@ -4,6 +4,7 @@ using System.Text;
 using Corehold.Core;
 using Corehold.Systems;
 using Corehold.Towers;
+using CoreholdEditor;                     // HardpointMarkers, HardpointAura
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
