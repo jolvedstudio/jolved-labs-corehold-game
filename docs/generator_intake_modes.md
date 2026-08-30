@@ -1,5 +1,16 @@
 # Generator intake modes — one certifier, several front doors
 
+> **STATUS: mode b v1 is BUILT** — `GenerationPipeline.RunAdapt` +
+> `SceneAdapt.cs`, menu `Tools → COREHOLD → Level → Adapt Open Scene`
+> (with `Stamp Adapt Anchors` to seed a scene). v1 honors the authored
+> **Core** (reverse-mapped into the blueprint clone so the untouched
+> synthesizer converges on it) and the authored **pads** (adopted, never
+> moved — shortfalls refuse with "move pads, not props"). **Spawner
+> positions are synthesized** in v1; honoring authored spawners needs
+> synthesizer surgery and waits for demand. Terrain/weather/look are
+> skipped — an authored scene owns its ground and light. Budget: 14
+> interventions, then honest refusal with the conflict list.
+
 The question: the generator should work three ways — (0) pure procedural from a
 blueprint, as today; (a) from a visual source (reference images); (b) from a
 PRE-BUILT scene, adapted — props moved, added or removed — until every gate

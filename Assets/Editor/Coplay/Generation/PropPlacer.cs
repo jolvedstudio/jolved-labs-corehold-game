@@ -30,14 +30,17 @@ using UnityEngine;
 /// </summary>
 public static class PropPlacer
 {
-    private const float LaneHalfWidth = 0.9f;
-    private const float MaxBodyRadius = 1.35f;
+    // Internal, not private: SceneAdapt (mode b) enforces the SAME clearances
+    // over authored props — two sets of constants would drift, and the drift
+    // would decide what gets moved.
+    internal const float LaneHalfWidth = 0.9f;
+    internal const float MaxBodyRadius = 1.35f;
 
     /// <summary>Extra breathing room between a prop's edge and anything it must clear.</summary>
-    private const float Margin = 0.5f;
+    internal const float Margin = 0.5f;
 
     /// <summary>Pads own their pocket: props keep this far off a pad, plus their radius.</summary>
-    private const float PadKeepOut = 6f;
+    internal const float PadKeepOut = 6f;
     private const float PadKeepOutInFold = 3f;
 
     private const int MaxAttemptsPerProp = 24;
