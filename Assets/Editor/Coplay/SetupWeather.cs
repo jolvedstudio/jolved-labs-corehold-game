@@ -28,6 +28,7 @@ public static class SetupWeather
     private const string WeatherDir = "Assets/_COREHOLD/Data/Weather";
     private const string RainPath = WeatherDir + "/Weather_Rain.asset";
     private const string DustPath = WeatherDir + "/Weather_Dust.asset";
+    private const string SnowPath = WeatherDir + "/Weather_Snow.asset";
 
     [MenuItem("Tools/COREHOLD/Scene Setup/Weather", false, 43)]
     public static void Setup()
@@ -50,6 +51,7 @@ public static class SetupWeather
 
         WeatherPreset rain = AuthorRain(log);
         AuthorDust(log);
+        AuthorSnow(log);
         WireApplier(rain, log);
 
         AssetDatabase.SaveAssets();
@@ -141,6 +143,66 @@ public static class SetupWeather
 
         EditorUtility.SetDirty(p);
         log.AppendLine($"[ok] Dust authored — 1 alpha layer, rate {p.precipitationRate:0}, alpha {p.particleColor.a:0.00}");
+        return p;
+    }
+
+    /// <summary>
+    /// Snow: the first preset that uses the SURFACE RESPONSE rather than
+    /// particles alone — flakes fall, and the ground and the props whiten with
+    /// them (WeatherPreset.groundSnow, applied by the terrain shader through
+    /// the surface normal and by PropSnow through property blocks).
+    ///
+    /// Deliberately falls SLOWLY against a gentle wind. The sheet classifies
+    /// motion rather than reading the enum, and at these speeds snow lands in
+    /// the volume-fill branch — flakes appear at every depth around the camera
+    /// instead of raining from a top slab, which is what snow actually does.
+    /// Fall much faster and it would be classified as rain and streak.
+    ///
+    /// Ambient goes UP, not down: snow bounces light, and a dim snow scene
+    /// reads as night rather than as weather.
+    /// </summary>
+    private static WeatherPreset AuthorSnow(StringBuilder log)
+    {
+        WeatherPreset p = LoadOrCreate(SnowPath, log);
+
+        p.overrideAmbient = true;
+        p.ambientColor = new Color(0.44f, 0.48f, 0.56f, 1f);
+
+        p.overrideSun = true;
+        p.sunTemperatureKelvin = 7800f;                      // cool overcast light
+        p.sunFilter = new Color(0.94f, 0.96f, 1.00f, 1f);
+        p.sunIntensityMult = 0.85f;
+        p.sunShadowStrengthMult = 0.6f;                      // overcast = soft, weak shadows
+
+        p.overrideFog = true;
+        p.fogColor = new Color(0.74f, 0.78f, 0.84f, 1f);
+        p.fogDensity = 0.005f;
+
+        // The ground does the heavy lifting here, not the particles.
+        p.groundSnow = 0.75f;
+        p.groundWetness = 0.15f;                             // snow damps what it does not cover
+        p.snowColor = new Color(0.92f, 0.94f, 0.98f, 1f);
+        p.overrideGroundTint = false;                        // groundSnow owns the ground's look
+
+        p.precipitation = WeatherPreset.Precipitation.Snow;
+        p.precipitationRate = 130f;                          // fewer, larger, slower than dust
+        p.fallSpeed = 1.2f;
+        p.particleSize = 0.09f;
+        p.particleColor = new Color(0.97f, 0.98f, 1.00f, 0.55f);
+
+        p.windDirection = new Vector3(0.45f, -0.05f, -0.2f);
+        p.windStrength = 1.8f;                               // gentle: keeps it in the drift branch
+        p.ambientVolume = 0.22f;                             // quiet — snow muffles
+
+        p.overridePostProfile = true;
+        p.postProfile = AuthorGrade(WeatherDir + "/Weather_Snow_Post.asset",
+                                    saturation: -18f, contrast: -4f, temperature: -12f,
+                                    filter: new Color(0.96f, 0.98f, 1.00f), log: log);
+        p.postWeight = 1f;
+
+        EditorUtility.SetDirty(p);
+        log.AppendLine($"[ok] Snow authored — rate {p.precipitationRate:0}, " +
+                       $"groundSnow {p.groundSnow:0.00}, wetness {p.groundWetness:0.00}");
         return p;
     }
 

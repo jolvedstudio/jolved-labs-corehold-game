@@ -20,11 +20,22 @@ namespace Corehold.Data
     public class WeatherPreset : ScriptableObject
     {
         /// <summary>Precipitation style. Drives the camera-attached particle layer.</summary>
+        /// <summary>
+        /// What FALLS. Distinct from <see cref="groundSnow"/> / <see cref="groundWetness"/>,
+        /// which are what the ground LOOKS like — the two are deliberately
+        /// independent, because ground stays wet after rain stops and snow lies
+        /// long after it stops falling.
+        ///
+        /// Appended, never reordered: these serialise as integers, so inserting
+        /// a value in the middle would silently turn every authored Dust preset
+        /// on disk into something else.
+        /// </summary>
         public enum Precipitation
         {
             None,
             Rain,
-            Dust
+            Dust,
+            Snow
         }
 
         [Header("Ambient (GDD §5.5)")]
