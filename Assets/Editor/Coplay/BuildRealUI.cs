@@ -853,6 +853,27 @@ namespace CoreholdEditor
             var settingsBtn = MakeButton(root, "Settings", "SETTINGS", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 60), new Vector2(200, 60));
             var helpBtn = MakeButton(root, "Help", "HOW TO PLAY", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(240, 60), new Vector2(200, 60));
 
+            // Campaign entry (R37). This overlay is the campaign's front door
+            // when a manifest is wired: the campaign's name sits above the
+            // difficulty row, and CONTINUE appears only when there is a saved
+            // run to continue — TitleScreen hides it otherwise, so an empty slot
+            // is never a dead button.
+            // y=112 clears BestScore (30 tall at 150) above and the difficulty
+            // row (top edge +80) below — the band between them is exactly this
+            // wide, so both values have to say the same thing.
+            var campaignLbl = MakeText(root, "CampaignName", "", _small, TextAlignmentOptions.Center,
+                                       new Vector2(0, 112), new Vector2(1200, 34));
+            campaignLbl.color = Cyan;
+            SetAnchors(campaignLbl.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                       new Vector2(0, 112));
+
+            var continueBtn = MakeButton(root, "Continue", "CONTINUE RUN", theme,
+                                         new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                                         new Vector2(0, -170), new Vector2(360, 74));
+            var continueLbl = continueBtn.GetComponentInChildren<TMP_Text>();
+            if (continueLbl != null) continueLbl.color = Amber;   // it resumes, it does not restart
+            continueBtn.gameObject.SetActive(false);              // TitleScreen.Refresh decides
+
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
             SetRef(so, "bestScoreLabel", best);
@@ -869,6 +890,8 @@ namespace CoreholdEditor
             SetRef(so, "settingsButton", settingsBtn.GetComponent<Button>());
             SetRef(so, "settingsPanel", settingsPanel);
             SetRef(so, "helpButton", helpBtn.GetComponent<Button>());
+            SetRef(so, "continueButton", continueBtn.GetComponent<Button>());
+            SetRef(so, "campaignLabel", campaignLbl);
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return comp;

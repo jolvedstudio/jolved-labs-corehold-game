@@ -20,7 +20,7 @@ namespace CoreholdEditor.Campaign
     ///     build-menu turret with no prefab (a dead button), art that only exists
     ///     on this machine. Every one of these ships silently and breaks later.
     ///   • <b>Build</b> — BuildPipeline with EXACTLY the campaign's scenes in
-    ///     campaign order, Welcome first. Refuses to run while preflight has
+    ///     campaign order, boot scene first. Refuses to run while preflight has
     ///     errors, because a build that boots into the wrong scene is worse than
     ///     no build.
     ///
@@ -272,10 +272,11 @@ namespace CoreholdEditor.Campaign
 
             if (manifest.LevelCount == 0)
                 Error("the manifest has no Level stages — generate at least one level.");
-            if (manifest.StageOfKind(CampaignStageKind.Welcome) == null)
-                Error("no Welcome stage in the manifest — the build would boot into a level.");
-            if (manifest.StageOfKind(CampaignStageKind.Closing) == null)
-                Warn("no Closing stage — finishing the last level will fall back to the Welcome screen.");
+            // Menu scenes are optional: without a Welcome stage the build boots
+            // into level one, whose title overlay IS the entry screen, and the
+            // result screen is the debrief. What preflight has to prove is that
+            // whichever door the build has actually opens — checked below
+            // against Build Settings index 0.
 
             // ---- scenes exist, are registered, and boot in the right order ----
             var enabled = EditorBuildSettings.scenes.Where(s => s.enabled).ToList();
@@ -305,10 +306,33 @@ namespace CoreholdEditor.Campaign
                           ". (A test-manifest campaign always trips this: it exists to prove the FLOW, not to ship.)");
             }
 
+            // The door the build opens: the Welcome scene when the campaign has
+            // one, otherwise its first level. Either way index 0 must BE it.
             var welcome = manifest.StageOfKind(CampaignStageKind.Welcome);
-            if (welcome != null && enabled.Count > 0 && enabled[0].path != welcome.scenePath)
-                Error($"build index 0 is '{enabled[0].path}', not the Welcome scene — the player would " +
-                      "boot into the wrong scene. Press 'Register Campaign'.");
+            int firstLevel = manifest.FirstLevelIndex();
+            string boot = welcome != null ? welcome.scenePath
+                        : firstLevel >= 0 ? manifest.stages[firstLevel].scenePath
+                        : null;
+            string bootName = welcome != null ? "the Welcome scene" : "level one";
+
+            if (boot != null && enabled.Count > 0 && enabled[0].path != boot)
+                Error($"build index 0 is '{enabled[0].path}', not {bootName} ('{boot}') — the player " +
+                      "would boot into the wrong scene. Press 'Register Campaign'.");
+
+            // A campaign entered through level one is entered through that
+            // level's TitleScreen, and an unwired one is a difficulty gate that
+            // starts a SINGLE MAP: the player picks Normal and plays level one
+            // forever, never knowing there were nine more.
+            // (A boot scene missing from disk is already an error from the stage
+            // loop above; skip rather than throw on the read.)
+            if (welcome == null && boot != null && System.IO.File.Exists(boot))
+            {
+                string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(manifest));
+                if (string.IsNullOrEmpty(guid) || !System.IO.File.ReadAllText(boot).Contains(guid))
+                    Error($"level one ('{boot}') does not reference this manifest — its title overlay " +
+                          "would start a single-map run instead of the campaign. Press 'Emit manifest " +
+                          "+ wire entry' in the Campaign Builder.");
+            }
 
             // ---- per-stage data: definition wired, wave tables stage-LOCAL ----
             if (authoring == null)

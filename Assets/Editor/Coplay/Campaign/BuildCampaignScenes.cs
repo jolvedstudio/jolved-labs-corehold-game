@@ -494,11 +494,39 @@ namespace CoreholdEditor.Campaign
             => WireManifestIntoWelcome(manifest, WelcomePath);
 
         /// <summary>
-        /// Write <paramref name="manifest"/> into the CampaignWelcome component
-        /// of the scene at <paramref name="welcomePath"/> — the ACTUAL welcome
-        /// scene the campaign uses, not a fixed path. A LOADED copy (active OR
-        /// additive) is wired in place; otherwise the scene is opened, wired,
-        /// saved, and the previous scene restored.
+        /// Wire the manifest into the campaign's Welcome scene — the ACTUAL
+        /// path the campaign uses, not a fixed one.
+        /// </summary>
+        internal static bool WireManifestIntoWelcome(CampaignManifest manifest, string welcomePath)
+            => WireManifestInto<CampaignWelcome>(
+                manifest, welcomePath, "manifest", "Welcome scene",
+                "build the menu scenes; the campaign flow wires the manifest into them automatically.",
+                "rebuild the menu scenes.");
+
+        /// <summary>
+        /// Wire the manifest into the campaign's FIRST LEVEL, whose TitleScreen
+        /// overlay is the front door when the campaign has no Welcome scene.
+        ///
+        /// Every generated level already carries a TitleScreen — it is how a
+        /// single map asks which difficulty to play. Handing it the manifest
+        /// promotes it: the difficulty buttons start the campaign in the scene
+        /// that is already open, and CONTINUE RUN appears when there is a run
+        /// to continue. That is the entire entry screen, with no second scene
+        /// to build, boot into, and stream away from before the player sees the
+        /// game they came for.
+        /// </summary>
+        internal static bool WireManifestIntoLevelOne(CampaignManifest manifest, string levelOnePath)
+            => WireManifestInto<TitleScreen>(
+                manifest, levelOnePath, "campaign", "first level",
+                "generate the campaign's levels first.",
+                "regenerate it — every generated level builds a TitleScreen overlay.");
+
+        /// <summary>
+        /// Write <paramref name="manifest"/> into the <paramref name="fieldName"/>
+        /// field of the <typeparamref name="T"/> in the scene at
+        /// <paramref name="scenePath"/>. A LOADED copy (active OR additive) is
+        /// wired in place; otherwise the scene is opened, wired, saved, and the
+        /// previous scene restored.
         ///
         /// The save is REQUESTED FROM VERSION CONTROL and then VERIFIED against
         /// the file bytes: under a checkout workflow (Unity VCS, Perforce) a
@@ -507,13 +535,19 @@ namespace CoreholdEditor.Campaign
         /// empty unless the user happened to have the scene open (their manual
         /// edit context had checked the file out). Returns true only when the
         /// manifest reference demonstrably reached the file on disk.
+        ///
+        /// One implementation for both front doors. Proving the save is the
+        /// part of this that took an afternoon to learn, and it should not
+        /// exist in two copies with only one of them kept honest.
         /// </summary>
-        internal static bool WireManifestIntoWelcome(CampaignManifest manifest, string welcomePath)
+        private static bool WireManifestInto<T>(CampaignManifest manifest, string scenePath,
+                                                string fieldName, string noun,
+                                                string missingSceneHint, string missingComponentHint)
+            where T : Component
         {
-            if (string.IsNullOrEmpty(welcomePath) || !System.IO.File.Exists(welcomePath))
+            if (string.IsNullOrEmpty(scenePath) || !System.IO.File.Exists(scenePath))
             {
-                Debug.LogWarning($"[Campaign] Welcome scene not built yet ({welcomePath}) — build the menu " +
-                                 "scenes; the campaign flow wires the manifest into them automatically.");
+                Debug.LogWarning($"[Campaign] {noun} not built yet ({scenePath}) — {missingSceneHint}");
                 return false;
             }
 
@@ -523,7 +557,7 @@ namespace CoreholdEditor.Campaign
             for (int i = 0; i < SceneManager.sceneCount; i++)
             {
                 Scene s = SceneManager.GetSceneAt(i);
-                if (s.path == welcomePath && s.isLoaded)
+                if (s.path == scenePath && s.isLoaded)
                 {
                     target = s;
                     wasLoaded = true;
@@ -538,49 +572,49 @@ namespace CoreholdEditor.Campaign
             bool openedHere = false;
             if (!wasLoaded)
             {
-                target = EditorSceneManager.OpenScene(welcomePath, OpenSceneMode.Additive);
+                target = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
                 openedHere = true;
             }
 
             try
             {
                 // Find the component in THE TARGET SCENE's roots — a global find
-                // could grab a CampaignWelcome from some other loaded scene.
-                CampaignWelcome welcome = null;
+                // could grab the same component from some other loaded scene.
+                T host = null;
                 foreach (GameObject root in target.GetRootGameObjects())
                 {
-                    welcome = root.GetComponentInChildren<CampaignWelcome>(true);
-                    if (welcome != null)
+                    host = root.GetComponentInChildren<T>(true);
+                    if (host != null)
                         break;
                 }
-                if (welcome == null)
+                if (host == null)
                 {
-                    Debug.LogError($"[Campaign] '{welcomePath}' has no CampaignWelcome component — rebuild the menu scenes.");
+                    Debug.LogError($"[Campaign] '{scenePath}' has no {typeof(T).Name} component — {missingComponentHint}");
                     return false;
                 }
 
-                var so = new SerializedObject(welcome);
-                so.FindProperty("manifest").objectReferenceValue = manifest;
+                var so = new SerializedObject(host);
+                so.FindProperty(fieldName).objectReferenceValue = manifest;
                 so.ApplyModifiedPropertiesWithoutUndo();
                 EditorSceneManager.MarkSceneDirty(target);
 
                 // Ask VCS to make the file writable, save, then PROVE the save:
                 // the manifest asset's GUID must appear in the scene file bytes.
-                AssetDatabase.MakeEditable(welcomePath);
+                AssetDatabase.MakeEditable(scenePath);
                 bool saved = EditorSceneManager.SaveScene(target);
                 string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(manifest));
                 bool verified = saved && !string.IsNullOrEmpty(guid) &&
-                                System.IO.File.ReadAllText(welcomePath).Contains(guid);
+                                System.IO.File.ReadAllText(scenePath).Contains(guid);
 
                 if (verified)
-                    Debug.Log($"[Campaign] Manifest '{manifest.name}' wired into '{welcomePath}' " +
+                    Debug.Log($"[Campaign] Manifest '{manifest.name}' wired into '{scenePath}' " +
                               $"({(wasLoaded ? "scene was open" : "opened additively")}; save verified on disk).");
                 else
-                    Debug.LogError($"[Campaign] Manifest wiring DID NOT PERSIST to '{welcomePath}' " +
+                    Debug.LogError($"[Campaign] Manifest wiring DID NOT PERSIST to '{scenePath}' " +
                                    $"(SaveScene {(saved ? "reported success" : "FAILED")}, " +
                                    $"manifest guid {(string.IsNullOrEmpty(guid) ? "MISSING — is the .meta imported?" : guid)}). " +
                                    "If the scene is under version control, check it out / make it writable, " +
-                                   "then 'Emit manifest + wire Welcome' again — an unwired Welcome boots to a dead menu.");
+                                   $"then Emit again — an unwired {noun} boots to a dead menu.");
                 return verified;
             }
             finally

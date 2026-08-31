@@ -162,6 +162,53 @@ namespace Corehold.Core
             LoadStage(first);
         }
 
+        /// <summary>
+        /// Begin a campaign in the scene ALREADY OPEN, which must be its first
+        /// level.
+        ///
+        /// This is what lets the campaign's entry screen be an overlay on level
+        /// one rather than a scene of its own: the player is already standing in
+        /// the field they are about to defend, so starting must not reload it.
+        /// Reloading would work, but it would throw away a scene Unity has just
+        /// finished streaming and cost the player a black frame for nothing.
+        ///
+        /// Everything else matches <see cref="StartCampaign"/> exactly — the two
+        /// differ only in whether a scene load happens.
+        /// </summary>
+        public void StartCampaignInPlace(CampaignManifest manifest, Difficulty difficulty)
+        {
+            if (manifest == null)
+            {
+                Debug.LogError("[Campaign] StartCampaignInPlace called with no manifest.");
+                return;
+            }
+
+            int first = manifest.FirstLevelIndex();
+            if (first < 0)
+            {
+                Debug.LogError($"[Campaign] Manifest '{manifest.name}' has no Level stages.");
+                return;
+            }
+
+            Active = manifest;
+            ChosenDifficulty = difficulty;
+            Results.Clear();
+            ElapsedSeconds = 0f;
+            CompletedNewBestScore = false;
+            CompletedNewBestTime = false;
+            _endSalvage = _endIntegrity = -1;
+
+            var rules = manifest.progression;
+            CurrentEntrySalvage = rules.baseSalvagePerLevel > 0 ? rules.baseSalvagePerLevel : -1;
+            CurrentEntryIntegrity = -1;
+
+            SaveData.ClearCampaignRun(manifest.campaignId);
+
+            // Adopt the open scene as the current stage instead of loading it.
+            CurrentStageIndex = first;
+            ApplyStageToOpenScene();
+        }
+
         /// <summary>Is there a persisted, still-valid run to resume for this manifest?</summary>
         public static bool HasSavedRun(CampaignManifest manifest)
         {
@@ -216,7 +263,31 @@ namespace Corehold.Core
                 && manifest.stages[run.stageIndex].kind == CampaignStageKind.Level;
         }
 
-        /// <summary>Victory → next level, or Closing after the last one.</summary>
+        /// <summary>True when the level now playing is the LAST one — there is no
+        /// next level, so winning it finishes the campaign. Read by the result
+        /// screen, which becomes the debrief rather than handing off to a
+        /// separate scene for it.</summary>
+        public bool IsFinalStage =>
+            HasActiveCampaign && CurrentStageIndex >= 0 && Active.NextLevelIndex(CurrentStageIndex) < 0;
+
+        /// <summary>
+        /// Bank the campaign's records and retire its saved run.
+        ///
+        /// Split out of <see cref="AdvanceToNextStage"/> so the RESULT SCREEN can
+        /// finish a campaign in place. Idempotent by way of the run blob: once
+        /// cleared, a second call re-submits the same records, and both submit
+        /// calls keep the better value.
+        /// </summary>
+        public void CompleteCampaign()
+        {
+            if (!HasActiveCampaign) return;
+            CompletedNewBestScore = SaveData.SubmitCampaignBestScore(Active.campaignId, CumulativeScore);
+            CompletedNewBestTime = SaveData.SubmitCampaignBestTime(
+                Active.campaignId, Mathf.Max(1, Mathf.RoundToInt(ElapsedSeconds)));
+            SaveData.ClearCampaignRun(Active.campaignId);
+        }
+
+        /// <summary>Victory → next level, or the campaign ends.</summary>
         public void AdvanceToNextStage()
         {
             if (!HasActiveCampaign) return;
@@ -229,24 +300,19 @@ namespace Corehold.Core
                 return;
             }
 
-            // No next level: the campaign is COMPLETE. Submit the campaign
-            // records, clear the run blob (it is no longer resumable), and keep
-            // the in-memory results for the Closing screen to display.
-            CompletedNewBestScore = SaveData.SubmitCampaignBestScore(Active.campaignId, CumulativeScore);
-            CompletedNewBestTime = SaveData.SubmitCampaignBestTime(
-                Active.campaignId, Mathf.Max(1, Mathf.RoundToInt(ElapsedSeconds)));
-            SaveData.ClearCampaignRun(Active.campaignId);
+            // No next level: the campaign is COMPLETE.
+            CompleteCampaign();
 
+            // A manifest MAY still carry a Closing scene — older campaigns do,
+            // and one is honoured when present. It is no longer required: the
+            // result screen shows the debrief over the field the player just
+            // held, which is both one less scene to build and one less place
+            // for the game to stop looking like itself.
             var closing = Active.StageOfKind(CampaignStageKind.Closing);
-            if (closing != null)
+            if (closing != null && !string.IsNullOrEmpty(closing.scenePath))
             {
                 CurrentStageIndex = Active.stages.IndexOf(closing);
                 GameFlow.LoadSceneClean(closing.scenePath);
-            }
-            else
-            {
-                Debug.LogWarning("[Campaign] No Closing stage in the manifest — returning to Welcome.");
-                AbandonToWelcome();
             }
         }
 
@@ -281,13 +347,25 @@ namespace Corehold.Core
                 SaveData.ClearCampaignRun(Active.campaignId);
 
             var welcome = HasActiveCampaign ? Active.StageOfKind(CampaignStageKind.Welcome) : null;
+            // Where "the menu" is, when there is no Welcome scene: the campaign's
+            // FIRST LEVEL, whose title overlay is the entry screen. Captured
+            // before Active is cleared.
+            string firstLevel = null;
+            if (HasActiveCampaign)
+            {
+                int first = Active.FirstLevelIndex();
+                if (first >= 0) firstLevel = Active.stages[first].scenePath;
+            }
+
             Active = null;
             CurrentStageIndex = -1;
 
             if (welcome != null && !string.IsNullOrEmpty(welcome.scenePath))
                 GameFlow.LoadSceneClean(welcome.scenePath);
+            else if (!string.IsNullOrEmpty(firstLevel))
+                GameFlow.LoadSceneClean(firstLevel);
             else
-                GameFlow.RestartCurrentLevel(); // no Welcome known: fall back to the old behavior
+                GameFlow.RestartCurrentLevel(); // nothing known: fall back to the old behavior
         }
 
         /// <summary>Called by ResultScreen when a campaign level ends (plan v2 §A.6).</summary>
@@ -441,6 +519,27 @@ namespace Corehold.Core
             // own defaults" (reset economy — what the gates certified); carry
             // modes put real values here via ComputeNextEntry, and Retry sees
             // the same snapshot because nothing recomputes it on reload.
+            flow.BeginCampaignRun(ChosenDifficulty, CurrentEntrySalvage, CurrentEntryIntegrity);
+        }
+
+        /// <summary>
+        /// The takeover, for a stage whose scene is ALREADY LOADED.
+        ///
+        /// The same two steps <see cref="LoadStage"/> reaches through a scene
+        /// load — persist the run, hand GameFlow the entry snapshot — done
+        /// directly, because sceneLoaded will not fire for a scene that is
+        /// already open.
+        /// </summary>
+        private void ApplyStageToOpenScene()
+        {
+            SaveRun();
+
+            var flow = FindFirstObjectByType<GameFlow>();
+            if (flow == null)
+            {
+                Debug.LogError("[Campaign] The open scene has no GameFlow — cannot start the run in place.");
+                return;
+            }
             flow.BeginCampaignRun(ChosenDifficulty, CurrentEntrySalvage, CurrentEntryIntegrity);
         }
 
