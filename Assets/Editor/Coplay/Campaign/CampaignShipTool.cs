@@ -461,6 +461,15 @@ namespace CoreholdEditor.Campaign
                 options = BuildOptions.None,           // release: no debug console, no profiler
             };
 
+            // Bring Build Settings in line with what is being shipped. This
+            // build does not read that list — the scene array above is the
+            // build — but Unity's own File → Build does, and a stale list there
+            // is how a three-scene campaign turned into a forty-scene, twenty-
+            // megabyte payload with a Brotli pass to match. Syncing on the way
+            // past costs nothing and means both doors lead to the same game.
+            if (authoring != null)
+                CampaignBuilderWindow.RegisterCampaign(authoring);
+
             Debug.Log($"[Ship] Building {scenes.Length} scene(s) → {dir}\n  " + string.Join("\n  ", scenes));
             BuildReport result = BuildPipeline.BuildPlayer(options);
             var summary = result.summary;

@@ -601,7 +601,9 @@ namespace CoreholdEditor.Campaign
         {
             EditorGUILayout.LabelField(
                 "Rewrites Build Settings wholesale: Welcome at index 0, levels in campaign order, " +
-                "Closing, then the surviving singles (Game.unity keeps single-map play).", EditorStyles.miniLabel);
+                "Closing — and DISABLES everything else, so a plain File → Build ships this campaign " +
+                "and nothing else. Disabled entries stay listed; re-tick any you want back.",
+                EditorStyles.miniLabel);
             if (GUILayout.Button("Register Campaign (Build Settings)", GUILayout.Width(280)))
             {
                 RegisterCampaign();
@@ -1488,13 +1490,29 @@ namespace CoreholdEditor.Campaign
         /// single-map play). The pipeline's own registration is append-only and
         /// its prune only watches Scenes/Generated, so ordering lives here.
         /// </summary>
-        private void RegisterCampaign()
+        private void RegisterCampaign() => RegisterCampaign(_authoring);
+
+        /// <summary>
+        /// Make Build Settings say exactly what this campaign is: its Welcome
+        /// at index 0, its levels in order, its Closing — and everything else
+        /// disabled.
+        ///
+        /// Static and internal so the SHIP TOOL can call it too. The shippable
+        /// build passes its own explicit scene list to BuildPipeline and never
+        /// reads Build Settings, which is why a forty-scene list could sit
+        /// there unnoticed until someone used Unity's own File → Build. Syncing
+        /// here means both doors lead to the same game.
+        /// </summary>
+        internal static void RegisterCampaign(CampaignAuthoring authoring)
         {
-            var campaignPaths = new List<string> { _authoring.welcomeScenePath };
-            campaignPaths.AddRange(_authoring.stages
+            if (authoring == null)
+                return;
+
+            var campaignPaths = new List<string> { authoring.welcomeScenePath };
+            campaignPaths.AddRange(authoring.stages
                 .Where(s => !string.IsNullOrEmpty(s.scenePath))
                 .Select(s => s.scenePath));
-            campaignPaths.Add(_authoring.closingScenePath);
+            campaignPaths.Add(authoring.closingScenePath);
 
             var list = new List<EditorBuildSettingsScene>();
             foreach (var p in campaignPaths)
@@ -1507,16 +1525,48 @@ namespace CoreholdEditor.Campaign
                 list.Add(new EditorBuildSettingsScene(p, true));
             }
 
+            // Everything else is CARRIED BUT DISABLED.
+            //
+            // This line used to keep them enabled, and that is how Build
+            // Settings reached forty scenes: the generator registers every
+            // level it emits so Retry can reload the one being worked on, the
+            // Campaign Builder adds a Welcome and a Closing per campaign, and
+            // registering a campaign then re-enabled the lot. Nothing removed a
+            // scene that still existed, so a plain File → Build carried every
+            // level ever generated and every campaign ever tried — twenty
+            // megabytes of scenes, and a Brotli pass measured in tens of
+            // minutes rather than the five the actual game costs.
+            //
+            // Disabled rather than dropped: the entries stay as a record of
+            // what was tried, one tick puts any of them back, and a level
+            // adopted into THIS campaign is already in campaignPaths above, so
+            // manually added levels are kept by construction.
+            //
+            // Note this also disables Game.unity, which used to ride along for
+            // single-map play. Re-tick it when you want that; registering a
+            // campaign now means the build IS the campaign.
+            int parked = 0;
             foreach (var existing in EditorBuildSettings.scenes)
             {
                 if (campaignPaths.Contains(existing.path)) continue;
-                if (!existing.enabled) continue;
                 if (!System.IO.File.Exists(existing.path)) continue;
-                list.Add(existing);
+                if (existing.enabled) parked++;
+                list.Add(new EditorBuildSettingsScene(existing.path, false));
             }
 
             EditorBuildSettings.scenes = list.ToArray();
-            Debug.Log($"[Campaign] Build Settings: {list.Count} scenes, campaign first (Welcome at index 0).");
+
+            long bytes = 0;
+            foreach (string p in campaignPaths)
+                if (System.IO.File.Exists(p)) bytes += new System.IO.FileInfo(p).Length;
+
+            Debug.Log($"[Campaign] Build Settings: {list.Count(s => s.enabled)} scene(s) ENABLED " +
+                      $"(campaign '{authoring.campaignId}', Welcome at index 0, " +
+                      $"{bytes / 1048576f:0.0} MB of scene data)" +
+                      (parked > 0
+                          ? $"; {parked} non-campaign scene(s) disabled — they stay listed, " +
+                            "re-tick any you want back."
+                          : "."));
         }
 
         // -------------------------------------------------------------- utils
