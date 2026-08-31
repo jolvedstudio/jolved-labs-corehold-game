@@ -68,8 +68,23 @@ public static class WebGLShaderAudit
                 ? AssetDatabase.GetDependencies(roots.ToArray(), true)
                     .Where(p => p.EndsWith(".mat", System.StringComparison.OrdinalIgnoreCase))
                 : System.Linq.Enumerable.Empty<string>());
-        foreach (string guid in AssetDatabase.FindAssets("t:Material", new[] { "Assets/_COREHOLD" }))
-            materialPaths.Add(AssetDatabase.GUIDToAssetPath(guid));
+        // EVERY material in the project, not just _COREHOLD's.
+        //
+        // Scoping this to our own folder is how the audit returned a clean bill
+        // of health on a build full of magenta: vendor packs live OUTSIDE
+        // _COREHOLD (Vendor/, and whatever a kit unpacks itself into), their
+        // materials were never scanned, and those are exactly the materials
+        // most likely to carry a shader the target cannot run. An audit that
+        // cannot see the risky half is worse than no audit — it is a false
+        // all-clear, and it costs a build to discover.
+        foreach (string guid in AssetDatabase.FindAssets("t:Material"))
+        {
+            string mp = AssetDatabase.GUIDToAssetPath(guid);
+            // Package materials ship with the engine and are not ours to judge.
+            if (mp.StartsWith("Packages/", System.StringComparison.Ordinal))
+                continue;
+            materialPaths.Add(mp);
+        }
 
         // ---- classify each material's shader --------------------------------
         var errors = new List<string>();
