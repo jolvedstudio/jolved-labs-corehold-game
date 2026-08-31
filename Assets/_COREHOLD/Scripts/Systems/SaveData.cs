@@ -124,11 +124,24 @@ namespace Corehold.Systems
             set { PlayerPrefs.SetInt(SettingsPrefix + "night", value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
-        /// <summary>Radial build menu (R-UI-1) — empty-pad taps grow a ring of turret
-        /// nodes around the pad instead of opening the bottom sheet (default OFF).</summary>
+        /// <summary>
+        /// Radial build menu (R-UI-1) — empty-pad taps grow a ring of turret nodes
+        /// around the pad instead of opening the bottom sheet. DEFAULT ON.
+        ///
+        /// It shipped opt-in while it was new. It is the better answer and is now
+        /// the default: the ring appears AT the pad you tapped, so the choice and
+        /// its consequence sit in one place, while the bottom sheet drags the eye
+        /// to the other end of the screen and back. The sheet remains one toggle
+        /// away for anyone who prefers it, and for the roster sizes where a ring
+        /// gets crowded.
+        ///
+        /// The stored key is unchanged, so a player who already chose the sheet
+        /// keeps it — only the default for someone who never touched the setting
+        /// moves.
+        /// </summary>
         public static bool RadialBuildMenu
         {
-            get => PlayerPrefs.GetInt(SettingsPrefix + "radial", 0) != 0;
+            get => PlayerPrefs.GetInt(SettingsPrefix + "radial", 1) != 0;
             set { PlayerPrefs.SetInt(SettingsPrefix + "radial", value ? 1 : 0); PlayerPrefs.Save(); }
         }
 

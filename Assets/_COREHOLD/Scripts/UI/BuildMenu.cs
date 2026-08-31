@@ -37,7 +37,7 @@ namespace Corehold.UI
         [Header("Range preview")]
         [SerializeField] private RangeRing rangeRing;
 
-        [Header("Radial menu (R-UI-1) — opt-in via Settings, sheet is default")]
+        [Header("Radial menu (R-UI-1) — the DEFAULT; the sheet is the opt-out")]
         [Tooltip("Ring radius in canvas units, pad centre to node centres.")]
         [SerializeField] private float radialRadius = 120f;       // [TUNE]
         [Tooltip("Diameter of each radial node in canvas units.")]

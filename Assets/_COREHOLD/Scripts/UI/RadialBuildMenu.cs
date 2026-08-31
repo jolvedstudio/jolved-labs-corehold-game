@@ -18,9 +18,10 @@ namespace Corehold.UI
     /// ring; a second tap on the same node builds. Unaffordable nodes are
     /// dimmed and inert, exactly like the bottom sheet's entries.
     ///
-    /// Opt-in: created at runtime by <see cref="BuildMenu"/> only when the
-    /// player enables it in Settings (<see cref="SaveData.RadialBuildMenu"/>,
-    /// default OFF) — the bottom sheet stays the default layout. Entirely
+    /// The DEFAULT pad menu: created at runtime by <see cref="BuildMenu"/>
+    /// unless the player has opted out in Settings
+    /// (<see cref="SaveData.RadialBuildMenu"/>, default ON) — the bottom sheet
+    /// is now the alternative rather than the norm. Entirely
     /// programmatic (no scene edits, works in every generated level); themed
     /// via <see cref="UITheme"/>, sized/timed via BuildMenu's [TUNE] knobs.
     /// The screen-anchored ring never drifts because the gameplay camera is
