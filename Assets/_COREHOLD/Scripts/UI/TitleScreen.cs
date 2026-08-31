@@ -1,5 +1,6 @@
 using System;
 using Corehold.Core;
+using Corehold.Data;
 using Corehold.Systems;
 using TMPro;
 using UnityEngine;
@@ -41,10 +42,25 @@ namespace Corehold.UI
         [Header("Settings")]
         [SerializeField] private Button settingsButton;
         [SerializeField] private SettingsPanel settingsPanel;
+        [SerializeField] private Button helpButton;
 
         [Header("Locked-state icons (optional)")]
         [SerializeField] private GameObject veteranLock;
         [SerializeField] private GameObject nightmareLock;
+
+        [Header("Campaign entry")]
+        [Tooltip("The campaign this level belongs to. Set, this overlay IS the campaign's front " +
+                 "door: the difficulty buttons start the campaign in place — no separate Welcome " +
+                 "scene, and no reload, because the player is already standing in level one. Left " +
+                 "empty the overlay behaves exactly as it always has, starting a single-map run.")]
+        [SerializeField] private CampaignManifest campaign;
+
+        [Tooltip("Shown only when a saved run exists for the campaign. Resumes from the last " +
+                 "completed level instead of restarting it.")]
+        [SerializeField] private Button continueButton;
+
+        [Tooltip("Optional: displays the campaign's name over the difficulty buttons.")]
+        [SerializeField] private TMP_Text campaignLabel;
 
         /// <summary>Raised when a difficulty is chosen (the audio-gating gesture).</summary>
         public event Action<Difficulty> OnPlay;
@@ -63,6 +79,8 @@ namespace Corehold.UI
             if (nightmareButton != null) nightmareButton.onClick.AddListener(() => Play(Difficulty.Nightmare));
             if (muteButton != null) muteButton.onClick.AddListener(ToggleMute);
             if (settingsButton != null) settingsButton.onClick.AddListener(OpenSettings);
+            if (continueButton != null) continueButton.onClick.AddListener(ContinueRun);
+            if (helpButton != null) helpButton.onClick.AddListener(OpenHelp);
             Refresh();
         }
 
@@ -73,6 +91,17 @@ namespace Corehold.UI
             if (nightmareButton != null) nightmareButton.onClick.RemoveAllListeners();
             if (muteButton != null) muteButton.onClick.RemoveListener(ToggleMute);
             if (settingsButton != null) settingsButton.onClick.RemoveListener(OpenSettings);
+            if (continueButton != null) continueButton.onClick.RemoveListener(ContinueRun);
+            if (helpButton != null) helpButton.onClick.RemoveListener(OpenHelp);
+        }
+
+        private void OpenHelp()
+        {
+            if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+            var canvas = GetComponentInParent<Canvas>();
+            if (canvas == null && root != null) canvas = root.GetComponentInParent<Canvas>();
+            if (canvas != null)
+                HowToPlayScreen.Toggle(canvas.rootCanvas.transform);
         }
 
         private void OpenSettings()
@@ -115,7 +144,44 @@ namespace Corehold.UI
                 bestScoreLabel.text = best > 0 ? $"BEST SCORE  {best}" : "";
             }
 
+            // Campaign entry: name the campaign, and offer CONTINUE only when
+            // there is something to continue. A dead button is worse than no
+            // button — it promises a saved run that is not there.
+            if (campaignLabel != null)
+                campaignLabel.text = campaign != null ? campaign.displayName : "";
+
+            if (continueButton != null)
+                continueButton.gameObject.SetActive(
+                    campaign != null && CampaignManager.HasSavedRun(campaign));
+
             RefreshMute();
+        }
+
+        /// <summary>Resume the saved campaign run from where it stopped.</summary>
+        private void ContinueRun()
+        {
+            if (campaign == null)
+                return;
+
+            if (AudioDirector.Instance != null)
+            {
+                AudioDirector.Instance.Muted = SaveData.Muted;
+                AudioDirector.Instance.PlayUIClick();
+                AudioDirector.Instance.StartMusic();
+            }
+
+            var mgr = CampaignManager.EnsureExists();
+            if (mgr != null && mgr.TryResumeCampaign(campaign))
+            {
+                Hide();
+                return;
+            }
+
+            // The save went stale between the button appearing and the tap
+            // (a manifest edit, a wiped save). Say so by refreshing rather than
+            // doing nothing, which reads as a broken button.
+            Debug.LogWarning("[Title] No resumable run for this campaign — refreshing the entry screen.");
+            Refresh();
         }
 
         private void Play(Difficulty difficulty)
@@ -132,6 +198,21 @@ namespace Corehold.UI
             }
 
             Hide();
+
+            // With a campaign wired, the difficulty buttons START THE CAMPAIGN,
+            // in this scene, which must already be its first level. Without one
+            // they raise OnPlay and the single-map path takes over exactly as
+            // before.
+            if (campaign != null)
+            {
+                var mgr = CampaignManager.EnsureExists();
+                if (mgr != null)
+                {
+                    mgr.StartCampaignInPlace(campaign, difficulty);
+                    return;
+                }
+            }
+
             OnPlay?.Invoke(difficulty);
         }
 

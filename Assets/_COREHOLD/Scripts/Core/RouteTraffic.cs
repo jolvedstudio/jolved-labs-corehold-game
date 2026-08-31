@@ -47,6 +47,11 @@ namespace Corehold.Core
         [Tooltip("Extra longitudinal spacing (m) between air units, on top of the two body radii.")]
         [SerializeField] private float airSpacingBuffer = 0.7f;
 
+        [Tooltip("[TUNE] Stall watchdog: warn (with full leader context) when a live mover has not " +
+                 "advanced for this many seconds. Queueing behind a slow leader is normal for a few " +
+                 "seconds; longer means something is wrong and the log names the blocker. 0 disables.")]
+        [SerializeField] private float stallWarnSeconds = 8f;
+
         // ---- Singleton ----
         private static RouteTraffic _instance;
 
@@ -87,6 +92,10 @@ namespace Corehold.Core
             public readonly List<int> lanes = new List<int>(); // lane indices this mover occupies
             public bool wide;
             public int tickStamp;
+
+            // Stall watchdog state.
+            public float lastFront = float.NegativeInfinity;
+            public float stallTime;
         }
 
         private readonly List<Track> _tracks = new List<Track>();
@@ -131,7 +140,15 @@ namespace Corehold.Core
 
             Track track = ResolveTrack(mover);
             if (track == null)
+            {
+                // A ground mover with no route can NEVER be scheduled: it will
+                // stand at its spawn pose forever, walking in place. Refuse
+                // LOUDLY — the silent version of this is exactly the "enemy
+                // stuck at the spawn point" report.
+                Debug.LogWarning($"[RouteTraffic] Refusing to register GROUND mover '{mover.name}' — it has " +
+                                 "no route. It will not move. Check the spawner/route this unit was configured with.");
                 return;
+            }
 
             float radius = mover.BodyRadius;
             // Convoy units (R20) go through the wide-body path deliberately: every
@@ -251,11 +268,13 @@ namespace Corehold.Core
             return pick;
         }
 
-        /// <summary>Insert keeping the list ordered by Frontness descending (index 0 = front).</summary>
+        /// <summary>Insert keeping the list ordered by Frontness descending (index 0 = front).
+        /// Ties go BEHIND the incumbent (>=): a newcomer at the same frontness arrived
+        /// later, and putting it in front would pin the incumbent at zero gap.</summary>
         private static void InsertSorted(List<EnemyMover> list, EnemyMover mover)
         {
             int i = 0;
-            while (i < list.Count && list[i].Frontness > mover.Frontness)
+            while (i < list.Count && list[i].Frontness >= mover.Frontness)
                 i++;
             list.Insert(i, mover);
         }
@@ -351,9 +370,23 @@ namespace Corehold.Core
                     {
                         var m = list[i];
                         if (m == null)
+                        {
+                            // A destroyed mover left in the list is a phantom
+                            // leader — every follower would queue behind the
+                            // corpse forever. Sweep it out.
+                            list.RemoveAt(i);
+                            i--;
                             continue;
+                        }
                         if (!_entries.TryGetValue(m, out Entry e))
+                        {
+                            // In a lane without a registration record it can
+                            // never be ticked — same phantom-blocker class.
+                            Debug.LogWarning($"[RouteTraffic] '{m.name}' was in a lane list without an entry; removed.");
+                            list.RemoveAt(i);
+                            i--;
                             continue;
+                        }
                         if (e.tickStamp == _tickStamp) // wide body already ticked in another lane
                             continue;
                         e.tickStamp = _tickStamp;
@@ -378,14 +411,20 @@ namespace Corehold.Core
             {
                 var list = track.lanes[entry.lanes[li]];
                 int idx = list.IndexOf(m);
-                if (idx > 0)
+                // Walk forward past destroyed leaders (the tick sweep clears them
+                // in ITS lane pass; a wide body can still meet one in a lane it
+                // has not swept this frame).
+                for (int j = idx - 1; j >= 0; j--)
                 {
-                    var leader = list[idx - 1];
+                    var leader = list[j];
+                    if (leader == null)
+                        continue;
                     float minSpacing = m.BodyRadius + leader.BodyRadius + buffer;
                     float laneCap = leader.Frontness - minSpacing;
                     if (laneCap < cap)
                         cap = laneCap;
                     hasLeader = true;
+                    break;
                 }
             }
 
@@ -402,7 +441,44 @@ namespace Corehold.Core
 
             bool finished = m.PlaceAtFrontness(newFront, dt);
             if (finished)
+            {
                 _finishedScratch.Add(m);
+                return;
+            }
+
+            // Stall watchdog: a unit that has not advanced for stallWarnSeconds is
+            // either data-broken or wedged — name its blocker so the next report
+            // is a diagnosis, not a mystery.
+            if (stallWarnSeconds > 0f)
+            {
+                if (m.Frontness > entry.lastFront + 0.001f)
+                {
+                    entry.lastFront = m.Frontness;
+                    entry.stallTime = 0f;
+                }
+                else
+                {
+                    entry.stallTime += dt;
+                    if (entry.stallTime >= stallWarnSeconds)
+                    {
+                        entry.stallTime = 0f; // throttle: one line per window
+                        var sb = new System.Text.StringBuilder();
+                        sb.Append($"[RouteTraffic] STALL: '{m.name}' has not advanced for {stallWarnSeconds:0}s ")
+                          .Append($"(front {m.Frontness:0.##}/{m.MaxFrontness:0.##}, radius {m.BodyRadius:0.##}, ")
+                          .Append($"wide {entry.wide}, desired {m.DesiredSpeed:0.##} m/s, cap {(hasLeader ? cap.ToString("0.##") : "none")}).");
+                        for (int li = 0; li < entry.lanes.Count; li++)
+                        {
+                            var list = track.lanes[entry.lanes[li]];
+                            int idx = list.IndexOf(m);
+                            var lead = idx > 0 ? list[idx - 1] : null;
+                            sb.Append($" lane {entry.lanes[li]}: ")
+                              .Append(lead == null ? "front"
+                                  : $"behind '{lead.name}' at {lead.Frontness:0.##}");
+                        }
+                        Debug.LogWarning(sb.ToString());
+                    }
+                }
+            }
         }
 
         // ------------------------------------------------------------------

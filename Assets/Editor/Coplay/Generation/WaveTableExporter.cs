@@ -147,6 +147,12 @@ public static class WaveTableExporter
                 if (t > 0) sb.Append(',');
                 sb.Append($"{{\"cost\":{tier.cost},\"range\":{F(tier.range)}," +
                           $"\"min_range\":{F(tier.minRange)},\"dps\":{F(tier.TotalDps)}");
+                // Authored shield barrier (absorbs before hp; the model's
+                // tower-loss term mirrors TowerHealth's rules).
+                if (tier.shieldHitPoints > 0f)
+                    sb.Append($",\"shield\":{F(tier.shieldHitPoints)}," +
+                              $"\"regen\":{F(tier.shieldRegenPerSec)}," +
+                              $"\"delay\":{F(tier.shieldRegenDelay)}");
                 int chain = 0;
                 float falloff = 0f, splash = 0f;
                 foreach (TowerWeaponMount m in tier.Weapons)
@@ -185,9 +191,23 @@ public static class WaveTableExporter
             WaveDefinition wave = level.waves[w];
             if (w > 0) sb.Append(',');
             sb.Append($"{{\"clear\":{wave.clearBonus}");
-            string muts = MutatorNames(wave.mutators);
-            if (muts.Length > 0)
-                sb.Append($",\"mutators\":[{muts}]");
+
+            // The POOL the wave draws one of at runtime. Exported so the model
+            // can evaluate the wave once per member and gate on the WORST — the
+            // guarantee that keeps a random draw honest: a run can never be
+            // harder than what certification signed off.
+            //
+            // A pool with a nothing-weight of 0 is how a wave says it ALWAYS
+            // carries one rule, and the model reads it exactly that way: it
+            // only emits the plain variant when the weight is above zero, so a
+            // single-member pool at 0 prices as the one fight it actually is.
+            string pool = MutatorPool(wave);
+            if (pool.Length > 0)
+            {
+                sb.Append($",\"mutator_pool\":[{pool}]");
+                if (wave.poolNothingWeight > 0)
+                    sb.Append($",\"mutator_pool_none\":{wave.poolNothingWeight}");
+            }
             sb.Append(",\"groups\":[");
             for (int g = 0; g < wave.groups.Length; g++)
             {
@@ -296,15 +316,57 @@ public static class WaveTableExporter
         return 220f;
     }
 
-    private static string MutatorNames(WaveMutator flags)
+    /// <summary>Same format as the exporter's local F: invariant culture, four
+    /// decimals, so a mutator term reads identically to every other number in
+    /// the table and cannot arrive comma-separated on a European machine.</summary>
+    private static string FS(float v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The wave's draw pool: every outcome the model has to price, each as an
+    /// object carrying its own numbers.
+    ///
+    /// Duplicates are dropped rather than exported twice. A repeated member
+    /// would make the model evaluate the same scenario twice and report a band
+    /// narrower than the truth — and it silently reweights the runtime draw,
+    /// which is why DrawablePool() drops them on the Unity side too.
+    /// </summary>
+    private static string MutatorPool(WaveDefinition wave)
     {
-        if (flags == WaveMutator.None)
+        if (wave.poolMutators == null || wave.poolMutators.Length == 0)
             return "";
-        var names = new List<string>(4);
-        if ((flags & WaveMutator.Storm) != 0) names.Add("\"storm\"");
-        if ((flags & WaveMutator.Convoy) != 0) names.Add("\"convoy\"");
-        if ((flags & WaveMutator.Overcharge) != 0) names.Add("\"overcharge\"");
-        if ((flags & WaveMutator.Blackout) != 0) names.Add("\"blackout\"");
-        return string.Join(",", names);
+
+        var parts = new List<string>(wave.poolMutators.Length);
+        var seen = new HashSet<string>();
+        foreach (WaveMutatorDefinition d in wave.poolMutators)
+        {
+            if (d == null || !seen.Add(d.ResolvedId))
+                continue;
+            parts.Add(MutatorObject(d));
+        }
+        return string.Join(",", parts);
     }
+
+    /// <summary>One authored mutator as the model's object form.</summary>
+    private static string MutatorObject(WaveMutatorDefinition d)
+    {
+        var fields = new List<string>(8) { $"\"id\":\"{Escape(d.ResolvedId)}\"" };
+        AddTerm(fields, "air_speed", d.airSpeedMultiplier);
+        AddTerm(fields, "ground_speed", d.groundSpeedMultiplier);
+        AddTerm(fields, "hp", d.healthMultiplier);
+        AddTerm(fields, "bounty", d.bountyMultiplier);
+        AddTerm(fields, "range", d.turretRangeMultiplier);
+        AddTerm(fields, "gap", d.spawnGapMultiplier);
+        if (d.singleApproach)
+            fields.Add("\"convoy\":true");
+        return "{" + string.Join(",", fields) + "}";
+    }
+
+    private static void AddTerm(List<string> fields, string key, float value)
+    {
+        if (!Mathf.Approximately(value, 1f))
+            fields.Add($"\"{key}\":{FS(value)}");
+    }
+
+    private static string Escape(string s) =>
+        string.IsNullOrEmpty(s) ? "" : s.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

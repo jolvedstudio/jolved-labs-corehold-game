@@ -44,8 +44,8 @@ MonoBehaviour:
     projectilePrefab: {fileID: 9140210371120669538, guid: 0f8918d782874ac4a97f610a50bef6f8, type: 3}
     projectileSpeed: 22
     weaponVisualIndex: 0
-    muzzleVfx: {fileID: 1290920140942260628, guid: 770fc6ec5d8efb54f977224ce5a8fc95, type: 3}
-    fireSfx: {fileID: 8300000, guid: b8138f25b128a274d89948a0183dddab, type: 3}
+    muzzleVfx: {fileID: 1290920140942260628, guid: 74c6f53e0a142824a9082793a4a67b8a, type: 3}
+    fireSfx: {fileID: 8300000, guid: 445587413eacba54cb3bc688bd062cbd, type: 3}
     auraRadius: 0
     auraFireRateBonus: 0
     auraRangeBonus: 0

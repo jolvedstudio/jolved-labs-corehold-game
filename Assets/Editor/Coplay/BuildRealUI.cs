@@ -79,6 +79,17 @@ namespace CoreholdEditor
         }
         static readonly Color PanelTint = new Color(1f, 1f, 1f, 1f);
 
+        // ---- Spacing scale (Fix 5): one rhythm for every built layout, so gaps
+        // are chosen from a small set instead of typed ad-hoc per call site. ----
+        const float SpaceS = 8f;
+        const float SpaceM = 16f;
+        const float SpaceL = 24f;
+
+        /// <summary>Neutral dark inset for icon backing plates — one value, reused,
+        /// so every turret icon reads on the same backdrop regardless of its own
+        /// colouring (Fix 2). Routed through the scrim role so a skin moves it.</summary>
+        static Color IconInset => Scrim(0.55f);
+
         // ---- Proportions (skin, baked at build time) ----
         /// <summary>Extra px on every built button, for kit art with thick borders.</summary>
         static float ButtonPad => Skin != null ? Skin.buttonPadding : 0f;
@@ -177,6 +188,7 @@ namespace CoreholdEditor
             // Tools/COREHOLD/Scene Setup/Assign Tower Menu Order once to seed
             // orders on pre-registry definitions.
             theme.turrets = RosterRegistry.AllTowersOrdered();
+            theme.enemies = RosterRegistry.AllEnemiesOrdered();
 
             theme.damageTable = AssetDatabase.LoadAssetAtPath<DamageTable>("Assets/_COREHOLD/Data/DamageTable.asset");
 
@@ -230,16 +242,10 @@ namespace CoreholdEditor
             SetAnchors(integVal.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-16, -50));
             integVal.rectTransform.pivot = new Vector2(1f, 0.5f);   // same overflow, right edge (shipped value)
 
-            // ---- Top-centre: wave + preview ----
-            var tc = MakePanel(canvas.transform, "WavePanel",
-                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -18), new Vector2(560, 132), theme.panel);
-            var waveLbl = MakeText(tc, "WaveLabel", "WAVE 1 / 10", _large, TextAlignmentOptions.Top,
-                new Vector2(0, -8), new Vector2(540, 40));
-            waveLbl.color = Cyan;
-            var previewRow = MakeRect(tc, "PreviewRow", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 12), new Vector2(540, 70));
-            var prow = previewRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            prow.spacing = 10; prow.childAlignment = TextAnchor.MiddleCenter; prow.childControlWidth = false; prow.childControlHeight = false;
-            var previewCell = BuildPreviewCellTemplate(previewRow, theme);
+            // (The old top-centre/bottom WavePanel is GONE — user question
+            // "ça sert à quoi?" answered by relocation: the wave COUNT folds
+            // into the Start button's label, and the next-wave composition
+            // docks just above that button, built right after it below.)
 
             // ---- Top-right: salvage ----
             var tr = MakePanel(canvas.transform, "SalvagePanel",
@@ -250,19 +256,34 @@ namespace CoreholdEditor
             var salVal = MakeText(tr, "Value", "300", _large, TextAlignmentOptions.Right,
                 new Vector2(-16, -52), new Vector2(260, 44));
 
-            // ---- Bottom-right: start wave + speed ----
+            // ---- Bottom STRIP, right side: Strike · speed · START, one line ----
+            // Everything at the bottom shares ONE ~84 px band (occlusion
+            // feedback): pause, wave panel, then the action buttons inline.
             var startBtn = MakeButton(canvas.transform, "StartWaveButton", "START WAVE 1", theme,
-                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 96), new Vector2(300, 84));
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 24), new Vector2(300, 84));
             var speedBtn = MakeButton(canvas.transform, "SpeedButton", "1×", theme,
-                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 24), new Vector2(140, 64));
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-332, 34), new Vector2(140, 64));
 
-            // ---- Bottom-left: pause ----
+            // ---- Bottom-left: pause (the one system button on the field) ----
             var pauseBtn = MakeIconButton(canvas.transform, "PauseButton", theme.pauseIcon, theme,
                 new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 24), new Vector2(72, 72));
 
-            // ---- Bottom-left, above pause: Strike Wing ability (R19) ----
+            // ---- Strike Wing (R19): left end of the action buttons ----
             var strikeBtn = MakeButton(canvas.transform, "StrikeWingButton", "STRIKE 120", theme,
-                new Vector2(0, 0), new Vector2(0, 0), new Vector2(24, 112), new Vector2(190, 76));
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-480, 28), new Vector2(190, 76));
+
+            // ---- Next-wave composition: ABOVE the Start button ----
+            // The info lives where the decision happens: what is coming sits
+            // over the button that lets it come. The HUD shows it only while
+            // that button is live and stacks the wave-after row above at
+            // runtime; no plate, no label — the count is in the button text.
+            var previewRow = MakeRect(canvas.transform, "PreviewRow",
+                new Vector2(1, 0), new Vector2(1, 0), new Vector2(-24, 116), new Vector2(300, 70));
+            previewRow.pivot = new Vector2(1f, 0f);
+            previewRow.localScale = Vector3.one * 0.72f;
+            var prow = previewRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+            prow.spacing = 10; prow.childAlignment = TextAnchor.MiddleRight; prow.childControlWidth = false; prow.childControlHeight = false;
+            var previewCell = BuildPreviewCellTemplate(previewRow, theme);
             // Radial cooldown sweep over the face; the label re-tops it below.
             var strikeCd = MakeRect(strikeBtn, "CooldownFill", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             strikeCd.offsetMin = Vector2.zero; strikeCd.offsetMax = Vector2.zero;
@@ -310,7 +331,6 @@ namespace CoreholdEditor
             SetRef(so, "integritySegments", segRoot);
             SetRef(so, "integrityValue", integVal);
             SetRef(so, "integritySegmentPrefabSource", segImg);
-            SetRef(so, "waveLabel", waveLbl);
             SetRef(so, "previewRow", previewRow);
             SetRef(so, "salvageValue", salVal);
             SetRef(so, "startWaveButton", startBtn.GetComponent<Button>());
@@ -373,6 +393,16 @@ namespace CoreholdEditor
             var bmSo = new SerializedObject(buildMenu);
             SetRef(bmSo, "towerPanel", towerPanel);
             bmSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // cross-link pause -> settings. The SAME panel instance the title
+            // overlay uses, so the two doors lead to one room: volume set from
+            // pause and volume set from the title cannot disagree. Wired here
+            // rather than inside BuildPauseScreen because the panel is built
+            // after it, and reordering the builds would move the pause screen's
+            // canvas siblings — which is what decides what draws over what.
+            var psSo = new SerializedObject(pauseScreen);
+            SetRef(psSo, "settingsPanel", settingsPanel);
+            psSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
         static Canvas BuildMenuCanvas(UITheme theme, StringBuilder sb)
@@ -397,14 +427,16 @@ namespace CoreholdEditor
             // 10-slot roster scrolls behind it as a carousel (drag, wheel, or
             // the edge arrows). 904 panel = 880 viewport + margins.
             var root = MakePanel(canvas.transform, "BuildMenu",
-                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(904, 150), theme.panel);
+                new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(904, 180), theme.panel);
             var comp = canvas.gameObject.AddComponent<BuildMenu>();
 
             var title = MakeText(root, "Title", "BUILD", _small, TextAlignmentOptions.TopLeft, new Vector2(16, -6), new Vector2(200, 22));
             title.color = Cyan;
 
-            // Viewport (clips) → Content (the row BuildMenu populates).
-            var viewport = MakeRect(root, "Entries_Viewport", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -6), new Vector2(880, 110));
+            // Viewport (clips) → Content (the row BuildMenu populates). Taller now
+            // so the redesigned cells (icon plate + name + role + cost) fit without
+            // clipping the cost against the frame's lower bevel (Fix 2).
+            var viewport = MakeRect(root, "Entries_Viewport", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -8), new Vector2(872, 140));
             viewport.gameObject.AddComponent<RectMask2D>();
             var viewportImg = viewport.gameObject.AddComponent<Image>();
             viewportImg.color = new Color(0, 0, 0, 0.001f);   // raycast catcher for drags
@@ -425,10 +457,19 @@ namespace CoreholdEditor
             scroll.inertia = true; scroll.decelerationRate = 0.08f;
             scroll.scrollSensitivity = 24f;
 
-            var leftArrow = MakeButton(root, "ArrowLeft", "<", theme,
-                new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(6, -6), new Vector2(30, 96));
-            var rightArrow = MakeButton(root, "ArrowRight", ">", theme,
-                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-6, -6), new Vector2(30, 96));
+            // Carousel arrows (Fix 4): wider, taller and clearly framed so the
+            // "10 turrets scroll behind 6 visible" affordance is obvious. The
+            // chevrons are enlarged and accent-tinted rather than left as thin
+            // slivers of default label text.
+            var leftArrow = MakeButton(root, "ArrowLeft", "‹", theme,
+                new Vector2(0, 0.5f), new Vector2(0, 0.5f), new Vector2(10, -6), new Vector2(48, 132));
+            var rightArrow = MakeButton(root, "ArrowRight", "›", theme,
+                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-10, -6), new Vector2(48, 132));
+            foreach (var arrow in new[] { leftArrow, rightArrow })
+            {
+                var lbl = arrow.GetComponentInChildren<TMP_Text>();
+                if (lbl != null) { lbl.fontSize = 40f; lbl.color = Cyan; lbl.fontStyle = FontStyles.Bold; }
+            }
 
             var carousel = root.gameObject.AddComponent<BuildMenuCarousel>();
             var carSo = new SerializedObject(carousel);
@@ -454,22 +495,45 @@ namespace CoreholdEditor
 
         static GameObject BuildTurretEntryTemplate(RectTransform parent, UITheme theme)
         {
+            // Taller framed cell (Fix 2): each turret is a clearly bounded, tappable
+            // card — icon on a uniform dark inset plate, name (auto-sized so long
+            // names don't clip), role tag, and a cost row that sits INSIDE the
+            // frame instead of clipping against its lower bevel.
             var cell = MakeButtonBase("EntryTemplate", parent, theme,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(140, 104));
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(140, 134));
             cell.gameObject.AddComponent<BuildEntryHover>();
 
-            // Slightly bigger icon showing just the tower (Ticket e).
-            var icon = MakeRect(cell, "Icon", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -6), new Vector2(58, 58));
+            // Icon backing plate: a uniform dark inset so every turret silhouette
+            // reads the same regardless of its own colouring (Floodlight's thin
+            // pole vanished on the bare frame before).
+            var plate = MakeRect(cell, "IconPlate", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -32), new Vector2(116, 50));
+            var plateImg = plate.gameObject.AddComponent<Image>();
+            plateImg.sprite = EnsureRoundedSprite();
+            plateImg.type = Image.Type.Sliced;
+            plateImg.color = IconInset;
+            plateImg.raycastTarget = false;
+
+            var icon = MakeRect(plate, "Icon", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(48, 48));
             var iconImg = icon.gameObject.AddComponent<Image>();
             iconImg.preserveAspect = true;
+            iconImg.raycastTarget = false;
 
-            var nm = MakeText(cell, "Name", "Turret", 15f, TextAlignmentOptions.Center, new Vector2(0, -4), new Vector2(132, 18));
-            SetAnchors(nm.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -4));
-            var role = MakeText(cell, "Role", "ROLE", 11f, TextAlignmentOptions.Center, new Vector2(0, -22), new Vector2(132, 14));
-            SetAnchors(role.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -22));
+            // Name: auto-sized between 12–15 so "Missile Battery" fits the 132 px
+            // field without truncation. Anchored to the top edge, below the plate.
+            var nm = MakeText(cell, "Name", "Turret", 15f, TextAlignmentOptions.Center, new Vector2(0, -66), new Vector2(132, 18));
+            SetAnchors(nm.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -66));
+            nm.enableAutoSizing = true; nm.fontSizeMin = 12f; nm.fontSizeMax = 15f;
+
+            var role = MakeText(cell, "Role", "ROLE", 11f, TextAlignmentOptions.Center, new Vector2(0, -85), new Vector2(132, 14));
+            SetAnchors(role.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -85));
             role.color = TextMuted;
-            var cost = MakeText(cell, "Cost", "100", 18f, TextAlignmentOptions.Center, new Vector2(0, 10), new Vector2(132, 22));
-            SetAnchors(cost.rectTransform, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 20));
+
+            // Cost row: anchored from the cell TOP like the icon plate and name,
+            // NOT the bottom. The button frame sprite carries internal padding at
+            // its lower edge, so a bottom-anchored label lands in that dead bevel
+            // and reads as clipped — top-anchoring keeps it on the visible face.
+            var cost = MakeText(cell, "Cost", "100", 18f, TextAlignmentOptions.Center, new Vector2(0, -104), new Vector2(132, 22));
+            SetAnchors(cost.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -104));
             cost.color = Cyan;
 
             cell.gameObject.SetActive(false);
@@ -478,63 +542,93 @@ namespace CoreholdEditor
 
         static TowerPanel BuildTowerPanel(Canvas canvas, UITheme theme, RangeRing ring)
         {
-            // 700 tall: the counter grid ends 466 below the top, and the bottom
-            // stack (feature row + upgrade + sell) needs 200 — at the old 620 the
-            // feature row landed ON the grid's last row.
+            // 690 tall, laid out on an explicit top-down DEPTH budget (Fix 1): the
+            // runtime NEXT line is TWO lines (cost + stat deltas), and every
+            // section now has a measured gap so nothing overlaps at portrait
+            // aspect. Left labels are LEFT-anchored+left-pivoted so wide rects
+            // can't hang off the panel's edge; button labels auto-size so they
+            // never spill past their frame.
+            const float panelW = 420f, panelH = 690f;
             var root = MakePanel(canvas.transform, "TowerPanel",
-                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-24, 0), new Vector2(420, 700), theme.popup);
+                new Vector2(1, 0.5f), new Vector2(1, 0.5f), new Vector2(-24, 0), new Vector2(panelW, panelH), theme.popup);
             var comp = canvas.gameObject.AddComponent<TowerPanel>();
 
-            var name = MakeText(root, "Name", "AUTOCANNON", _large, TextAlignmentOptions.TopLeft, new Vector2(20, -14), new Vector2(300, 40));
-            name.color = Cyan;
-            var tier = MakeText(root, "Tier", "TIER 1", 18f, TextAlignmentOptions.Right, new Vector2(-24, -58), new Vector2(180, 24));
-            SetAnchors(tier.rectTransform, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-24, -58));
-            var dmgType = MakeText(root, "DamageType", "KINETIC", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -52), new Vector2(300, 24));
-            dmgType.color = Cyan;
+            // ---- Local helpers so every label uses the same safe anchoring. ----
+            void LeftLabel(TMP_Text t, float topDepth)
+            {
+                var rt = t.rectTransform;
+                rt.anchorMin = rt.anchorMax = new Vector2(0, 1);
+                rt.pivot = new Vector2(0, 1);
+                rt.anchoredPosition = new Vector2(SpaceL, -topDepth);
+            }
+            void AutoSizeLabel(RectTransform btn, float min, float max)
+            {
+                var l = btn.GetComponentInChildren<TMP_Text>();
+                if (l != null) { l.enableAutoSizing = true; l.fontSizeMin = min; l.fontSizeMax = max; }
+            }
 
-            var dps = MakeText(root, "DPS", "DPS  20.0", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -84), new Vector2(380, 24));
-            var range = MakeText(root, "Range", "RANGE  12 m", _small, TextAlignmentOptions.TopLeft, new Vector2(20, -112), new Vector2(380, 24));
-            var next = MakeText(root, "Next", "NEXT (T2): 130", 18f, TextAlignmentOptions.TopLeft, new Vector2(20, -142), new Vector2(380, 44));
-            next.color = TextMuted;
+            // Close X, pinned to its own top-right corner slot (Fix 3).
+            var close = MakeButton(root, "CloseButton", "X", theme, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-22, -20), new Vector2(34, 34));
+            var closeLbl = close.GetComponentInChildren<TMP_Text>();
+            if (closeLbl != null) closeLbl.fontSize = 18f;
 
-            // Priority selector.
-            var prioLbl = MakeText(root, "PriorityLabel", "TARGETING", 16f, TextAlignmentOptions.Left, new Vector2(-172, -186), new Vector2(200, 20));
-            SetAnchors(prioLbl.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-88, -186));
-            prioLbl.color = Cyan;
-            var prioRow = MakeRect(root, "PriorityRow", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -220), new Vector2(380, 44));
+            // Header: name (left) + tier (right) + damage type (left).
+            var name = MakeText(root, "Name", "AUTOCANNON", _large, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(300, 40));
+            name.color = Cyan; LeftLabel(name, 10);
+            var dmgType = MakeText(root, "DamageType", "KINETIC", _small, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(220, 24));
+            dmgType.color = Cyan; LeftLabel(dmgType, 52);
+            var tier = MakeText(root, "Tier", "TIER 1", 18f, TextAlignmentOptions.TopRight, Vector2.zero, new Vector2(150, 24));
+            var tierRt = tier.rectTransform;
+            tierRt.anchorMin = tierRt.anchorMax = new Vector2(1, 1);
+            tierRt.pivot = new Vector2(1, 1);
+            tierRt.anchoredPosition = new Vector2(-SpaceL, -52);
+
+            // Stat block.
+            var dps = MakeText(root, "DPS", "DPS  20.0", _small, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(380, 22));
+            LeftLabel(dps, 84);
+            var range = MakeText(root, "Range", "RANGE  12 m", _small, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(380, 22));
+            LeftLabel(range, 110);
+
+            // Divider + the two-line upgrade preview (Fix 3).
+            var divider = MakeRect(root, "Divider", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -148), new Vector2(376, 2));
+            var divImg = divider.gameObject.AddComponent<Image>();
+            divImg.sprite = EnsureRoundedSprite(); divImg.type = Image.Type.Sliced;
+            var divC = Cyan; divC.a = 0.28f; divImg.color = divC; divImg.raycastTarget = false;
+            var next = MakeText(root, "Next", "NEXT (T2): 130", 16f, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(380, 50));
+            next.color = TextMuted; next.enableWordWrapping = true; LeftLabel(next, 160);
+
+            // Targeting selector.
+            var prioLbl = MakeText(root, "PriorityLabel", "TARGETING", 16f, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(300, 20));
+            prioLbl.color = Cyan; LeftLabel(prioLbl, 216);
+            var prioRow = MakeRect(root, "PriorityRow", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -262), new Vector2(376, 42));
             var prioHlg = prioRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            prioHlg.spacing = 6; prioHlg.childControlWidth = true; prioHlg.childForceExpandWidth = true; prioHlg.childControlHeight = true; prioHlg.childForceExpandHeight = true;
-            var pFirst = MakeButton(prioRow, "First", "FIRST", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(120, 40));
-            var pClose = MakeButton(prioRow, "Closest", "CLOSE", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(120, 40));
-            var pStrong = MakeButton(prioRow, "Strongest", "STRONG", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(120, 40));
+            prioHlg.spacing = SpaceS; prioHlg.padding = new RectOffset(4, 4, 0, 0); prioHlg.childControlWidth = true; prioHlg.childForceExpandWidth = true; prioHlg.childControlHeight = true; prioHlg.childForceExpandHeight = true;
+            var pFirst = MakeButton(prioRow, "First", "FIRST", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            var pClose = MakeButton(prioRow, "Closest", "CLOSE", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            var pStrong = MakeButton(prioRow, "Strongest", "STRONG", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            AutoSizeLabel(pFirst, 12, 16); AutoSizeLabel(pClose, 12, 16); AutoSizeLabel(pStrong, 12, 16);
 
-            // 3x3 counter grid.
-            var gridLbl = MakeText(root, "GridLabel", "DAMAGE vs ARMOUR", 16f, TextAlignmentOptions.Left, new Vector2(-88, -256), new Vector2(300, 20));
-            SetAnchors(gridLbl.rectTransform, new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(-88, -256));
-            gridLbl.color = Cyan;
-            var gridRoot = MakeRect(root, "CounterGrid", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -376), new Vector2(380, 180));
+            // 3×3 counter grid.
+            var gridLbl = MakeText(root, "GridLabel", "DAMAGE vs ARMOUR", 16f, TextAlignmentOptions.TopLeft, Vector2.zero, new Vector2(300, 20));
+            gridLbl.color = Cyan; LeftLabel(gridLbl, 296);
+            var gridRoot = MakeRect(root, "CounterGrid", new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -396), new Vector2(376, 152));
             var (cells, rows) = BuildCounterGrid(gridRoot, theme);
 
-            // Mid-term feature row (M-a camera/control, M-c relocation): three
-            // compact actions above the money buttons.
-            var featRow = MakeRect(root, "FeatureRow", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 172), new Vector2(360, 44));
+            // Feature row (M-a camera/control, M-c relocation): mode actions with a
+            // clear gap above the money buttons (b=180 from the bottom).
+            var featRow = MakeRect(root, "FeatureRow", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 180), new Vector2(376, 40));
             var featHlg = featRow.gameObject.AddComponent<HorizontalLayoutGroup>();
-            featHlg.spacing = 6; featHlg.childControlWidth = true; featHlg.childForceExpandWidth = true; featHlg.childControlHeight = true; featHlg.childForceExpandHeight = true;
+            featHlg.spacing = SpaceS; featHlg.padding = new RectOffset(4, 4, 0, 0); featHlg.childControlWidth = true; featHlg.childForceExpandWidth = true; featHlg.childControlHeight = true; featHlg.childForceExpandHeight = true;
             var move = MakeButton(featRow, "MoveButton", "MOVE", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
             var cam = MakeButton(featRow, "CamButton", "CAM", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
             var control = MakeButton(featRow, "ControlButton", "CONTROL", theme, new Vector2(0,0), new Vector2(0,0), Vector2.zero, new Vector2(116, 40));
+            AutoSizeLabel(move, 12, 16); AutoSizeLabel(cam, 12, 16); AutoSizeLabel(control, 12, 16);
 
-            // Actions. Sell sits fully inside the panel (at 24 it clipped 6 px
-            // out the bottom); upgrade above it; the feature row above that.
-            var upgrade = MakeButton(root, "UpgradeButton", "UPGRADE 130", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 108), new Vector2(360, 64));
-            var sell = MakeButton(root, "SellButton", "SELL +60", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 40), new Vector2(360, 60));
-
-            // Close: a small labelled X, not the old 44 px icon button — the icon
-            // slot carried the PAUSE glyph (or a skin's blank sprite), which read
-            // as an empty box in the panel's corner.
-            var close = MakeButton(root, "CloseButton", "X", theme, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-26, -26), new Vector2(34, 34));
-            var closeLbl = close.GetComponentInChildren<TMP_Text>();
-            if (closeLbl != null) closeLbl.fontSize = 18f;
+            // Money actions: upgrade then sell, with measured gaps and an 18 px
+            // bottom margin — no dead zone, no crowding against the feature row.
+            var upgrade = MakeButton(root, "UpgradeButton", "UPGRADE 130", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 110), new Vector2(376, 56));
+            var sell = MakeButton(root, "SellButton", "SELL +60", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 45), new Vector2(376, 54));
+            AutoSizeLabel(upgrade, 16, 22); AutoSizeLabel(sell, 16, 22);
 
             var so = new SerializedObject(comp);
             SetRef(so, "theme", theme);
@@ -573,7 +667,10 @@ namespace CoreholdEditor
             var cells = new TMP_Text[9];
             var rows = new Image[3];
 
-            float w = 380f, h = 180f;
+            // Derive the grid from the ROOT rect's real size (Fix 1) so it always
+            // fits whatever the panel allots it — no hardcoded 380×180 that
+            // overflows a resized panel.
+            float w = root.sizeDelta.x, h = root.sizeDelta.y;
             float colW = w / 4f;   // first column is the row label
             float rowH = h / 4f;   // first row is the header
 
@@ -630,12 +727,21 @@ namespace CoreholdEditor
             var root = MakeFullscreenDim(canvas.transform, "PauseScreen");
             var comp = canvas.gameObject.AddComponent<PauseScreen>();
 
-            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 480), theme.popup);
+            // Seven rows now, so the panel grows with them rather than letting
+            // the last button hang off the frame.
+            var panel = MakePanel(root, "Panel", new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(520, 722), theme.popup);
             MakeText(panel, "Title", "PAUSED", _large, TextAlignmentOptions.Top, new Vector2(0, -20), new Vector2(480, 44)).color = Cyan;
             var resume = MakeButton(panel, "Resume", "RESUME", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -90), new Vector2(400, 70));
             var retry = MakeButton(panel, "Retry", "RETRY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -172), new Vector2(400, 70));
             var menu = MakeButton(panel, "Menu", "MAIN MENU", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -254), new Vector2(400, 70));
             var mute = MakeButton(panel, "Mute", "SOUND: ON", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -336), new Vector2(400, 70));
+            // SETTINGS sits with Sound because they are the same errand. Before
+            // this the panel existed in every level scene and only the title
+            // overlay could open it, so changing the volume mid-run meant
+            // abandoning the level.
+            var settings = MakeButton(panel, "Settings", "SETTINGS", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -418), new Vector2(400, 70));
+            var almanac = MakeButton(panel, "Almanac", "FIELD GUIDE", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -500), new Vector2(400, 70));
+            var howTo = MakeButton(panel, "HowToPlay", "HOW TO PLAY", theme, new Vector2(0.5f,1), new Vector2(0.5f,1), new Vector2(0, -582), new Vector2(400, 70));
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -644,6 +750,9 @@ namespace CoreholdEditor
             SetRef(so, "menuButton", menu.GetComponent<Button>());
             SetRef(so, "muteButton", mute.GetComponent<Button>());
             SetRef(so, "muteLabel", mute.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "almanacButton", almanac.GetComponent<Button>());
+            SetRef(so, "howToPlayButton", howTo.GetComponent<Button>());
+            SetRef(so, "settingsButton", settings.GetComponent<Button>());
             so.ApplyModifiedPropertiesWithoutUndo();
 
             root.gameObject.SetActive(false);
@@ -740,8 +849,30 @@ namespace CoreholdEditor
             var (vBtn, vBest, vLock) = BuildDifficultyCard(diffRow, "VETERAN", theme);
             var (mBtn, mBest, mLock) = BuildDifficultyCard(diffRow, "NIGHTMARE", theme);
 
-            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-120, 60), new Vector2(200, 60));
-            var settingsBtn = MakeButton(root, "Settings", "SETTINGS", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(120, 60), new Vector2(200, 60));
+            var mute = MakeButton(root, "Mute", "♪ ON", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-240, 60), new Vector2(200, 60));
+            var settingsBtn = MakeButton(root, "Settings", "SETTINGS", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 60), new Vector2(200, 60));
+            var helpBtn = MakeButton(root, "Help", "HOW TO PLAY", theme, new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(240, 60), new Vector2(200, 60));
+
+            // Campaign entry (R37). This overlay is the campaign's front door
+            // when a manifest is wired: the campaign's name sits above the
+            // difficulty row, and CONTINUE appears only when there is a saved
+            // run to continue — TitleScreen hides it otherwise, so an empty slot
+            // is never a dead button.
+            // y=112 clears BestScore (30 tall at 150) above and the difficulty
+            // row (top edge +80) below — the band between them is exactly this
+            // wide, so both values have to say the same thing.
+            var campaignLbl = MakeText(root, "CampaignName", "", _small, TextAlignmentOptions.Center,
+                                       new Vector2(0, 112), new Vector2(1200, 34));
+            campaignLbl.color = Cyan;
+            SetAnchors(campaignLbl.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                       new Vector2(0, 112));
+
+            var continueBtn = MakeButton(root, "Continue", "CONTINUE RUN", theme,
+                                         new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                                         new Vector2(0, -170), new Vector2(360, 74));
+            var continueLbl = continueBtn.GetComponentInChildren<TMP_Text>();
+            if (continueLbl != null) continueLbl.color = Amber;   // it resumes, it does not restart
+            continueBtn.gameObject.SetActive(false);              // TitleScreen.Refresh decides
 
             var so = new SerializedObject(comp);
             SetRef(so, "root", root.gameObject);
@@ -758,6 +889,9 @@ namespace CoreholdEditor
             SetRef(so, "nightmareLock", mLock);
             SetRef(so, "settingsButton", settingsBtn.GetComponent<Button>());
             SetRef(so, "settingsPanel", settingsPanel);
+            SetRef(so, "helpButton", helpBtn.GetComponent<Button>());
+            SetRef(so, "continueButton", continueBtn.GetComponent<Button>());
+            SetRef(so, "campaignLabel", campaignLbl);
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return comp;
@@ -770,7 +904,7 @@ namespace CoreholdEditor
             var comp = canvas.gameObject.AddComponent<SettingsPanel>();
 
             var panel = MakePanel(dim, "Panel", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                Vector2.zero, new Vector2(640, 560), theme.popup);
+                Vector2.zero, new Vector2(640, 630), theme.popup);
             panel.pivot = new Vector2(0.5f, 0.5f);
 
             var title = MakeText(panel, "Title", "SETTINGS", _large, TextAlignmentOptions.Top,
@@ -786,6 +920,8 @@ namespace CoreholdEditor
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -330), new Vector2(420, 58));
             var night = MakeButton(panel, "NightToggle", "NIGHT MODE: OFF", theme,
                 new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -400), new Vector2(420, 58));
+            var radial = MakeButton(panel, "RadialToggle", "BUILD MENU: SHEET", theme,
+                new Vector2(0.5f, 1), new Vector2(0.5f, 1), new Vector2(0, -470), new Vector2(420, 58));
             var close = MakeButton(panel, "Close", "CLOSE", theme,
                 new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(0, 24), new Vector2(280, 60));
 
@@ -798,6 +934,8 @@ namespace CoreholdEditor
             SetRef(so, "shakeLabel", shake.GetComponentInChildren<TMP_Text>());
             SetRef(so, "nightButton", night.GetComponent<Button>());
             SetRef(so, "nightLabel", night.GetComponentInChildren<TMP_Text>());
+            SetRef(so, "radialButton", radial.GetComponent<Button>());
+            SetRef(so, "radialLabel", radial.GetComponentInChildren<TMP_Text>());
             SetRef(so, "closeButton", close.GetComponent<Button>());
             so.ApplyModifiedPropertiesWithoutUndo();
 
@@ -850,9 +988,20 @@ namespace CoreholdEditor
             var btn = MakeButtonBase(label, parent, theme, new Vector2(0.5f,0.5f), new Vector2(0.5f,0.5f), Vector2.zero, new Vector2(280, 170));
             var name = MakeText(btn, "Name", label, _large, TextAlignmentOptions.Center, new Vector2(0, 44), new Vector2(260, 44));
             SetAnchors(name.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 44));
-            var best = MakeText(btn, "Best", "BEST 0", 18f, TextAlignmentOptions.Center, new Vector2(0, -4), new Vector2(260, 26));
+
+            // One plain line saying what the tier actually CHANGES — the pacing
+            // system (e1) made difficulty mean more than bigger health bars, and
+            // that must be readable before the pick, not discovered mid-run.
+            string desc = label == "VETERAN" ? "+25% enemies · timed builds"
+                        : label == "NIGHTMARE" ? "+55% enemies · relentless waves"
+                        : "Build at your own pace";
+            var descTxt = MakeText(btn, "Desc", desc, 13f, TextAlignmentOptions.Center, new Vector2(0, 16), new Vector2(264, 22));
+            descTxt.color = TextMuted;
+            SetAnchors(descTxt.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, 16));
+
+            var best = MakeText(btn, "Best", "BEST 0", 18f, TextAlignmentOptions.Center, new Vector2(0, -12), new Vector2(260, 26));
             best.color = Amber;
-            SetAnchors(best.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -4));
+            SetAnchors(best.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -12));
             var lockText = MakeText(btn, "Lock", "LOCKED", _small, TextAlignmentOptions.Center, new Vector2(0, -44), new Vector2(260, 26));
             SetAnchors(lockText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0, -44));
             var lockGo = lockText.gameObject;

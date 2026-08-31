@@ -44,6 +44,10 @@ namespace Corehold.UI
         // two physical buttons serve both modes — existing generated scenes get
         // campaign support without any UI rebuild (plan v2 §A.6).
         private bool _inCampaign;
+
+        /// <summary>This screen is the campaign's closing screen: the last level
+        /// was just won. Changes the title, the body and both buttons.</summary>
+        private bool _campaignComplete;
         private bool _lastVictory;
 
         private void Awake()
@@ -129,9 +133,19 @@ namespace Corehold.UI
             if (_inCampaign)
                 campaign.ReportLevelResult(victory, starCount, score);
 
+            // THE DEBRIEF. Winning the last level ends the campaign here, over
+            // the field the player just held, instead of handing off to a
+            // separate Closing scene. One less scene to build, and — the reason
+            // that matters — one less place where the game stops looking like
+            // itself at the moment it should feel best.
+            _campaignComplete = _inCampaign && victory && campaign.IsFinalStage;
+            if (_campaignComplete)
+                campaign.CompleteCampaign();
+
             if (titleLabel != null)
             {
-                titleLabel.text = victory ? "VICTORY" : "CORE LOST";
+                titleLabel.text = _campaignComplete ? "CAMPAIGN COMPLETE"
+                                : victory ? "VICTORY" : "CORE LOST";
                 titleLabel.color = victory
                     ? (theme != null ? theme.cyan : Color.cyan)
                     : (theme != null ? theme.danger : Color.red);
@@ -175,9 +189,26 @@ namespace Corehold.UI
                 }
             }
 
+            // The campaign's own totals replace the level's stat block: at the
+            // end of ten levels nobody wants this level's salvage, they want the
+            // run's.
+            if (_campaignComplete && bodyLabel != null)
+            {
+                int total = Mathf.Max(1, Mathf.RoundToInt(campaign.ElapsedSeconds));
+                string runTime = $"{total / 60}:{total % 60:00}";
+                bodyLabel.text =
+                    $"{campaign.LevelCount} levels held   Difficulty {diff}\n" +
+                    $"Campaign score {campaign.CumulativeScore}" +
+                    (campaign.CompletedNewBestScore ? "  <color=#FF9919>NEW BEST</color>" : "") + "\n" +
+                    $"Total time {runTime}" +
+                    (campaign.CompletedNewBestTime ? "  <color=#FF9919>NEW BEST</color>" : "");
+            }
+
             if (scoreLabel != null)
             {
-                if (_inCampaign)
+                if (_campaignComplete)
+                    scoreLabel.text = $"SCORE {campaign.CumulativeScore}";
+                else if (_inCampaign)
                     scoreLabel.text = $"SCORE {score}   LEVEL {campaign.CurrentLevelNumber}/{campaign.LevelCount}";
                 else
                     scoreLabel.text = newBest ? $"SCORE {score}  (NEW BEST)" : $"SCORE {score}   BEST {SaveData.GetBestScore(diff)}";
@@ -189,7 +220,18 @@ namespace Corehold.UI
             {
                 var label = menuButton.GetComponentInChildren<TMP_Text>();
                 if (label != null)
-                    label.text = _inCampaign ? (victory ? "CONTINUE" : "ABANDON") : "MAIN MENU";
+                    label.text = _campaignComplete ? "MAIN MENU"
+                               : _inCampaign ? (victory ? "CONTINUE" : "ABANDON")
+                               : "MAIN MENU";
+            }
+
+            // Retry means PLAY AGAIN once the campaign is over — reloading the
+            // last level would be a strange thing to offer someone who just
+            // finished it.
+            if (_campaignComplete && retryButton != null)
+            {
+                var rlabel = retryButton.GetComponentInChildren<TMP_Text>();
+                if (rlabel != null) rlabel.text = "PLAY AGAIN";
             }
 
             // Stars.
@@ -210,6 +252,18 @@ namespace Corehold.UI
         private void Retry()
         {
             if (AudioDirector.Instance != null) AudioDirector.Instance.PlayUIClick();
+
+            // PLAY AGAIN on the debrief: run the whole campaign from level one,
+            // not the level that was just finished.
+            if (_campaignComplete && CampaignManager.Instance != null &&
+                CampaignManager.Instance.HasActiveCampaign)
+            {
+                var m = CampaignManager.Instance.Active;
+                var d = CampaignManager.Instance.ChosenDifficulty;
+                CampaignManager.Instance.StartCampaign(m, d);
+                return;
+            }
+
             if (_inCampaign && CampaignManager.Instance != null)
                 CampaignManager.Instance.RetryCurrentStage();
             else
@@ -222,9 +276,10 @@ namespace Corehold.UI
 
             if (_inCampaign && CampaignManager.Instance != null)
             {
-                // The relabeled second button: Continue after a win, Abandon after
-                // a loss (see Show).
-                if (_lastVictory) CampaignManager.Instance.AdvanceToNextStage();
+                // The relabeled second button: Main Menu once the campaign is
+                // over, Continue after a win, Abandon after a loss (see Show).
+                if (_campaignComplete) CampaignManager.Instance.AbandonToWelcome();
+                else if (_lastVictory) CampaignManager.Instance.AdvanceToNextStage();
                 else CampaignManager.Instance.AbandonToWelcome();
                 return;
             }

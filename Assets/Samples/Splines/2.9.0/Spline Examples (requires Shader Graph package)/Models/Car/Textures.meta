@@ -1,9 +1,5 @@
 fileFormatVersion: 2
-<<<<<<< Updated upstream:Assets/Yoge/Textures.meta
-guid: 2cd045433e332cb4d9528e91310638cb
-=======
 guid: 15e9c0ce56498489c86fbccf21a02e1f
->>>>>>> Stashed changes:Assets/Samples/Splines/2.9.0/Spline Examples (requires Shader Graph package)/Models/Car/Textures.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

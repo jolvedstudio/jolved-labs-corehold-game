@@ -69,6 +69,16 @@ namespace Corehold.Data
         [Tooltip("Sound played on fire.")]
         public AudioClip fireSfx;
 
+        [Header("Shield (damage-absorbing barrier, GDD §7 — authored per tier)")]
+        [Tooltip("Shield hit points. A damage-absorbing buffer that soaks hits BEFORE the turret's health; 0 = this turret has no shield. Overflow damage from a hit that empties the shield carries through to health.")]
+        public float shieldHitPoints;
+
+        [Tooltip("Shield points regenerated per second once regen kicks in. 0 = the shield never recharges (one-time buffer).")]
+        public float shieldRegenPerSec;
+
+        [Tooltip("Seconds of NOT being hit before the shield starts regenerating. Prevents a shield from healing mid-focus-fire.")]
+        public float shieldRegenDelay;
+
         [Header("Scan Relay aura")]
         [Tooltip("Aura radius in metres (support turret only).")]
         public float auraRadius;

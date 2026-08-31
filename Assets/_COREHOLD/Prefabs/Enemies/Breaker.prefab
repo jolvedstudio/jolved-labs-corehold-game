@@ -113,7 +113,7 @@ Animator:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1098567759258226309}
   m_Enabled: 1
-  m_Avatar: {fileID: 9000000, guid: c9c5962cf1f611c41a384469283f965f, type: 3}
+  m_Avatar: {fileID: 9000000, guid: 080bcd669adc977438ab5827ccccdd81, type: 3}
   m_Controller: {fileID: 9100000, guid: 1fe7fb266edaeb84ea58e496fa803431, type: 2}
   m_CullingMode: 2
   m_UpdateMode: 0
@@ -145,7 +145,7 @@ MonoBehaviour:
   deathAnimDuration: 1.6333334
   isAir: 0
   armourType: 0
-  definition: {fileID: 0}
+  definition: {fileID: 11400000, guid: bace912330cd4424bb4868f7a5bdfba9, type: 2}
   enrageRenderers: []
   enrageEmissiveFrom: {r: 2, g: 0.7, b: 0, a: 2}
   enrageEmissiveTo: {r: 3, g: 3, b: 3, a: 3}
@@ -206,7 +206,7 @@ MonoBehaviour:
     muzzle: {fileID: 5743171289591816855}
     muzzles:
     - {fileID: 5743171289591816855}
-    tracerColor: {r: 1944.3613, g: 137.57271, b: 322.8236, a: 1}
+    tracerColor: {r: 0, g: 642.21204, b: 2228.5352, a: 1}
   range: 25
   fireRate: 0.9
   damage: 22
@@ -606,7 +606,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 8edb0cb1bc818f542bb62288d26085bd, type: 2}
+  - {fileID: 2100000, guid: a886aaf016a096f4bbc9c69e82feb76c, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -875,7 +875,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 8b80dc1528f0e484caffd647f123bdd6, type: 2}
+  - {fileID: 2100000, guid: d37d1517e0fb0a347a7a45cfe1b79ff0, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0

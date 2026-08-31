@@ -18,7 +18,9 @@ namespace CoreholdEditor.Campaign
     /// Scenes/Generated into the committed campaign folders (decision D1) and
     /// deep-clones the stage's wave tables so shipped WaveDefinition assets
     /// stay read-only. "Register Campaign" rewrites Build Settings wholesale:
-    /// Welcome first, levels in order, Closing, then the surviving singles.
+    /// the boot scene first — the Welcome scene when the campaign has one,
+    /// level one when it does not — then levels in order, Closing if built,
+    /// then the surviving singles.
     /// </summary>
     public class CampaignBuilderWindow : EditorWindow
     {
@@ -83,7 +85,7 @@ namespace CoreholdEditor.Campaign
                 DrawStepHeader(4, "Generate scenes", steps, next);
                 DrawGenerateStep();
 
-                DrawStepHeader(5, "Menu scenes (Welcome + Closing)", steps, next);
+                DrawStepHeader(5, "Menu scenes (optional: Welcome + Closing)", steps, next);
                 DrawMenuScenesStep();
 
                 DrawStepHeader(6, "Verify economy & emit manifest", steps, next);
@@ -168,43 +170,52 @@ namespace CoreholdEditor.Campaign
             if (expected > 0 && generated < expected && s[2].done)
                 _issues.Add($"Step 4: {expected - generated} level(s) not generated yet — Generate ALL (or per-level Generate).");
 
-            // 5 — menu scenes
+            // 5 — menu scenes, which are now OPTIONAL. Level one's title overlay
+            // is the entry screen and the result screen is the debrief, so a
+            // campaign with no menu scenes is complete, not broken. Built ones
+            // are still honoured — this step reports, it no longer demands.
             bool welcome = System.IO.File.Exists(_authoring.welcomeScenePath);
             bool closing = System.IO.File.Exists(_authoring.closingScenePath);
-            s[4].done = welcome && closing;
-            s[4].status = welcome && closing ? "built" : $"welcome {(welcome ? "ok" : "MISSING")}, closing {(closing ? "ok" : "MISSING")}";
-            if (!welcome || !closing)
-                _issues.Add("Step 5: Welcome/Closing scenes not built — the campaign cannot boot without its Welcome scene at index 0.");
+            s[4].done = true;
+            s[4].status = welcome || closing
+                ? $"welcome {(welcome ? "built" : "none")}, closing {(closing ? "built" : "none")}"
+                : "none — level one's overlay is the entry, result screen is the debrief";
 
-            // 6 — manifest, and whether the Welcome scene actually references it
+            // 6 — manifest, and whether the scene that BOOTS references it
+            string bootScene = BootScenePath();
             var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(_authoring.ManifestAssetPath);
             int manifestLevels = manifest != null ? manifest.stages.Count(m => m.kind == CampaignStageKind.Level) : 0;
-            bool wired = manifest != null && WelcomeWiredToManifest();
+            bool wired = manifest != null && SceneWiredToManifest(bootScene);
+            string doorName = welcome ? "Welcome" : "level one";
             s[5].done = manifest != null && manifestLevels == generated && generated > 0 && wired;
             s[5].status = manifest == null
                 ? "not emitted"
                 : (manifestLevels == generated ? $"{manifestLevels} level(s) in manifest" : $"manifest has {manifestLevels}, disk has {generated} — re-emit")
-                  + (wired ? ", Welcome wired" : ", Welcome NOT wired");
+                  + $", {doorName} {(wired ? "wired" : "NOT wired")}";
             if (manifest == null && s[3].done)
-                _issues.Add("Step 6: no manifest emitted — Verify carry economy, then Emit manifest + wire Welcome.");
+                _issues.Add("Step 6: no manifest emitted — Verify carry economy, then Emit manifest + wire entry.");
             if (manifest != null && manifestLevels != generated)
                 _issues.Add("Step 6: the manifest is out of date with the generated levels — re-emit it.");
-            if (manifest != null && !wired)
-                _issues.Add("Step 6: the Welcome scene does not reference this campaign's manifest — the campaign " +
-                            "would boot to a dead menu. Build the menu scenes (step 5) and/or Emit manifest again.");
+            if (manifest != null && !wired && !string.IsNullOrEmpty(bootScene))
+                _issues.Add($"Step 6: the scene the build boots into ({doorName}) does not reference this " +
+                            "campaign's manifest — it would boot to a dead menu. Emit manifest again.");
 
-            // 7 — build settings
+            // 7 — build settings. Index 0 is the Welcome scene when there is
+            // one and level one when there is not; either way it is the scene
+            // that has to boot.
             var scenes = EditorBuildSettings.scenes;
-            bool welcomeFirst = scenes.Length > 0 && scenes[0].path == _authoring.welcomeScenePath && scenes[0].enabled;
+            bool bootsFirst = !string.IsNullOrEmpty(bootScene) && scenes.Length > 0 &&
+                              scenes[0].path == bootScene && scenes[0].enabled;
             var inBuild = new HashSet<string>(scenes.Where(b => b.enabled).Select(b => b.path));
             int missing = _authoring.stages.Count(st => !string.IsNullOrEmpty(st.scenePath) &&
                                                         System.IO.File.Exists(st.scenePath) && !inBuild.Contains(st.scenePath));
-            s[6].done = welcomeFirst && missing == 0 && s[4].done;
-            s[6].status = welcomeFirst
-                ? (missing == 0 ? "campaign first, all levels in" : $"{missing} level(s) not registered")
-                : "Welcome is not Build Settings index 0";
-            if (s[3].done && (!welcomeFirst || missing > 0))
-                _issues.Add("Step 7: Build Settings are stale — Register Campaign rewrites them (Welcome first, levels in order).");
+            s[6].done = bootsFirst && missing == 0;
+            s[6].status = bootsFirst
+                ? (missing == 0 ? $"{doorName} first, all levels in" : $"{missing} level(s) not registered")
+                : $"{doorName} is not Build Settings index 0";
+            if (s[3].done && (!bootsFirst || missing > 0))
+                _issues.Add($"Step 7: Build Settings are stale — Register Campaign rewrites them ({doorName} " +
+                            "first, levels in order).");
 
             // 8 — ship (never "done": preflight is a report, not a state)
             s[7].done = false;
@@ -335,6 +346,15 @@ namespace CoreholdEditor.Campaign
                     }
 
                     s.briefing = EditorGUILayout.TextField("Briefing", s.briefing);
+                    s.rosterCount = EditorGUILayout.IntField(
+                        new GUIContent("Roster count", "Turrets this stage offers (menu order, buildable " +
+                            "only). 0 = full roster. Written into the LevelDefinition on Generate/Adopt " +
+                            "(R-UI-2 per-level introductions)."),
+                        s.rosterCount);
+                    s.assaultPacing = EditorGUILayout.Toggle(
+                        new GUIContent("Assault pacing", "Waves auto-chain whenever the field drains " +
+                            "below the chain lock (e2). Written into the LevelDefinition on Generate/Adopt."),
+                        s.assaultPacing);
                     if (s.blueprint != null)
                     {
                         s.seedOverride = EditorGUILayout.IntField(
@@ -376,11 +396,11 @@ namespace CoreholdEditor.Campaign
                             var alog = new StringBuilder();
                             if (AdoptManualStage(i, alog))
                             {
-                                bool wired = EmitManifest();
+                                bool wired = EmitManifest(out string door);
                                 RegisterCampaign();
                                 alog.AppendLine(wired
-                                    ? "Manifest + Build Settings refreshed."
-                                    : "Manifest refreshed — Welcome NOT wired (see console).");
+                                    ? $"Manifest + Build Settings refreshed; entry is {door}."
+                                    : $"Manifest refreshed — NOT wired: {door} (see console).");
                             }
                             ShowReport(alog.ToString());
                             break;
@@ -390,8 +410,10 @@ namespace CoreholdEditor.Campaign
                         {
                             // ContactSheet works on the selected blueprint; the
                             // PNG it writes shows 9 passing seeds to choose from.
+                            // GAME view, because "by eye" means judging the frame
+                            // the player will sit in front of, not a floor plan.
                             Selection.activeObject = s.blueprint;
-                            ContactSheet.Run();
+                            ContactSheet.RunGameView();
                             _report = "Contact sheet rendering — check the console for the PNG path, " +
                                       "then put the seed you like into this stage's Seed override.";
                         }
@@ -440,9 +462,11 @@ namespace CoreholdEditor.Campaign
         private void DrawMenuScenesStep()
         {
             EditorGUILayout.LabelField(
-                "Builds the Welcome (difficulty gate, CONTINUE RUN) and Closing (stars, totals) scenes " +
-                "into THIS campaign's own folder and wires its manifest when one exists. " +
-                "Re-run after changing the UI skin.", EditorStyles.miniLabel);
+                "OPTIONAL. Level one's title overlay is already the difficulty gate and CONTINUE RUN, " +
+                "and the result screen is already the debrief — a campaign needs neither of these " +
+                "scenes. Build them for a separate Welcome (difficulty gate) and Closing (stars, " +
+                "totals); the manifest is wired into whichever exists. Re-run after changing the UI skin.",
+                EditorStyles.miniLabel);
             if (GUILayout.Button("Build menu scenes", GUILayout.Width(280)))
             {
                 UISkin.Active = _authoring.uiSkin;
@@ -457,7 +481,8 @@ namespace CoreholdEditor.Campaign
         {
             EditorGUILayout.LabelField(
                 "Verify re-runs the balance model per stage at the WORST-CASE entry bank the carry " +
-                "rules allow; Emit writes the runtime manifest and wires it into the Welcome scene. " +
+                "rules allow; Emit writes the runtime manifest and wires it into the campaign's entry " +
+                "scene — the Welcome scene when there is one, otherwise level one's title overlay. " +
                 "Generate ALL already does both — these are for reruns after edits.", EditorStyles.miniLabel);
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -470,14 +495,12 @@ namespace CoreholdEditor.Campaign
                                        : "\nAt least one stage fails at the worst-case entry — see rows above.");
                     ShowReport(vlog.ToString());
                 }
-                if (GUILayout.Button("Emit manifest + wire Welcome", GUILayout.Width(220)))
+                if (GUILayout.Button("Emit manifest + wire entry", GUILayout.Width(220)))
                 {
-                    bool wired = EmitManifest();
+                    bool wired = EmitManifest(out string door);
                     ShowReport(wired
-                        ? $"Manifest emitted → {_authoring.ManifestAssetPath} and wired into " +
-                          $"'{_authoring.welcomeScenePath}'."
-                        : $"Manifest emitted → {_authoring.ManifestAssetPath}, but NOT wired into the " +
-                          "Welcome scene — build the menu scenes (step 5), then emit again.");
+                        ? $"Manifest emitted → {_authoring.ManifestAssetPath}, wired into {door}."
+                        : $"Manifest emitted → {_authoring.ManifestAssetPath}, but NOT wired: {door}.");
                 }
                 GUI.enabled = true;
             }
@@ -589,12 +612,17 @@ namespace CoreholdEditor.Campaign
         private void DrawRegisterStep()
         {
             EditorGUILayout.LabelField(
-                "Rewrites Build Settings wholesale: Welcome at index 0, levels in campaign order, " +
-                "Closing, then the surviving singles (Game.unity keeps single-map play).", EditorStyles.miniLabel);
+                "Rewrites Build Settings wholesale: the boot scene at index 0 — Welcome if this " +
+                "campaign has one, else level one — then levels in campaign order, Closing if built, " +
+                "and DISABLES everything else, so a plain File → Build ships this campaign " +
+                "and nothing else. Disabled entries stay listed; re-tick any you want back.",
+                EditorStyles.miniLabel);
             if (GUILayout.Button("Register Campaign (Build Settings)", GUILayout.Width(280)))
             {
                 RegisterCampaign();
-                ShowReport("Build Settings rewritten — Welcome first, campaign in order. Open the Welcome scene and press Play.");
+                string boot = BootScenePath();
+                ShowReport("Build Settings rewritten — campaign in order, boots into " +
+                           $"'{boot ?? "(nothing: generate the levels first)"}'. Open that scene and press Play.");
             }
         }
 
@@ -607,6 +635,47 @@ namespace CoreholdEditor.Campaign
             {
                 if (GUILayout.Button("Preflight (shippable?)", GUILayout.Width(180)))
                     ShowReport(CampaignShipTool.PreflightReport(_authoring, out _));
+                if (GUILayout.Button("Localize vendor assets (all stages)", GUILayout.Width(230)))
+                {
+                    // Repair path for campaigns BUILT BEFORE self-containment:
+                    // copies every vendor dependency of every stage into the
+                    // committed Vendored folder and remaps. Newly generated or
+                    // adopted stages do this automatically.
+                    var llog = new StringBuilder();
+                    llog.AppendLine("Vendor localization — all stages:");
+                    var covered = new HashSet<string>();
+                    foreach (var st in _authoring.stages)
+                    {
+                        if (string.IsNullOrEmpty(st.scenePath)) continue;
+                        covered.Add(st.scenePath);
+                        llog.AppendLine($"  {System.IO.Path.GetFileNameWithoutExtension(st.scenePath)}:");
+                        try { LocalizeStage(st, llog); }
+                        catch (System.Exception ex)
+                        { llog.AppendLine($"    FAILED — {ex.GetType().Name}: {ex.Message}"); }
+                    }
+                    // Preflight judges the MANIFEST's scenes — welcome/closing
+                    // and any stage whose emitted path is not what the
+                    // authoring rows recorded. Localize those too, or the
+                    // button can "succeed" while preflight stays red.
+                    var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(_authoring.ManifestAssetPath);
+                    if (manifest != null)
+                    {
+                        foreach (var ms in manifest.stages)
+                        {
+                            if (string.IsNullOrEmpty(ms.scenePath) || covered.Contains(ms.scenePath) ||
+                                !System.IO.File.Exists(ms.scenePath))
+                                continue;
+                            llog.AppendLine($"  {System.IO.Path.GetFileNameWithoutExtension(ms.scenePath)} (manifest):");
+                            try { VendorLocalizer.Localize(new[] { ms.scenePath }, llog); }
+                            catch (System.Exception ex)
+                            { llog.AppendLine($"    FAILED — {ex.GetType().Name}: {ex.Message}"); }
+                        }
+                    }
+                    AssetDatabase.SaveAssets();
+                    llog.AppendLine("\nRe-run Preflight — external-reference errors should be gone. " +
+                                    "Commit Assets/_COREHOLD/Vendored with the remapped scenes.");
+                    ShowReport(llog.ToString());
+                }
                 if (GUILayout.Button("BUILD shippable game (WebGL)", GUILayout.Height(24), GUILayout.Width(220)))
                 {
                     // Preflight runs inside and aborts on errors; the report
@@ -695,13 +764,13 @@ namespace CoreholdEditor.Campaign
                 }
                 else
                 {
-                    bool wired = EmitManifest();
+                    bool wired = EmitManifest(out string door);
                     RegisterCampaign();
                     log.AppendLine(wired
-                        ? "Manifest emitted (wired into the Welcome scene) and Build Settings registered — " +
-                          "open the Welcome scene and press Play."
-                        : "Manifest emitted and Build Settings registered — but the Welcome scene is NOT " +
-                          "wired yet (build the menu scenes, step 5, then Emit manifest again).");
+                        ? $"Manifest emitted (wired into {door}) and Build Settings registered — " +
+                          "open Build Settings index 0 and press Play."
+                        : $"Manifest emitted and Build Settings registered — but the entry is NOT " +
+                          $"wired yet: {door}.");
                 }
             }
             ShowReport(log.ToString());
@@ -853,10 +922,10 @@ namespace CoreholdEditor.Campaign
             finally { UISkin.Active = null; }
             if (ok)
             {
-                bool wired = EmitManifest();
+                bool wired = EmitManifest(out string door);
                 RegisterCampaign();
                 log.AppendLine("Manifest + Build Settings refreshed for the regenerated stage." +
-                               (wired ? "" : " (Welcome scene NOT wired — build the menu scenes, then emit again.)"));
+                               (wired ? $" Entry: {door}." : $" (NOT wired: {door}.)"));
             }
             ShowReport(log.ToString());
         }
@@ -1046,7 +1115,40 @@ namespace CoreholdEditor.Campaign
             EditorUtility.SetDirty(_authoring);
             AssetDatabase.SaveAssets();
             log.AppendLine($"  seed {usedSeed} accepted → {stage.scenePath}");
+
+            // Self-containment: the committed stage must not reference
+            // git-ignored vendor assets, or the campaign builds broken on any
+            // other machine. Copy + remap, then reload the open scene so the
+            // editor matches the rewritten file. Best-effort — a hiccup here
+            // must not fail an accepted stage; preflight re-detects.
+            try
+            {
+                LocalizeStage(stage, log);
+            }
+            catch (System.Exception ex)
+            {
+                log.AppendLine($"  localize WARNED — {ex.GetType().Name}: {ex.Message} " +
+                               "(stage kept; preflight will re-detect external refs).");
+            }
             return true;
+        }
+
+        /// <summary>Copy every vendor dependency of a stage's scene + rules into
+        /// the committed Vendored folder and remap; reloads the scene when its
+        /// file was rewritten.</summary>
+        private void LocalizeStage(CampaignAuthoring.AuthoredStage stage, StringBuilder log)
+        {
+            if (string.IsNullOrEmpty(stage.scenePath))
+                return;
+            int copied = VendorLocalizer.Localize(
+                new[] { stage.scenePath, stage.levelDefPath }, log);
+            if (copied > 0)
+            {
+                var open = EditorSceneManager.GetActiveScene();
+                if (open.IsValid() && open.path == stage.scenePath)
+                    EditorSceneManager.OpenScene(stage.scenePath,
+                        UnityEditor.SceneManagement.OpenSceneMode.Single);
+            }
         }
 
         /// <summary>The recipe THIS stage synthesizes with: its own bespoke
@@ -1138,6 +1240,7 @@ namespace CoreholdEditor.Campaign
                     cloned++;
                 }
                 defSo.ApplyModifiedPropertiesWithoutUndo();
+                ApplyStageRoster(stage, defCopy, log);
                 EditorUtility.SetDirty(defCopy);
 
                 wmSo.FindProperty("level").objectReferenceValue = defCopy;
@@ -1166,6 +1269,11 @@ namespace CoreholdEditor.Campaign
 
                 log.AppendLine($"  rules copied → {defDest}; {cloned} wave table(s) deep-cloned → {wavesFolder}.");
                 log.AppendLine("  stage is now campaign-owned — still manual, plays exactly the scene you accepted.");
+                // Self-containment for the adopted copy too. The additive copy
+                // is closed WITHOUT saving in the finally below, so rewriting
+                // its file here is safe — disk keeps the remap, memory is
+                // discarded.
+                VendorLocalizer.Localize(new[] { sceneDest, defDest }, log);
                 return true;
             }
             finally
@@ -1242,6 +1350,7 @@ namespace CoreholdEditor.Campaign
                 for (int w = 0; w < synth.waves.Length; w++)
                     wavesProp.GetArrayElementAtIndex(w).objectReferenceValue = synth.waves[w];
                 defSo.ApplyModifiedPropertiesWithoutUndo();
+                ApplyStageRoster(stage, def, log);
                 EditorUtility.SetDirty(def);
                 AssetDatabase.SaveAssets();
 
@@ -1272,6 +1381,7 @@ namespace CoreholdEditor.Campaign
                 cloned++;
             }
             defSo.ApplyModifiedPropertiesWithoutUndo();
+            ApplyStageRoster(stage, def, log);
             EditorUtility.SetDirty(def);
             AssetDatabase.SaveAssets();
 
@@ -1280,6 +1390,29 @@ namespace CoreholdEditor.Campaign
             stage.wavesFolder = wavesFolder;
             log.AppendLine($"  relocated to campaign folders; {cloned} wave tables deep-cloned (shipped assets untouched).");
             return true;
+        }
+
+        /// <summary>
+        /// Write the stage's per-level RULES into its LevelDefinition — the turret
+        /// roster (R-UI-2: first N buildable in menu order, null = full roster) and
+        /// the assault-pacing flag (e2). Runs at every point a stage's definition
+        /// is finalized, so re-generating re-applies both.
+        /// </summary>
+        private static void ApplyStageRoster(CampaignAuthoring.AuthoredStage stage,
+                                             LevelDefinition def, StringBuilder log)
+        {
+            if (def == null)
+                return;
+            var pool = RosterRegistry.BuildableTowersOrdered();
+            int n = stage != null ? stage.rosterCount : 0;
+            def.roster = n > 0 && n < pool.Length ? pool.Take(n).ToArray() : null;
+            def.assaultPacing = stage != null && stage.assaultPacing;
+            EditorUtility.SetDirty(def);
+            if (def.roster != null)
+                log.AppendLine($"  roster gated to first {def.roster.Length} turret(s): " +
+                               string.Join(", ", def.roster.Select(t => t.displayName)) + ".");
+            if (def.assaultPacing)
+                log.AppendLine("  ASSAULT pacing on: waves auto-chain when the field drains below the chain lock.");
         }
 
         private void DeleteStageOutputs(CampaignAuthoring.AuthoredStage stage, StringBuilder log)
@@ -1317,28 +1450,47 @@ namespace CoreholdEditor.Campaign
 
         // ----------------------------------------------------------- manifest
 
-        /// <summary>Emit the runtime manifest and wire it into THIS campaign's
-        /// Welcome scene. Returns whether the wiring actually happened — a
-        /// manifest the Welcome scene does not reference boots to a dead menu,
-        /// so callers surface a false loudly instead of assuming.</summary>
-        private bool EmitManifest()
+        /// <summary>
+        /// Emit the runtime manifest and wire it into THIS campaign's front
+        /// door. Returns whether the wiring actually happened — a manifest
+        /// nothing references boots to a dead menu, so callers surface a false
+        /// loudly instead of assuming — and reports through
+        /// <paramref name="door"/> which door that was, because there are now
+        /// two and the difference is what the user has to open to test.
+        ///
+        /// A campaign no longer NEEDS menu scenes: level one's title overlay is
+        /// the entry screen and the result screen is the debrief. Menu scenes
+        /// are still honoured when they exist, so campaigns built before this
+        /// keep working unchanged; they are simply no longer emitted as stages
+        /// that point at files nobody built.
+        /// </summary>
+        private bool EmitManifest(out string door)
         {
             var manifest = AssetDatabase.LoadAssetAtPath<CampaignManifest>(_authoring.ManifestAssetPath);
             bool created = manifest == null;
             if (created) manifest = CreateInstance<CampaignManifest>();
 
+            bool hasWelcome = System.IO.File.Exists(_authoring.welcomeScenePath);
+            bool hasClosing = System.IO.File.Exists(_authoring.closingScenePath);
+
             manifest.campaignId = _authoring.campaignId;
             manifest.displayName = _authoring.displayName;
             manifest.progression = _authoring.progression;
-            manifest.stages = new List<CampaignStageInfo>
-            {
-                new CampaignStageInfo { kind = CampaignStageKind.Welcome, title = "Welcome",
-                                        scenePath = _authoring.welcomeScenePath },
-            };
+            manifest.stages = new List<CampaignStageInfo>();
+
+            // A stage whose scene does not exist is worse than no stage: the
+            // flow would load a path that is not there. Only emit the menu
+            // stages that were actually built.
+            if (hasWelcome)
+                manifest.stages.Add(new CampaignStageInfo { kind = CampaignStageKind.Welcome, title = "Welcome",
+                                                            scenePath = _authoring.welcomeScenePath });
+
+            string levelOne = null;
             for (int i = 0; i < _authoring.stages.Count; i++)
             {
                 var s = _authoring.stages[i];
                 if (string.IsNullOrEmpty(s.scenePath)) continue; // ungenerated stages stay out of the manifest
+                if (levelOne == null) levelOne = s.scenePath;
                 manifest.stages.Add(new CampaignStageInfo
                 {
                     kind = CampaignStageKind.Level,
@@ -1348,59 +1500,133 @@ namespace CoreholdEditor.Campaign
                     seed = s.acceptedSeed,
                 });
             }
-            manifest.stages.Add(new CampaignStageInfo { kind = CampaignStageKind.Closing, title = "Debrief",
-                                                        scenePath = _authoring.closingScenePath });
+            if (hasClosing)
+                manifest.stages.Add(new CampaignStageInfo { kind = CampaignStageKind.Closing, title = "Debrief",
+                                                            scenePath = _authoring.closingScenePath });
 
             EnsureFolder(BuildCampaignScenes.ManifestDir);
             if (created) AssetDatabase.CreateAsset(manifest, _authoring.ManifestAssetPath);
             EditorUtility.SetDirty(manifest);
             AssetDatabase.SaveAssets();
 
-            // Wire into THIS campaign's welcome scene — the authored path, not
-            // a fixed one (the old hardcoded target silently missed campaigns
-            // whose welcome scene lived anywhere else).
-            _wireCheckStamp = 0; // invalidate the cached wiring check
-            return BuildCampaignScenes.WireManifestIntoWelcome(manifest, _authoring.welcomeScenePath);
+            _wireCacheDirty = true; // the wiring check must re-read what we are about to save
+
+            // Wire BOTH doors that exist. With a Welcome scene the campaign
+            // boots there and level one's overlay never appears — GameFlow
+            // shows it, then BeginCampaignRun hides it in the same load — so
+            // wiring level one costs nothing and means deleting the Welcome
+            // scene later still leaves a campaign that boots.
+            bool welcomeWired = hasWelcome &&
+                BuildCampaignScenes.WireManifestIntoWelcome(manifest, _authoring.welcomeScenePath);
+            bool levelWired = !string.IsNullOrEmpty(levelOne) &&
+                BuildCampaignScenes.WireManifestIntoLevelOne(manifest, levelOne);
+
+            if (hasWelcome)
+                door = welcomeWired ? $"the Welcome scene '{_authoring.welcomeScenePath}'"
+                                    : "the Welcome scene (wiring FAILED — see console)";
+            else
+                door = levelWired ? $"level one's title overlay ('{levelOne}')"
+                                  : "no front door — generate the levels, then Emit again";
+
+            // The door that BOOTS is the one that has to be wired.
+            return hasWelcome ? welcomeWired : levelWired;
         }
 
         // ------------------------------------------------------ build settings
 
         /// <summary>
-        /// Rewrite Build Settings wholesale (plan v2 §A.3): Welcome at index 0 —
-        /// the shipped build boots into the campaign — then levels in campaign
-        /// order, Closing, then every other enabled scene (Game.unity keeps
-        /// single-map play). The pipeline's own registration is append-only and
-        /// its prune only watches Scenes/Generated, so ordering lives here.
+        /// Rewrite Build Settings wholesale (plan v2 §A.3): the boot scene at
+        /// index 0 — the shipped build boots into the campaign — then levels in
+        /// campaign order, Closing, then every other enabled scene (Game.unity
+        /// keeps single-map play). The pipeline's own registration is
+        /// append-only and its prune only watches Scenes/Generated, so ordering
+        /// lives here.
         /// </summary>
-        private void RegisterCampaign()
+        private void RegisterCampaign() => RegisterCampaign(_authoring);
+
+        /// <summary>
+        /// Make Build Settings say exactly what this campaign is: its boot
+        /// scene at index 0, its levels in order, its Closing — and everything else
+        /// disabled.
+        ///
+        /// Static and internal so the SHIP TOOL can call it too. The shippable
+        /// build passes its own explicit scene list to BuildPipeline and never
+        /// reads Build Settings, which is why a forty-scene list could sit
+        /// there unnoticed until someone used Unity's own File → Build. Syncing
+        /// here means both doors lead to the same game.
+        /// </summary>
+        internal static void RegisterCampaign(CampaignAuthoring authoring)
         {
-            var campaignPaths = new List<string> { _authoring.welcomeScenePath };
-            campaignPaths.AddRange(_authoring.stages
+            if (authoring == null)
+                return;
+
+            // Menu scenes are OPTIONAL: a campaign with none boots into level
+            // one, whose title overlay is the entry screen. Only the scenes
+            // that exist go in the list — an entry pointing at a file nobody
+            // built is exactly the "missing scene" Unity warns about at build.
+            var campaignPaths = new List<string>();
+            if (System.IO.File.Exists(authoring.welcomeScenePath))
+                campaignPaths.Add(authoring.welcomeScenePath);
+            campaignPaths.AddRange(authoring.stages
                 .Where(s => !string.IsNullOrEmpty(s.scenePath))
                 .Select(s => s.scenePath));
-            campaignPaths.Add(_authoring.closingScenePath);
+            if (System.IO.File.Exists(authoring.closingScenePath))
+                campaignPaths.Add(authoring.closingScenePath);
 
             var list = new List<EditorBuildSettingsScene>();
             foreach (var p in campaignPaths)
             {
                 if (!System.IO.File.Exists(p))
                 {
-                    Debug.LogWarning($"[Campaign] Build Settings: '{p}' does not exist yet (build the menu scenes / generate levels first).");
+                    Debug.LogWarning($"[Campaign] Build Settings: level '{p}' does not exist yet — generate it.");
                     continue;
                 }
                 list.Add(new EditorBuildSettingsScene(p, true));
             }
 
+            // Everything else is CARRIED BUT DISABLED.
+            //
+            // This line used to keep them enabled, and that is how Build
+            // Settings reached forty scenes: the generator registers every
+            // level it emits so Retry can reload the one being worked on, the
+            // Campaign Builder adds a Welcome and a Closing per campaign, and
+            // registering a campaign then re-enabled the lot. Nothing removed a
+            // scene that still existed, so a plain File → Build carried every
+            // level ever generated and every campaign ever tried — twenty
+            // megabytes of scenes, and a Brotli pass measured in tens of
+            // minutes rather than the five the actual game costs.
+            //
+            // Disabled rather than dropped: the entries stay as a record of
+            // what was tried, one tick puts any of them back, and a level
+            // adopted into THIS campaign is already in campaignPaths above, so
+            // manually added levels are kept by construction.
+            //
+            // Note this also disables Game.unity, which used to ride along for
+            // single-map play. Re-tick it when you want that; registering a
+            // campaign now means the build IS the campaign.
+            int parked = 0;
             foreach (var existing in EditorBuildSettings.scenes)
             {
                 if (campaignPaths.Contains(existing.path)) continue;
-                if (!existing.enabled) continue;
                 if (!System.IO.File.Exists(existing.path)) continue;
-                list.Add(existing);
+                if (existing.enabled) parked++;
+                list.Add(new EditorBuildSettingsScene(existing.path, false));
             }
 
             EditorBuildSettings.scenes = list.ToArray();
-            Debug.Log($"[Campaign] Build Settings: {list.Count} scenes, campaign first (Welcome at index 0).");
+
+            long bytes = 0;
+            foreach (string p in campaignPaths)
+                if (System.IO.File.Exists(p)) bytes += new System.IO.FileInfo(p).Length;
+
+            string boot = list.Count > 0 ? list[0].path : "(nothing — no scenes exist yet)";
+            Debug.Log($"[Campaign] Build Settings: {list.Count(s => s.enabled)} scene(s) ENABLED " +
+                      $"(campaign '{authoring.campaignId}', boots into '{boot}', " +
+                      $"{bytes / 1048576f:0.0} MB of scene data)" +
+                      (parked > 0
+                          ? $"; {parked} non-campaign scene(s) disabled — they stay listed, " +
+                            "re-tick any you want back."
+                          : "."));
         }
 
         // -------------------------------------------------------------- utils
@@ -1408,36 +1634,56 @@ namespace CoreholdEditor.Campaign
         // One hardened implementation for every campaign-side folder create.
         private static void EnsureFolder(string path) => BuildCampaignScenes.EnsureFolder(path);
 
-        // ---- Welcome-scene wiring check (cheap, cached by file timestamp) ----
+        // ---- front-door wiring check (cheap, cached by file timestamp) ----
 
-        private string _wireCheckScene, _wireCheckGuid;
-        private long _wireCheckStamp;
-        private bool _wireCheckResult;
+        private readonly Dictionary<string, (long stamp, string guid, bool wired)> _wireCheck = new();
+        private bool _wireCacheDirty; // set by Emit: the scenes it just saved must be re-read
 
         /// <summary>
-        /// True when the Welcome scene FILE references this campaign's manifest
-        /// asset (by GUID). Text scan cached on the scene's write time, so the
-        /// Issues panel can verify the wiring live without opening the scene —
-        /// this is the check that catches "the manifest field went stale".
+        /// True when a scene FILE references this campaign's manifest asset (by
+        /// GUID). Text scan cached on the scene's write time, so the Issues
+        /// panel can verify the wiring live without opening the scene — this is
+        /// the check that catches "the manifest field went stale".
+        ///
+        /// Cached PER SCENE: there are two possible front doors and both get
+        /// checked on the same repaint, so a single-slot cache would thrash and
+        /// re-read a multi-megabyte scene file every frame.
         /// </summary>
-        private bool WelcomeWiredToManifest()
+        private bool SceneWiredToManifest(string scenePath)
         {
-            string scenePath = _authoring.welcomeScenePath;
             if (string.IsNullOrEmpty(scenePath) || !System.IO.File.Exists(scenePath))
                 return false;
             string guid = AssetDatabase.AssetPathToGUID(_authoring.ManifestAssetPath);
             if (string.IsNullOrEmpty(guid))
                 return false;
 
-            long stamp = System.IO.File.GetLastWriteTimeUtc(scenePath).Ticks;
-            if (scenePath == _wireCheckScene && guid == _wireCheckGuid && stamp == _wireCheckStamp)
-                return _wireCheckResult;
+            if (_wireCacheDirty) { _wireCheck.Clear(); _wireCacheDirty = false; }
 
-            _wireCheckScene = scenePath;
-            _wireCheckGuid = guid;
-            _wireCheckStamp = stamp;
-            _wireCheckResult = System.IO.File.ReadAllText(scenePath).Contains(guid);
-            return _wireCheckResult;
+            long stamp = System.IO.File.GetLastWriteTimeUtc(scenePath).Ticks;
+            if (_wireCheck.TryGetValue(scenePath, out var hit) && hit.stamp == stamp && hit.guid == guid)
+                return hit.wired;
+
+            bool wired = System.IO.File.ReadAllText(scenePath).Contains(guid);
+            _wireCheck[scenePath] = (stamp, guid, wired);
+            return wired;
         }
+
+        /// <summary>The campaign's first generated level — the scene whose title
+        /// overlay is the entry screen when there is no Welcome scene, and the
+        /// scene Build Settings boots into.</summary>
+        private string FirstLevelScenePath()
+        {
+            foreach (var s in _authoring.stages)
+                if (!string.IsNullOrEmpty(s.scenePath) && System.IO.File.Exists(s.scenePath))
+                    return s.scenePath;
+            return null;
+        }
+
+        /// <summary>The scene the build boots into: the Welcome scene when the
+        /// campaign has one, otherwise its first level.</summary>
+        private string BootScenePath()
+            => System.IO.File.Exists(_authoring.welcomeScenePath)
+                ? _authoring.welcomeScenePath
+                : FirstLevelScenePath();
     }
 }

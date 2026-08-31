@@ -14,10 +14,15 @@ using UnityEngine.UI;
 namespace CoreholdEditor.Campaign
 {
     /// <summary>
-    /// A0 stub builders for the campaign menu scenes (plan v2 §A.5) and a test
-    /// manifest — enough to walk Welcome → Level → Level → Closing end-to-end.
-    /// Real Welcome/Closing polish (logo lockup, settings, records) is A1; these
-    /// scenes are deliberately minimal so the flow can be proven first.
+    /// Builders for the campaign menu scenes (plan v2 §A.5) and a test manifest
+    /// — the Welcome → Level → Level → Closing walk, and the two screens that
+    /// bracket it.
+    ///
+    /// These began as stubs (centred text, a stack of buttons, a flat fill) and
+    /// read as a different game from the HUD they bracket. Both now wear ONE
+    /// chrome built by <see cref="BuildMenuChrome"/> — backdrop, rule, eyebrow,
+    /// title, nine-sliced content frame — on one row ruler, so the campaign
+    /// opens and closes on the same screen with different words in it.
     ///
     /// Scenes land in Assets/_COREHOLD/Scenes/Campaign/ — the VERSIONED campaign
     /// home (decision D1): unlike Scenes/Generated, this folder is committed.
@@ -42,7 +47,7 @@ namespace CoreholdEditor.Campaign
         private static Color Cyan => UISkin.Active != null ? UISkin.Active.accent : DefaultCyan;
         private static Color TextDim => UISkin.Active != null ? UISkin.Active.textDim : DefaultTextDim;
 
-        [MenuItem("Tools/COREHOLD/Campaign/Build Welcome + Closing Scenes (stub)", false, 10)]
+        [MenuItem("Tools/COREHOLD/Campaign/Build Welcome + Closing Scenes", false, 10)]
         public static void BuildBoth()
         {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
@@ -165,14 +170,40 @@ namespace CoreholdEditor.Campaign
             var canvas = MakeCanvas("Canvas_Welcome");
             MakeEventSystem();
 
-            var title = MakeText(canvas.transform, "Title", "COREHOLD", 92, Cyan, new Vector2(0.5f, 0.72f));
-            title.fontStyle = FontStyles.Bold;
-            var subtitle = MakeText(canvas.transform, "Subtitle", "CAMPAIGN", 30, TextDim, new Vector2(0.5f, 0.60f));
+            RectTransform frame = BuildMenuChrome(canvas, "CAMPAIGN", "COREHOLD", out TMP_Text title);
 
-            var normal = MakeButton(canvas.transform, "Btn_Normal", "NORMAL", new Vector2(0.5f, 0.46f));
-            var veteran = MakeButton(canvas.transform, "Btn_Veteran", "VETERAN", new Vector2(0.5f, 0.36f));
-            var nightmare = MakeButton(canvas.transform, "Btn_Nightmare", "NIGHTMARE", new Vector2(0.5f, 0.26f));
-            var cont = MakeButton(canvas.transform, "Btn_Continue", "CONTINUE RUN", new Vector2(0.5f, 0.14f));
+            // The subtitle names the CAMPAIGN and is filled at runtime from the
+            // manifest; it sits inside the frame as the panel's own caption.
+            var subtitle = MakeText(frame, "Subtitle", "", 28, TextDim, new Vector2(0.5f, 1f));
+            PlaceInFrame(frame, subtitle.rectTransform, 34f, new Vector2(620, 40));
+
+            MakeRule(frame, "Rule_Panel", new Vector2(0.5f, 1f), 560f);
+            var panelRule = frame.Find("Rule_Panel") as RectTransform;
+            if (panelRule != null)
+            {
+                panelRule.pivot = new Vector2(0.5f, 1f);
+                panelRule.anchoredPosition = new Vector2(0f, -74f);
+            }
+
+            // Each tier says what it CHANGES (pacing e1 made difficulty more than
+            // health bars); rich-text subline keeps one button per tier.
+            var normal = MakeButton(frame, "Btn_Normal",
+                "NORMAL\n<size=45%>build at your own pace</size>", new Vector2(0.5f, 1f));
+            var veteran = MakeButton(frame, "Btn_Veteran",
+                "VETERAN\n<size=45%>+25% enemies · timed builds</size>", new Vector2(0.5f, 1f));
+            var nightmare = MakeButton(frame, "Btn_Nightmare",
+                "NIGHTMARE\n<size=45%>+55% enemies · relentless waves</size>", new Vector2(0.5f, 1f));
+            var cont = MakeButton(frame, "Btn_Continue", "CONTINUE RUN", new Vector2(0.5f, 1f));
+
+            // One ruler for the rows, so the stack is even and both screens
+            // share it. 84 tall on a 96 pitch: the 12 px of air is what stops
+            // four buttons reading as one slab.
+            var rowSize = new Vector2(560, 84);
+            PlaceInFrame(frame, (RectTransform)normal.transform, 108f, rowSize);
+            PlaceInFrame(frame, (RectTransform)veteran.transform, 204f, rowSize);
+            PlaceInFrame(frame, (RectTransform)nightmare.transform, 300f, rowSize);
+            PlaceInFrame(frame, (RectTransform)cont.transform, 408f, rowSize);
+
             var contLabel = cont.GetComponentInChildren<TMP_Text>();
             if (contLabel != null) // warm-role — it resumes, not restarts
                 contLabel.color = UISkin.Active != null ? UISkin.Active.warm : new Color(1f, 0.72f, 0.25f);
@@ -202,14 +233,34 @@ namespace CoreholdEditor.Campaign
             var canvas = MakeCanvas("Canvas_Closing");
             MakeEventSystem();
 
-            var title = MakeText(canvas.transform, "Title", "CAMPAIGN COMPLETE", 64, Cyan, new Vector2(0.5f, 0.78f));
-            title.fontStyle = FontStyles.Bold;
-            var body = MakeText(canvas.transform, "Body", "", 30, Color.white, new Vector2(0.5f, 0.55f));
-            body.alignment = TextAlignmentOptions.Center;
-            var score = MakeText(canvas.transform, "Score", "", 40, Cyan, new Vector2(0.5f, 0.36f));
+            // IDENTICAL chrome to Welcome — same helper, same geometry, same
+            // type scale. The campaign now opens and closes on one screen with
+            // different words in it.
+            RectTransform frame = BuildMenuChrome(canvas, "DEBRIEF", "COREHOLD", out TMP_Text title);
 
-            var again = MakeButton(canvas.transform, "Btn_PlayAgain", "PLAY AGAIN", new Vector2(0.5f, 0.24f));
-            var home = MakeButton(canvas.transform, "Btn_Welcome", "WELCOME", new Vector2(0.5f, 0.14f));
+            var body = MakeText(frame, "Body", "", 28, Color.white, new Vector2(0.5f, 1f));
+            body.alignment = TextAlignmentOptions.Top;
+            PlaceInFrame(frame, body.rectTransform, 34f, new Vector2(620, 150));
+
+            MakeRule(frame, "Rule_Panel", new Vector2(0.5f, 1f), 560f);
+            var panelRule = frame.Find("Rule_Panel") as RectTransform;
+            if (panelRule != null)
+            {
+                panelRule.pivot = new Vector2(0.5f, 1f);
+                panelRule.anchoredPosition = new Vector2(0f, -196f);
+            }
+
+            var score = MakeText(frame, "Score", "", 40, Cyan, new Vector2(0.5f, 1f));
+            PlaceInFrame(frame, score.rectTransform, 216f, new Vector2(620, 56));
+
+            var again = MakeButton(frame, "Btn_PlayAgain", "PLAY AGAIN", new Vector2(0.5f, 1f));
+            var home = MakeButton(frame, "Btn_Welcome", "WELCOME", new Vector2(0.5f, 1f));
+
+            // The SAME row ruler Welcome uses, landing on its last two slots so
+            // the buttons sit where the eye already learned to look.
+            var rowSize = new Vector2(560, 84);
+            PlaceInFrame(frame, (RectTransform)again.transform, 300f, rowSize);
+            PlaceInFrame(frame, (RectTransform)home.transform, 408f, rowSize);
 
             var closing = canvas.gameObject.AddComponent<ClosingScreen>();
             var so = new SerializedObject(closing);
@@ -270,6 +321,122 @@ namespace CoreholdEditor.Campaign
             go.AddComponent<InputSystemUIInputModule>();
         }
 
+        /// <summary>
+        /// The chrome BOTH menu screens wear, built once so they cannot drift
+        /// apart: backdrop, a hairline rule, an eyebrow, the title, and a
+        /// nine-sliced content frame.
+        ///
+        /// This is the fix for menus that read as a different game from the one
+        /// they bracket. They were stubs — centred text and a stack of buttons
+        /// floating on a flat fill — while the HUD wears framed panels, rules
+        /// and small-caps labels. Same chrome, same geometry, same type scale
+        /// for Welcome and Closing means the campaign opens and closes on the
+        /// same screen with different words in it, which is what "identical"
+        /// has to mean for two screens that do different jobs.
+        ///
+        /// Everything reads the ambient <see cref="UISkin"/>, so re-skinning
+        /// the game re-skins these with it and no literal here has to be
+        /// chased down twice.
+        /// </summary>
+        private static RectTransform BuildMenuChrome(Canvas canvas, string eyebrow, string title,
+                                                     out TMP_Text titleLabel)
+        {
+            float scale = UISkin.Active != null ? UISkin.Active.uiScale : 1f;
+            float type = UISkin.Active != null ? UISkin.Active.textScale : 1f;
+
+            // Backdrop: the canvas carries its own ground rather than trusting
+            // the camera's clear colour, so a screenshot or a canvas-only
+            // render is never transparent behind the frame.
+            var back = new GameObject("Backdrop", typeof(RectTransform), typeof(Image));
+            back.transform.SetParent(canvas.transform, false);
+            var backRt = (RectTransform)back.transform;
+            backRt.anchorMin = Vector2.zero;
+            backRt.anchorMax = Vector2.one;
+            backRt.offsetMin = backRt.offsetMax = Vector2.zero;
+            back.GetComponent<Image>().color = Bg;
+            back.GetComponent<Image>().raycastTarget = false;
+
+            // Eyebrow over title over rule — the HUD's own label hierarchy,
+            // where a small letterspaced caption names what the big number is.
+            var eye = MakeText(canvas.transform, "Eyebrow", eyebrow, 24f * type, TextDim,
+                               new Vector2(0.5f, 0.845f));
+            eye.characterSpacing = 14f;
+            eye.fontStyle = FontStyles.UpperCase;
+
+            titleLabel = MakeText(canvas.transform, "Title", title, 88f * type, Cyan,
+                                  new Vector2(0.5f, 0.755f));
+            titleLabel.fontStyle = FontStyles.Bold;
+            titleLabel.characterSpacing = 6f;
+
+            MakeRule(canvas.transform, "Rule_Top", new Vector2(0.5f, 0.695f), 560f * scale);
+
+            // The content frame: the single biggest reason the stubs read as
+            // unfinished. Buttons standing on a nine-sliced panel belong to the
+            // same interface as the HUD; buttons floating on a fill do not.
+            var frameGo = new GameObject("Frame", typeof(RectTransform), typeof(Image));
+            frameGo.transform.SetParent(canvas.transform, false);
+            var frame = (RectTransform)frameGo.transform;
+            frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0.36f);
+            frame.sizeDelta = new Vector2(720f * scale, 520f * scale);
+            frame.anchoredPosition = Vector2.zero;
+
+            var frameImg = frameGo.GetComponent<Image>();
+            Sprite panelSprite = UISkin.Active != null ? UISkin.Active.panel : null;
+            if (panelSprite != null)
+            {
+                frameImg.sprite = panelSprite;
+                frameImg.type = Image.Type.Sliced;
+                frameImg.color = Color.white;
+            }
+            else
+            {
+                // No skin sprite: a tinted plate still reads as a surface, which
+                // is more than the stubs had.
+                frameImg.color = new Color(Panel.r, Panel.g, Panel.b, 0.92f);
+            }
+            frameImg.raycastTarget = false;
+
+            return frame;
+        }
+
+        /// <summary>A hairline rule in the accent colour — the cheapest thing
+        /// that makes a screen look composed rather than centred.</summary>
+        private static void MakeRule(Transform parent, string name, Vector2 anchor, float width)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = anchor;
+            rt.sizeDelta = new Vector2(width, 2f);
+            rt.anchoredPosition = Vector2.zero;
+            var img = go.GetComponent<Image>();
+            img.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.55f);
+            img.raycastTarget = false;
+        }
+
+        /// <summary>Place a control inside the content frame by pixel offset
+        /// from its top edge, so both screens stack their rows on one ruler.</summary>
+        private static void PlaceInFrame(RectTransform frame, RectTransform child, float fromTop, Vector2 size)
+        {
+            // The skin's uiScale sizes the FRAME, so it has to size the ruler
+            // too — otherwise a chunkier skin grows the panel and leaves its
+            // contents bunched at the top of it.
+            float scale = UISkin.Active != null ? UISkin.Active.uiScale : 1f;
+
+            child.SetParent(frame, false);
+            child.anchorMin = child.anchorMax = new Vector2(0.5f, 1f);
+            child.pivot = new Vector2(0.5f, 1f);
+            child.sizeDelta = size * scale;
+            child.anchoredPosition = new Vector2(0f, -fromTop * scale);
+
+            // MakeButton sizes its label to the button it was born with, so a
+            // resized button would otherwise wear a label of the old width and
+            // wrap its subline early.
+            Transform label = child.Find("Label");
+            if (label is RectTransform labelRt)
+                labelRt.sizeDelta = size * scale;
+        }
+
         private static TMP_Text MakeText(Transform parent, string name, string text, float size, Color color, Vector2 anchor)
         {
             var go = new GameObject(name);
@@ -327,11 +494,39 @@ namespace CoreholdEditor.Campaign
             => WireManifestIntoWelcome(manifest, WelcomePath);
 
         /// <summary>
-        /// Write <paramref name="manifest"/> into the CampaignWelcome component
-        /// of the scene at <paramref name="welcomePath"/> — the ACTUAL welcome
-        /// scene the campaign uses, not a fixed path. A LOADED copy (active OR
-        /// additive) is wired in place; otherwise the scene is opened, wired,
-        /// saved, and the previous scene restored.
+        /// Wire the manifest into the campaign's Welcome scene — the ACTUAL
+        /// path the campaign uses, not a fixed one.
+        /// </summary>
+        internal static bool WireManifestIntoWelcome(CampaignManifest manifest, string welcomePath)
+            => WireManifestInto<CampaignWelcome>(
+                manifest, welcomePath, "manifest", "Welcome scene",
+                "build the menu scenes; the campaign flow wires the manifest into them automatically.",
+                "rebuild the menu scenes.");
+
+        /// <summary>
+        /// Wire the manifest into the campaign's FIRST LEVEL, whose TitleScreen
+        /// overlay is the front door when the campaign has no Welcome scene.
+        ///
+        /// Every generated level already carries a TitleScreen — it is how a
+        /// single map asks which difficulty to play. Handing it the manifest
+        /// promotes it: the difficulty buttons start the campaign in the scene
+        /// that is already open, and CONTINUE RUN appears when there is a run
+        /// to continue. That is the entire entry screen, with no second scene
+        /// to build, boot into, and stream away from before the player sees the
+        /// game they came for.
+        /// </summary>
+        internal static bool WireManifestIntoLevelOne(CampaignManifest manifest, string levelOnePath)
+            => WireManifestInto<TitleScreen>(
+                manifest, levelOnePath, "campaign", "first level",
+                "generate the campaign's levels first.",
+                "regenerate it — every generated level builds a TitleScreen overlay.");
+
+        /// <summary>
+        /// Write <paramref name="manifest"/> into the <paramref name="fieldName"/>
+        /// field of the <typeparamref name="T"/> in the scene at
+        /// <paramref name="scenePath"/>. A LOADED copy (active OR additive) is
+        /// wired in place; otherwise the scene is opened, wired, saved, and the
+        /// previous scene restored.
         ///
         /// The save is REQUESTED FROM VERSION CONTROL and then VERIFIED against
         /// the file bytes: under a checkout workflow (Unity VCS, Perforce) a
@@ -340,13 +535,19 @@ namespace CoreholdEditor.Campaign
         /// empty unless the user happened to have the scene open (their manual
         /// edit context had checked the file out). Returns true only when the
         /// manifest reference demonstrably reached the file on disk.
+        ///
+        /// One implementation for both front doors. Proving the save is the
+        /// part of this that took an afternoon to learn, and it should not
+        /// exist in two copies with only one of them kept honest.
         /// </summary>
-        internal static bool WireManifestIntoWelcome(CampaignManifest manifest, string welcomePath)
+        private static bool WireManifestInto<T>(CampaignManifest manifest, string scenePath,
+                                                string fieldName, string noun,
+                                                string missingSceneHint, string missingComponentHint)
+            where T : Component
         {
-            if (string.IsNullOrEmpty(welcomePath) || !System.IO.File.Exists(welcomePath))
+            if (string.IsNullOrEmpty(scenePath) || !System.IO.File.Exists(scenePath))
             {
-                Debug.LogWarning($"[Campaign] Welcome scene not built yet ({welcomePath}) — build the menu " +
-                                 "scenes; the campaign flow wires the manifest into them automatically.");
+                Debug.LogWarning($"[Campaign] {noun} not built yet ({scenePath}) — {missingSceneHint}");
                 return false;
             }
 
@@ -356,7 +557,7 @@ namespace CoreholdEditor.Campaign
             for (int i = 0; i < SceneManager.sceneCount; i++)
             {
                 Scene s = SceneManager.GetSceneAt(i);
-                if (s.path == welcomePath && s.isLoaded)
+                if (s.path == scenePath && s.isLoaded)
                 {
                     target = s;
                     wasLoaded = true;
@@ -371,49 +572,49 @@ namespace CoreholdEditor.Campaign
             bool openedHere = false;
             if (!wasLoaded)
             {
-                target = EditorSceneManager.OpenScene(welcomePath, OpenSceneMode.Additive);
+                target = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Additive);
                 openedHere = true;
             }
 
             try
             {
                 // Find the component in THE TARGET SCENE's roots — a global find
-                // could grab a CampaignWelcome from some other loaded scene.
-                CampaignWelcome welcome = null;
+                // could grab the same component from some other loaded scene.
+                T host = null;
                 foreach (GameObject root in target.GetRootGameObjects())
                 {
-                    welcome = root.GetComponentInChildren<CampaignWelcome>(true);
-                    if (welcome != null)
+                    host = root.GetComponentInChildren<T>(true);
+                    if (host != null)
                         break;
                 }
-                if (welcome == null)
+                if (host == null)
                 {
-                    Debug.LogError($"[Campaign] '{welcomePath}' has no CampaignWelcome component — rebuild the menu scenes.");
+                    Debug.LogError($"[Campaign] '{scenePath}' has no {typeof(T).Name} component — {missingComponentHint}");
                     return false;
                 }
 
-                var so = new SerializedObject(welcome);
-                so.FindProperty("manifest").objectReferenceValue = manifest;
+                var so = new SerializedObject(host);
+                so.FindProperty(fieldName).objectReferenceValue = manifest;
                 so.ApplyModifiedPropertiesWithoutUndo();
                 EditorSceneManager.MarkSceneDirty(target);
 
                 // Ask VCS to make the file writable, save, then PROVE the save:
                 // the manifest asset's GUID must appear in the scene file bytes.
-                AssetDatabase.MakeEditable(welcomePath);
+                AssetDatabase.MakeEditable(scenePath);
                 bool saved = EditorSceneManager.SaveScene(target);
                 string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(manifest));
                 bool verified = saved && !string.IsNullOrEmpty(guid) &&
-                                System.IO.File.ReadAllText(welcomePath).Contains(guid);
+                                System.IO.File.ReadAllText(scenePath).Contains(guid);
 
                 if (verified)
-                    Debug.Log($"[Campaign] Manifest '{manifest.name}' wired into '{welcomePath}' " +
+                    Debug.Log($"[Campaign] Manifest '{manifest.name}' wired into '{scenePath}' " +
                               $"({(wasLoaded ? "scene was open" : "opened additively")}; save verified on disk).");
                 else
-                    Debug.LogError($"[Campaign] Manifest wiring DID NOT PERSIST to '{welcomePath}' " +
+                    Debug.LogError($"[Campaign] Manifest wiring DID NOT PERSIST to '{scenePath}' " +
                                    $"(SaveScene {(saved ? "reported success" : "FAILED")}, " +
                                    $"manifest guid {(string.IsNullOrEmpty(guid) ? "MISSING — is the .meta imported?" : guid)}). " +
                                    "If the scene is under version control, check it out / make it writable, " +
-                                   "then 'Emit manifest + wire Welcome' again — an unwired Welcome boots to a dead menu.");
+                                   $"then Emit again — an unwired {noun} boots to a dead menu.");
                 return verified;
             }
             finally

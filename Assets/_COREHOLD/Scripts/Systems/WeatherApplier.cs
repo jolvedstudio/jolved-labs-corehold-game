@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using Corehold.Core;
 using Corehold.Data;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Corehold.Systems
 {
@@ -11,11 +13,14 @@ namespace Corehold.Systems
     /// Three properties this component is built around:
     ///
     ///   • <b>The baseline is captured before anything is touched</b>, and every
-    ///     channel is restored on <see cref="Clear"/>. R11 owns the fog baseline —
-    ///     it is solved from the camera and IS the null-preset look — so a preset
-    ///     borrows it and gives it back. Without that, applying and clearing a
-    ///     preset would silently leave the scene on the preset's fog and the
-    ///     "null preset is pixel-identical" requirement would quietly fail.
+    ///     channel is restored on <see cref="Clear"/>. The fog baseline is whatever
+    ///     the scene LOADED with — originally R11's camera-solved fog, and since
+    ///     M-d whatever LookStage baked from the theme (EnvPack fog/skybox); this
+    ///     applier deliberately captures the loaded state rather than assuming an
+    ///     owner, so a preset borrows the baseline and gives it back. Without
+    ///     that, applying and clearing a preset would silently leave the scene on
+    ///     the preset's fog and the "null preset is pixel-identical" requirement
+    ///     would quietly fail.
     ///
     ///   • <b>No per-object material instances.</b> Ground tinting goes through one
     ///     shared <see cref="MaterialPropertyBlock"/>; touching
@@ -52,7 +57,21 @@ namespace Corehold.Systems
         private Color _baseFogColor;
         private float _baseFogDensity;
 
+        // ----- Sun (resolved once; every field the override writes is captured) --
+        private Light _sun;
+        private bool _sunResolved;
+        private Color _baseSunColor;
+        private float _baseSunIntensity;
+        private float _baseSunShadowStrength;
+        private bool _baseSunUseTemperature;
+
         private readonly List<Renderer> _resolvedTargets = new List<Renderer>();
+        // Each target's own material colour, captured at resolve time. The tint is
+        // MULTIPLICATIVE over this (as the preset tooltip promises): writing the
+        // preset tint verbatim — or literal white on restore — through the property
+        // block would OVERWRITE any authored non-white material colour, silently
+        // breaking the "null preset is pixel-identical" guarantee.
+        private readonly List<Color> _baseTints = new List<Color>();
         private MaterialPropertyBlock _block;
         private GameObject _precipitation;
         private Material _precipitationMaterial;
@@ -82,10 +101,320 @@ namespace Corehold.Systems
         /// <summary>The preset currently applied, or null when the scene is on its baseline.</summary>
         public WeatherPreset Active { get; private set; }
 
+        // A mutator's weather is NOT wired here. It lives on the mutator asset
+        // (WaveMutatorDefinition.weatherLayer), which is the one place a mutator
+        // is defined — so a new mutator arrives with its look already attached
+        // and no scene has to be opened to grant it one. This component used to
+        // carry a per-scene mutator→layer table as well; two places to answer
+        // "what does a storm wave look like?" meant every scene could disagree
+        // with every other, and a mutator added without a scene visit looked
+        // like nothing at all.
+
+        // ------------------------------------------------- per-wave weather roll
+
+        [Header("Per-wave weather")]
+        [Tooltip("Weather this LEVEL can roll at the start of any wave, stacked over the level's base " +
+                 "preset. The generator fills it from the theme's own pool, so an ice map cannot draw " +
+                 "desert dust. Duplicates weight the draw, the same convention the base pool uses — " +
+                 "[Clear, Clear, Dust] is 2:1 clear. EMPTY = the level's weather never changes, which " +
+                 "is exactly the old behaviour.")]
+        public WeatherPreset[] waveWeatherPool;
+
+        [Tooltip("Chance a wave rolls at all (0 = never, 1 = every wave). Below 1 on purpose: weather " +
+                 "that changes on EVERY wave is its own kind of monotony, and a front that sits over " +
+                 "two or three waves reads as weather while one that flips every time reads as a " +
+                 "slot machine.")]
+        [Range(0f, 1f)] public float waveWeatherChance = 0.55f;
+
+        [Tooltip("Draw a fresh sequence every run. ON is the point of the feature: the same level " +
+                 "played twice — or retried after a loss — gets different skies. Turn it OFF to make a " +
+                 "level's weather reproducible, which is what you want while tuning one.")]
+        public bool rerollEachRun = true;
+
+        /// <summary>The layer this wave rolled, or null. Held across the wave
+        /// boundary like the mutator look, replaced at the next wave's roll.</summary>
+        private WeatherPreset _waveLayer;
+        private uint _runSeed;
+        private WaveManager _waves;
+
+        // ------------------------------------------------------ composed runtime
+        // All of this idles at ZERO cost: Update early-outs on one time compare,
+        // and the throttled tick early-outs again when every current equals its
+        // target and no gust or lightning is configured.
+
+        private WeatherPreset _merged;         // the flattened stack, as one carrier
+        private ParticleSystem _sheetPs;       // procedural sheet, cached at build
+        private Vector3 _sheetBaseVel;         // camera-local wind+fall it was built with
+        private float _resolvedRate;
+
+        private float _surfaceSeconds = 10f;
+        private float _targetSnow, _targetWet;
+        private float _trailStrength = 0.8f;
+        private float _trailMeltSeconds = 45f;
+        private float _puddleDepth;
+        private float _wetShine = 1f;
+        private Color _targetFilm = Color.white;
+        private float _curSnow, _curWet;
+        private float _envelope = 1f;          // 0→1 ramp shared by rate + surfaces
+        private float _nextTick;
+        private const float TickSeconds = 0.15f;
+
+        private float _gustStrength;
+        private float _gustPeriod = 7f;
+        private Vector3 _windDirection = Vector3.forward;
+        private float _windStrength;
+        private float _propSway = 1f;
+
+        private float _strikesPerMinute;
+        private float _lightningIntensity = 3.5f;
+        private Color _lightningColor = Color.white;
+        private float _nextStrikeAt = float.PositiveInfinity;
+        private float _flashStartedAt = -1f;
+        private float _stackSunIntensity;      // restore point after a flash
+        private Color _stackSunColor;
+
         private void Start()
         {
             CaptureBaseline();
             Apply(preset);
+
+            // The wave manager now HOLDS the mutator look across the wave
+            // boundary (a storm should not switch off the instant the last
+            // frame dies), which means the end of the RUN is the one moment
+            // left with no next wave to clear it. Subscribed here rather than
+            // in OnEnable because GameManager.Instance is not guaranteed to
+            // exist that early.
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.OnStateChanged += OnGameStateChanged;
+                _stateSubscribed = true;
+            }
+
+            // The run's weather sequence. A fresh seed per run is the whole
+            // feature: the same level twice, or a retry after a loss, must not
+            // hand back the same sky. Off, the seed comes from the scene name,
+            // so a level being TUNED is reproducible — you cannot judge a look
+            // that changes under you.
+            _runSeed = rerollEachRun
+                ? (uint)UnityEngine.Random.Range(1, int.MaxValue)
+                : Hash((uint)gameObject.scene.name.GetHashCode(), 0);
+
+            _waves = FindFirstObjectByType<WaveManager>();
+            if (_waves != null)
+                _waves.OnWaveStarted += OnWaveStarted;
+        }
+
+        /// <summary>
+        /// Roll this wave's weather.
+        ///
+        /// The roll produces a LAYER, not a preset, so it stacks over the
+        /// level's base look through the machinery that already exists —
+        /// flatten, merge, ramp, restore — rather than swapping the scene's
+        /// weather out from under the player. That is what keeps a rolled
+        /// storm reading as a front moving across the level's own climate
+        /// instead of as a scene change.
+        ///
+        /// Derived from (run seed, wave number) rather than drawn from a live
+        /// RNG, so the same wave re-entered within a run rolls the same sky and
+        /// nothing flickers if this fires twice.
+        /// </summary>
+        private void OnWaveStarted(int waveNumber)
+        {
+            if (!Application.isPlaying)
+                return;
+
+            WeatherPreset rolled = RollWaveWeather(waveNumber);
+            if (rolled == _waveLayer)
+                return;
+            _waveLayer = rolled;
+            if (_baselineCaptured)
+                ApplyStack();
+        }
+
+        /// <summary>
+        /// Draw a new weather sequence for this run (DebugConsole ⇧W), and
+        /// return the seed so a sequence worth keeping can be written down.
+        ///
+        /// The CURRENT wave's sky is left alone: re-rolling under a wave that
+        /// is already in flight would change the weather mid-fight, which is
+        /// the one thing the ramp exists to avoid. The new sequence lands at
+        /// the next wave start, where a roll normally does.
+        /// </summary>
+        public uint RerollRunSeed()
+        {
+            _runSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue);
+            return _runSeed;
+        }
+
+        /// <summary>
+        /// Longest run of consecutive waves one rolled weather may hold before
+        /// it is forced to break.
+        ///
+        /// Without a cap nothing stops a ten-wave level rolling dust ten times
+        /// — improbable, but improbable is not never, and "never the whole
+        /// level" is a promise a player can feel being broken. A spell of two
+        /// or three waves is weather; a spell of ten is the old baked look with
+        /// extra steps.
+        /// </summary>
+        private const int MaxSpellWaves = 3;
+
+        /// <summary>
+        /// This wave's weather, with the spell cap applied.
+        ///
+        /// Computed forward from wave 1 rather than from stored state, so the
+        /// answer stays a pure function of (run seed, wave number): a wave
+        /// re-entered mid-run cannot disagree with itself, and nothing has to
+        /// be saved or restored. Ten-odd iterations of integer hashing, once
+        /// per wave start.
+        /// </summary>
+        private WeatherPreset RollWaveWeather(int waveNumber)
+        {
+            if (waveWeatherPool == null || waveWeatherPool.Length == 0)
+                return null;
+
+            WeatherPreset prev = null;
+            WeatherPreset current = null;
+            int run = 0;
+
+            for (int w = 1; w <= waveNumber; w++)
+            {
+                WeatherPreset raw = RawRoll(w);
+
+                // The spell has held long enough — displace it, so the same sky
+                // can never own the level.
+                if (raw != null && raw == prev && run >= MaxSpellWaves)
+                    raw = Displace(w, raw);
+
+                if (raw == null) run = 0;
+                else if (raw == prev) run++;
+                else run = 1;
+
+                prev = raw;
+                current = raw;
+            }
+            return current;
+        }
+
+        /// <summary>Something OTHER than the weather that has overstayed — or
+        /// the base look, when the pool has nothing else to offer, which breaks
+        /// the spell just as well.</summary>
+        private WeatherPreset Displace(int waveNumber, WeatherPreset banned)
+        {
+            int alternatives = 0;
+            for (int i = 0; i < waveWeatherPool.Length; i++)
+                if (waveWeatherPool[i] != null && waveWeatherPool[i] != banned)
+                    alternatives++;
+            if (alternatives == 0)
+                return null;
+
+            int target = (int)(Hash(_runSeed, (uint)waveNumber ^ 0x7F4A7C15u) % (uint)alternatives);
+            for (int i = 0; i < waveWeatherPool.Length; i++)
+            {
+                WeatherPreset c = waveWeatherPool[i];
+                if (c == null || c == banned)
+                    continue;
+                if (target-- == 0)
+                    return c;
+            }
+            return null;
+        }
+
+        /// <summary>The unconstrained draw for one wave.</summary>
+        private WeatherPreset RawRoll(int waveNumber)
+        {
+            if (waveWeatherPool == null || waveWeatherPool.Length == 0)
+                return null;
+
+            // TWO SEPARATE HASHES, not two fields of one. Consecutive waves
+            // differ by a single low salt byte, and slicing one hash into a
+            // "does it roll" half and a "what rolls" half made adjacent waves
+            // draw the SAME weather 56% of the time instead of 1-in-N — which
+            // would have read as "the weather barely changes", the exact
+            // complaint this feature exists to answer. Salting the second draw
+            // with the golden ratio decorrelates them.
+            uint gate = Hash(_runSeed, (uint)waveNumber);
+            if ((gate & 0xFFFFu) / 65535f > waveWeatherChance)
+                return null;
+
+            // Duplicates weight the draw — the same convention the theme's base
+            // pool uses, so one authoring habit covers both.
+            uint draw = Hash(_runSeed, (uint)waveNumber ^ 0x9E3779B9u);
+            int pick = (int)(draw % (uint)waveWeatherPool.Length);
+            return waveWeatherPool[pick];
+        }
+
+        /// <summary>
+        /// FNV-1a over two words, FINISHED with an avalanche mix.
+        ///
+        /// The mix is not optional here. Plain FNV-1a over (seed, waveNumber)
+        /// leaves the high bits barely changed between consecutive waves —
+        /// only the low salt byte differs — so any pick taken from those bits
+        /// repeats. The finalizer is murmur3's fmix32, four instructions that
+        /// spread a one-byte input change across all 32 output bits.
+        /// </summary>
+        private static uint Hash(uint seed, uint salt)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                for (int i = 0; i < 4; i++) { h ^= (seed >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                for (int i = 0; i < 4; i++) { h ^= (salt >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                h ^= h >> 16; h *= 0x85EBCA6Bu;
+                h ^= h >> 13; h *= 0xC2B2AE35u;
+                h ^= h >> 16;
+                return h;
+            }
+        }
+
+        private bool _stateSubscribed;
+
+        private void OnGameStateChanged(GameState state)
+        {
+            if (state != GameState.Victory && state != GameState.Defeat)
+                return;
+            // The run is over: the rolled sky goes with it, so a result screen
+            // is not still standing in wave 9's storm.
+            _waveLayer = null;
+            OnMutatorAssetsChanged(null);
+        }
+
+        private void OnEnable()
+        {
+            WaveManager.ActiveMutatorAssetsChanged += OnMutatorAssetsChanged;
+        }
+
+        private void OnDisable()
+        {
+            WaveManager.ActiveMutatorAssetsChanged -= OnMutatorAssetsChanged;
+            if (_waves != null)
+                _waves.OnWaveStarted -= OnWaveStarted;
+            if (_stateSubscribed && GameManager.Instance != null)
+            {
+                GameManager.Instance.OnStateChanged -= OnGameStateChanged;
+                _stateSubscribed = false;
+            }
+        }
+
+        /// <summary>
+        /// Weather layers carried by the wave's mutators.
+        ///
+        /// This is what makes a new mutator arrive complete: the asset names
+        /// its own layer, so a designer adding one gets its look without
+        /// opening a single scene.
+        /// </summary>
+        private readonly List<WeatherPreset> _mutatorAssetLayers = new List<WeatherPreset>(4);
+
+        private void OnMutatorAssetsChanged(IReadOnlyList<WaveMutatorDefinition> now)
+        {
+            _mutatorAssetLayers.Clear();
+            if (now != null)
+                foreach (WaveMutatorDefinition d in now)
+                    if (d != null && d.weatherLayer != null &&
+                        !_mutatorAssetLayers.Contains(d.weatherLayer))
+                        _mutatorAssetLayers.Add(d.weatherLayer);
+
+            if (Application.isPlaying && _baselineCaptured)
+                ApplyStack();
         }
 
         private void OnDestroy()
@@ -93,6 +422,15 @@ namespace Corehold.Systems
             // Leave the editor's scene state as we found it.
             if (_baselineCaptured)
                 RestoreBaseline();
+            // Props hold SWAPPED materials while weather is up; a scene change
+            // must put the dressing back on its own before the variants die
+            // with the domain, or the next scene inherits pink renderers.
+            PropSnow.Restore();
+
+            // Shader globals outlive the scene. A menu loaded after a rainstorm
+            // must not keep the storm's water table and shine — the same reason
+            // TrailMap zeroes its strength on the way out.
+            Shader.SetGlobalVector(WaterId, Vector4.zero);
             if (Application.isPlaying && AudioDirector.Instance != null)
                 AudioDirector.Instance.StopWeatherLoop();
             if (_precipitationMaterial != null)
@@ -116,8 +454,46 @@ namespace Corehold.Systems
             _baseFogColor = RenderSettings.fogColor;
             _baseFogDensity = RenderSettings.fogDensity;
 
+            ResolveSun();
             EnsureGradeVolume();
             _baselineCaptured = true;
+        }
+
+        /// <summary>
+        /// Find the scene's sun and snapshot every field the sun override writes.
+        /// RenderSettings.sun (the Lighting window's explicit Sun Source) wins;
+        /// otherwise the brightest active directional light — the same light the
+        /// player is actually lit by.
+        /// </summary>
+        private void ResolveSun()
+        {
+            if (_sunResolved)
+                return;
+            _sunResolved = true;
+
+            _sun = RenderSettings.sun;
+            if (_sun == null || _sun.type != LightType.Directional || !_sun.isActiveAndEnabled)
+            {
+                _sun = null;
+                float best = float.MinValue;
+                foreach (var l in FindObjectsByType<Light>(FindObjectsSortMode.None))
+                {
+                    if (l == null || l.type != LightType.Directional || !l.isActiveAndEnabled)
+                        continue;
+                    if (l.intensity > best)
+                    {
+                        _sun = l;
+                        best = l.intensity;
+                    }
+                }
+            }
+            if (_sun == null)
+                return;
+
+            _baseSunColor = _sun.color;
+            _baseSunIntensity = _sun.intensity;
+            _baseSunShadowStrength = _sun.shadowStrength;
+            _baseSunUseTemperature = _sun.useColorTemperature;
         }
 
         /// <summary>
@@ -154,6 +530,15 @@ namespace Corehold.Systems
             RenderSettings.fogMode = _baseFogMode;
             RenderSettings.fogColor = _baseFogColor;
             RenderSettings.fogDensity = _baseFogDensity;
+
+            if (_sun != null)
+            {
+                _sun.useColorTemperature = _baseSunUseTemperature;
+                _sun.color = _baseSunColor;
+                _sun.intensity = _baseSunIntensity;
+                _sun.shadowStrength = _baseSunShadowStrength;
+            }
+
             TintTargets(Color.white);
 
             // Stand the grade down entirely — weight 0 contributes nothing, so the
@@ -171,24 +556,99 @@ namespace Corehold.Systems
         /// </summary>
         public void Apply(WeatherPreset next)
         {
+            Active = next;
+            ApplyStack();
+        }
+
+        /// <summary>
+        /// Apply the FULL stack: the active preset, its declared layers
+        /// (depth-first, cycle-guarded), and any mutator-linked layers for the
+        /// wave in flight — flattened, merged by the composition rules, and
+        /// applied exactly once. One grade volume, one particle sheet, one set
+        /// of channel writes, however tall the stack: layers add authoring
+        /// freedom, never draw cost.
+        /// </summary>
+        private void ApplyStack()
+        {
             CaptureBaseline();
 
-            // Always start from the baseline so presets never stack.
+            // Always start from the baseline so stacks never stack on stacks.
             RestoreBaseline();
-            Active = next;
 
-            if (next == null)
+            // A restart also ends any in-flight flash and gust authority; the
+            // merged stack below re-establishes both from scratch.
+            _flashStartedAt = -1f;
+            _nextStrikeAt = float.PositiveInfinity;
+            _gustStrength = 0f;
+            // Wind authority is re-established from the merged stack below, so
+            // it has to be surrendered here as well: left standing, a cleared
+            // preset's wind would keep the dressing swaying (and keep it
+            // swapped onto the weather shader) with no weather to justify it.
+            _windStrength = 0f;
+            _propSway = 0f;
+            _puddleDepth = 0f;
+            _sheetPs = null;
+
+            var stack = new List<WeatherPreset>(8);
+            Flatten(Active, stack, 0);
+            // The wave's rolled weather sits over the level's base look and
+            // UNDER the mutator layers. A mutator is an announced event with a
+            // banner and a gameplay rule behind it; the roll is the climate
+            // being itself. When both land on one wave the announced one has to
+            // win, or the player reads a storm banner over a clear sky.
+            if (_waveLayer != null)
+                Flatten(_waveLayer, stack, 0);
+
+            // The wave's mutators bring their own layers, stacked last so an
+            // announced rule always reads over the climate underneath it.
+            foreach (WeatherPreset layer in _mutatorAssetLayers)
+                if (layer != null && !stack.Contains(layer))
+                    Flatten(layer, stack, 0);
+
+            if (stack.Count == 0)
             {
                 SetPrecipitationActive(false);
+                // Dry out rather than snap when playing: clearing a snowstorm
+                // melts, it does not blink. Edit mode snaps for honest preview.
+                _targetSnow = 0f;
+                _targetWet = 0f;
+                if (!Application.isPlaying)
+                {
+                    _curSnow = 0f;
+                    _curWet = 0f;
+                    PushSurface();
+                }
                 if (Application.isPlaying && AudioDirector.Instance != null)
                     AudioDirector.Instance.StopWeatherLoop();
                 return;
             }
 
+            DestroyEitherMode(_merged);
+            _merged = Merge(stack);
+            WeatherPreset next = _merged;
+
             if (next.overrideAmbient)
             {
                 RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
                 RenderSettings.ambientLight = next.ambientColor;
+            }
+
+            if (next.overrideSun && _sun != null)
+            {
+                // Compose filter × blackbody ourselves rather than leaning on
+                // Light.useColorTemperature: that flag's contribution depends on
+                // project graphics settings, and a sun ALREADY authored in
+                // temperature mode would double-compose its own Kelvin with the
+                // preset's. Forcing the flag off while the override is active
+                // makes the written colour the whole story; restore puts flag
+                // and colour back exactly. Intensity and shadow strength are
+                // MULTIPLIERS over the captured baseline — same doctrine as the
+                // ground tint — so dim-authored suns keep their identity.
+                _sun.useColorTemperature = false;
+                _sun.color = next.sunFilter *
+                             Mathf.CorrelatedColorTemperatureToRGB(next.sunTemperatureKelvin);
+                _sun.intensity = _baseSunIntensity * next.sunIntensityMult;
+                _sun.shadowStrength = _baseSunShadowStrength * next.sunShadowStrengthMult;
             }
 
             if (next.overrideFog)
@@ -201,6 +661,28 @@ namespace Corehold.Systems
 
             if (next.overrideGroundTint)
                 TintTargets(next.groundTint);
+
+            // Surface response goes to TARGETS, not straight to the ground: the
+            // throttled tick walks the currents there over surfaceChangeSeconds,
+            // because snow that pops on in one frame reads as a bug while snow
+            // that builds over ten seconds reads as weather. Edit mode snaps —
+            // a preview that ramps is a preview that lies about the end state.
+            _targetWet = next.groundWetness;
+            _targetSnow = next.groundSnow;
+            _targetFilm = next.snowColor;
+            _trailStrength = next.trailStrength;
+            _trailMeltSeconds = next.trailMeltSeconds;
+            _puddleDepth = next.puddleDepth;
+            _wetShine = next.wetShine;
+            _surfaceSeconds = next.surfaceChangeSeconds <= 0f ? 10f : next.surfaceChangeSeconds;
+            _envelope = 0f;
+            if (!Application.isPlaying)
+            {
+                _curWet = _targetWet;
+                _curSnow = _targetSnow;
+                _envelope = 1f;
+                PushSurface();
+            }
 
             // sharedProfile, not profile: assigning the asset directly avoids
             // instantiating a runtime copy per apply (the same reason ground tinting
@@ -225,6 +707,262 @@ namespace Corehold.Systems
                         next.precipitation == WeatherPreset.Precipitation.Rain,
                         next.ambientVolume);
             }
+
+            // The flash restore point: whatever sun the STACK just applied is
+            // what a lightning strike must come back to — override or baseline.
+            if (_sun != null)
+            {
+                _stackSunIntensity = _sun.intensity;
+                _stackSunColor = _sun.color;
+            }
+            _gustStrength = next.gustStrength;
+            _gustPeriod = Mathf.Max(1f, next.gustPeriodSeconds);
+            _windDirection = next.windDirection;
+            _windStrength = next.windStrength;
+            _propSway = next.propSway;
+            _strikesPerMinute = next.lightningStrikesPerMinute;
+            _lightningIntensity = next.lightningIntensity;
+            _lightningColor = next.lightningColor;
+            if (Application.isPlaying && _strikesPerMinute > 0f)
+                _nextStrikeAt = Time.time + (60f / _strikesPerMinute) * UnityEngine.Random.Range(0.3f, 1f);
+        }
+
+        /// <summary>Depth-first flatten: the preset, then its layers in order —
+        /// so a layer OVERRIDES what it modifies (last wins). Cycle-guarded and
+        /// depth-capped; a self-referencing preset degrades to itself.</summary>
+        private static void Flatten(WeatherPreset p, List<WeatherPreset> into, int depth)
+        {
+            if (p == null || depth > 4 || into.Contains(p))
+                return;
+            into.Add(p);
+            if (p.layers == null)
+                return;
+            foreach (WeatherPreset layer in p.layers)
+                Flatten(layer, into, depth + 1);
+        }
+
+        /// <summary>
+        /// Merge a flattened stack into one carrier. The rules, per channel:
+        /// flagged channels (ambient/sun/fog/tint/post) go to the LAST layer
+        /// that sets the flag; surface film and wetness take the MAX (heavy
+        /// snow plus anything stays heavy snow); precipitation, wind, gust,
+        /// lightning and audio go to the last layer that uses them.
+        /// </summary>
+        private static WeatherPreset Merge(List<WeatherPreset> stack)
+        {
+            var m = ScriptableObject.CreateInstance<WeatherPreset>();
+            m.name = "Weather(MergedStack)";
+            m.hideFlags = HideFlags.HideAndDontSave;
+            m.windStrength = 0f;
+            m.gustStrength = 0f;
+            m.lightningStrikesPerMinute = 0f;
+            m.surfaceChangeSeconds = 0f;
+            m.groundSnow = 0f;
+            m.groundWetness = 0f;
+            m.puddleDepth = 0f;
+
+            foreach (WeatherPreset l in stack)
+            {
+                if (l.overrideAmbient) { m.overrideAmbient = true; m.ambientColor = l.ambientColor; }
+                if (l.overrideSun)
+                {
+                    m.overrideSun = true;
+                    m.sunTemperatureKelvin = l.sunTemperatureKelvin;
+                    m.sunFilter = l.sunFilter;
+                    m.sunIntensityMult = l.sunIntensityMult;
+                    m.sunShadowStrengthMult = l.sunShadowStrengthMult;
+                }
+                if (l.overrideFog)
+                {
+                    m.overrideFog = true;
+                    m.fogColor = l.fogColor;
+                    m.fogDensity = l.fogDensity;
+                }
+                if (l.overrideGroundTint) { m.overrideGroundTint = true; m.groundTint = l.groundTint; }
+                if (l.overridePostProfile && l.postProfile != null)
+                {
+                    m.overridePostProfile = true;
+                    m.postProfile = l.postProfile;
+                    m.postWeight = l.postWeight;
+                }
+
+                // Trail knobs travel WITH the film that wins: found dead in
+                // review — the merged carrier kept its field defaults, so the
+                // per-preset knobs did nothing through the only path the
+                // runtime applies.
+                if (l.groundSnow > m.groundSnow)
+                {
+                    m.groundSnow = l.groundSnow;
+                    m.snowColor = l.snowColor;
+                    m.trailStrength = l.trailStrength;
+                    m.trailMeltSeconds = l.trailMeltSeconds;
+                }
+                if (l.groundWetness > m.groundWetness)
+                {
+                    // Wetness is ACCUMULATIVE (max wins — a second layer cannot
+                    // dry the ground), and the water that stands in it belongs
+                    // to whichever layer brought the water. Carried together so
+                    // a light drizzle layered under a downpour cannot leave the
+                    // downpour's soak with the drizzle's puddles.
+                    m.groundWetness = l.groundWetness;
+                    m.puddleDepth = l.puddleDepth;
+                    m.wetShine = l.wetShine;
+                }
+                if (l.surfaceChangeSeconds > 0f) m.surfaceChangeSeconds = l.surfaceChangeSeconds;
+
+                if (l.precipitation != WeatherPreset.Precipitation.None)
+                {
+                    m.precipitation = l.precipitation;
+                    m.precipitationPrefab = l.precipitationPrefab;
+                    m.precipitationRate = l.precipitationRate;
+                    m.fallSpeed = l.fallSpeed;
+                    m.particleSize = l.particleSize;
+                    m.particleSizeJitter = l.particleSizeJitter;
+                    m.streakLength = l.streakLength;
+                    m.particleColor = l.particleColor;
+                    m.ambientLoop = l.ambientLoop;
+                    m.ambientVolume = l.ambientVolume;
+                }
+
+                if (l.windStrength > 0f)
+                {
+                    m.windDirection = l.windDirection;
+                    m.windStrength = l.windStrength;
+                    // Sway travels WITH the wind that carries it: a layer that
+                    // brings its own wind brings its own answer for how hard
+                    // that wind bends things. Left behind, a calm base preset's
+                    // sway would silently govern a gale layered over it.
+                    m.propSway = l.propSway;
+                }
+                if (l.gustStrength > 0f)
+                {
+                    m.gustStrength = l.gustStrength;
+                    m.gustPeriodSeconds = l.gustPeriodSeconds;
+                }
+                if (l.lightningStrikesPerMinute > 0f)
+                {
+                    m.lightningStrikesPerMinute = l.lightningStrikesPerMinute;
+                    m.lightningIntensity = l.lightningIntensity;
+                    m.lightningColor = l.lightningColor;
+                }
+            }
+            return m;
+        }
+
+        // -------------------------------------------------------- the live loop
+
+        private void Update()
+        {
+            float now = Time.time;
+
+            // Per-frame work exists ONLY while a flash is live (a 0.12 s pulse
+            // needs frame resolution); everything else rides the throttled tick.
+            if (_flashStartedAt >= 0f)
+                FlashEnvelope(now);
+
+            if (now < _nextTick)
+                return;
+            _nextTick = now + TickSeconds;
+            Tick(now);
+        }
+
+        private void Tick(float now)
+        {
+            // ---- progressive surfaces + precipitation ramp -------------------
+            bool moving = _envelope < 1f ||
+                          !Mathf.Approximately(_curSnow, _targetSnow) ||
+                          !Mathf.Approximately(_curWet, _targetWet);
+            if (moving)
+            {
+                float step = TickSeconds / Mathf.Max(0.5f, _surfaceSeconds);
+                _envelope = Mathf.Min(1f, _envelope + step);
+                _curSnow = Mathf.MoveTowards(_curSnow, _targetSnow, step);
+                _curWet = Mathf.MoveTowards(_curWet, _targetWet, step);
+                PushSurface();
+
+                if (_sheetPs != null)
+                {
+                    var emission = _sheetPs.emission;
+                    emission.rateOverTime = _resolvedRate * Mathf.SmoothStep(0f, 1f, _envelope);
+                }
+            }
+
+            // ---- gusts -------------------------------------------------------
+            // Two incommensurate sines so the rhythm never quite repeats. The
+            // envelope multiplies the HORIZONTAL drift only: gusts push sideways,
+            // they do not make snow fall faster.
+            if (_gustStrength > 0f)
+            {
+                float g = 0.6f * Mathf.Sin(now * (2f * Mathf.PI) / _gustPeriod) +
+                          0.4f * Mathf.Sin(now * (2f * Mathf.PI) * 2.7f / _gustPeriod + 1.7f);
+                float factor = 1f + _gustStrength * g;
+                if (_sheetPs != null)
+                {
+                    var vel = _sheetPs.velocityOverLifetime;
+                    vel.x = new ParticleSystem.MinMaxCurve(_sheetBaseVel.x * factor);
+                    vel.z = new ParticleSystem.MinMaxCurve(_sheetBaseVel.z * factor);
+                }
+
+                // The SAME gust drives the vegetation, so a gust that pushes
+                // the snow sideways bends the trees on the same beat. Falling
+                // motes and standing props reacting to different winds is the
+                // detail that gives the whole effect away. Not gated on the
+                // particle sheet: a windy clear day has no sheet and still has
+                // trees. One global write per throttled tick.
+                if (_propSway > 0f && _windStrength > 0f)
+                    PropSnow.PushWind(_windDirection,
+                        PropSnow.SwayAmplitude(_windStrength * factor * _envelope, _propSway));
+            }
+
+            // ---- lightning scheduling ---------------------------------------
+            if (_strikesPerMinute > 0f && _flashStartedAt < 0f && now >= _nextStrikeAt)
+            {
+                _flashStartedAt = now;
+                _nextStrikeAt = now + (60f / _strikesPerMinute) * UnityEngine.Random.Range(0.45f, 1.6f);
+            }
+        }
+
+        /// <summary>Push the CURRENT surface values to terrain and props.</summary>
+        private void PushSurface()
+        {
+            ApplySurfaceResponse(_curWet, _curSnow, _targetFilm);
+            PushWater(_curWet);
+            ApplyRoadwayCover(_curSnow, _curWet);
+            PropSnow.Apply(_curSnow, _curWet, _targetFilm,
+                           _windDirection, _windStrength * _envelope, _propSway);
+            // Trails follow the RAMPED film, so they fade in with the snowfall
+            // and stop mattering as it melts — and the map self-clears when the
+            // film is gone, so the next storm starts unmarked.
+            TrailMap.Push(gameObject, _curSnow, _trailStrength, _trailMeltSeconds);
+        }
+
+        /// <summary>The strike: a sharp main pulse and a dimmer echo, ~0.4 s
+        /// total, written straight onto the sun and restored exactly to what the
+        /// stack applied. Brief on purpose — a long bright flash costs the
+        /// readability doctrine more than it buys drama.</summary>
+        private void FlashEnvelope(float now)
+        {
+            if (_sun == null)
+            {
+                _flashStartedAt = -1f;
+                return;
+            }
+
+            float t = now - _flashStartedAt;
+            float e;
+            if (t < 0.10f) e = 1f - t / 0.10f;                       // main pulse
+            else if (t < 0.22f) e = 0f;
+            else if (t < 0.34f) e = 0.4f * (1f - (t - 0.22f) / 0.12f); // echo
+            else
+            {
+                _sun.intensity = _stackSunIntensity;
+                _sun.color = _stackSunColor;
+                _flashStartedAt = -1f;
+                return;
+            }
+
+            _sun.intensity = _stackSunIntensity * Mathf.Lerp(1f, _lightningIntensity, e);
+            _sun.color = Color.Lerp(_stackSunColor, _lightningColor, e * 0.8f);
         }
 
         /// <summary>Clear back to the authored look.</summary>
@@ -251,9 +989,149 @@ namespace Corehold.Systems
                 Renderer r = _resolvedTargets[i];
                 if (r == null)
                     continue;
+                // Multiplicative over the material's OWN colour — a white tint
+                // (the restore path) therefore reproduces the authored look
+                // exactly, whatever colour the material was authored with. The
+                // existing block is read first so the generator's ground-tiling
+                // properties survive on the same renderer.
+                Color composed = _baseTints[i] * tint;
                 r.GetPropertyBlock(_block);
-                _block.SetColor(BaseColorId, tint);
-                _block.SetColor(ColorId, tint);
+                _block.SetColor(BaseColorId, composed);
+                _block.SetColor(ColorId, composed);
+                r.SetPropertyBlock(_block);
+            }
+        }
+
+        private static readonly int WaterId = Shader.PropertyToID("_CoreholdWater");
+        private static readonly int SkyColorId = Shader.PropertyToID("_CoreholdSkyColor");
+
+        /// <summary>Shoreline softness in metres. Wide enough that the water
+        /// line is a wet margin rather than a cut edge, narrow enough that a
+        /// shallow pool still has a shape.</summary>
+        private const float ShorelineFeather = 0.45f;
+
+        /// <summary>The lowest point of the WALKABLE ground — where water goes.</summary>
+        private float _groundMinY;
+        private bool _groundMeasured;
+
+        /// <summary>
+        /// How far above the lowest ground a full <c>puddleDepth</c> raises the
+        /// water, in METRES.
+        ///
+        /// Deliberately absolute rather than a fraction of the terrain's height
+        /// range, which is what the first version did and got badly wrong: the
+        /// range it measured included the silhouette massifs (tens of metres of
+        /// background cliff that nothing pools on), so `puddleDepth` meant
+        /// something different on every map and the storm preset put the water
+        /// line metres up the hillsides. A puddle is a puddle at any map scale,
+        /// so the band is fixed and legible: 2.5 m from the deepest ground, of
+        /// which the storm preset uses about a third.
+        /// </summary>
+        private const float PuddleBandMetres = 2.5f;
+
+        /// <summary>
+        /// Find the lowest point of the ground water can actually stand on.
+        ///
+        /// Measured from the RELIEF MESH alone, not from the resolved weather
+        /// targets, because that list is built for tinting and contains two
+        /// things that must never set a water line: the flat Floor, which the
+        /// terrain stage drops 3 m as a void-catcher and which therefore sits
+        /// well below any real valley, and the silhouette props, which are
+        /// background scenery. The Floor is used only when there is no relief
+        /// at all, which is exactly the case where it IS the ground.
+        /// </summary>
+        private void MeasureGround()
+        {
+            if (_groundMeasured)
+                return;
+            _groundMeasured = true;
+
+            var relief = GameObject.Find("TerrainRelief");
+            Renderer[] sources = relief != null
+                ? relief.GetComponentsInChildren<Renderer>(true)
+                : null;
+
+            if (sources == null || sources.Length == 0)
+            {
+                var floor = GameObject.Find("Floor");
+                var fr = floor != null ? floor.GetComponent<Renderer>() : null;
+                if (fr == null)
+                    return;
+                _groundMinY = fr.bounds.min.y;
+                return;
+            }
+
+            float min = float.PositiveInfinity;
+            foreach (Renderer r in sources)
+                if (r != null)
+                    min = Mathf.Min(min, r.bounds.min.y);
+            if (!float.IsPositiveInfinity(min))
+                _groundMinY = min;
+        }
+
+        /// <summary>Raise the water table and hand the shaders the sky that wet
+        /// ground has to mirror.</summary>
+        private void PushWater(float wet)
+        {
+            ResolveTargets();
+            MeasureGround();
+
+            // Ripples belong to RAIN. Snow and dust settle on water without
+            // stirring it, and a shimmering puddle under a dust storm is an
+            // instant tell that this is a shader and not weather.
+            float ripple = _merged != null &&
+                           _merged.precipitation == WeatherPreset.Precipitation.Rain &&
+                           _resolvedRate > 0f ? 1f : 0f;
+
+            // Wetness GATES the water rather than scaling its height. Two
+            // sub-1 numbers multiplied together is what made the first version
+            // invisible: rain at 0.45 wet and 0.18 depth moved the table by a
+            // fifth of a metre, which on rolling ground is nothing. Wet decides
+            // WHETHER water stands and how it fades in; puddleDepth alone
+            // decides how high it comes.
+            float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.15f, 0.7f, wet));
+            float level = _groundMinY + PuddleBandMetres * _puddleDepth * gate;
+            Shader.SetGlobalVector(WaterId,
+                new Vector4(level, ShorelineFeather, ripple, _wetShine));
+
+            // The scene's own atmosphere is the honest answer for what a puddle
+            // reflects: fog colour while fog is on (it IS the sky's colour at
+            // distance), ambient otherwise. A fixed blue would fight every
+            // preset that grades the light.
+            Color sky = RenderSettings.fog ? RenderSettings.fogColor : RenderSettings.ambientLight;
+            Shader.SetGlobalColor(SkyColorId, sky);
+        }
+
+        private static readonly int SnowAmountId = Shader.PropertyToID("_SnowAmount");
+        private static readonly int SnowColorId = Shader.PropertyToID("_SnowColor");
+        private static readonly int WetAmountId = Shader.PropertyToID("_WetAmount");
+
+        /// <summary>
+        /// Push the surface response — wet and snow — onto the ground renderers
+        /// through the SAME property block the tint uses, so a renderer keeps
+        /// its generator-written tiling and its weather tint at once.
+        ///
+        /// Only the terrain shader reads these properties; on any other ground
+        /// material they are inert, which is the desired failure: a theme whose
+        /// ground is a plain URP Lit plane loses the effect rather than the
+        /// scene. Always written (including zeros) so CLEARING weather restores
+        /// dry ground rather than leaving the last preset's snow lying there.
+        /// </summary>
+        private void ApplySurfaceResponse(float wet, float snow, Color snowColor)
+        {
+            ResolveTargets();
+            if (_block == null)
+                _block = new MaterialPropertyBlock();
+
+            for (int i = 0; i < _resolvedTargets.Count; i++)
+            {
+                Renderer r = _resolvedTargets[i];
+                if (r == null)
+                    continue;
+                r.GetPropertyBlock(_block);
+                _block.SetFloat(WetAmountId, Mathf.Clamp01(wet));
+                _block.SetFloat(SnowAmountId, Mathf.Clamp01(snow));
+                _block.SetColor(SnowColorId, snowColor);
                 r.SetPropertyBlock(_block);
             }
         }
@@ -266,19 +1144,131 @@ namespace Corehold.Systems
             if (tintTargets != null && tintTargets.Length > 0)
             {
                 _resolvedTargets.AddRange(tintTargets);
-                return;
             }
-
-            var floor = GameObject.Find("Floor");
-            if (floor != null)
+            else
             {
-                var r = floor.GetComponent<Renderer>();
-                if (r != null) _resolvedTargets.Add(r);
+                var floor = GameObject.Find("Floor");
+                if (floor != null)
+                {
+                    var r = floor.GetComponent<Renderer>();
+                    if (r != null) _resolvedTargets.Add(r);
+                }
+
+                // Terrain maps (M-b): the relief mesh IS the visible ground over
+                // the design box — tinting only the flat floor under it painted
+                // the apron and left a seam at the relief's edge.
+                var relief = GameObject.Find("TerrainRelief");
+                if (relief != null)
+                    _resolvedTargets.AddRange(relief.GetComponentsInChildren<Renderer>(true));
+
+                // Shipped map: the R11 silhouette band object.
+                var band = GameObject.Find("SilhouetteBand");
+                if (band != null)
+                    _resolvedTargets.AddRange(band.GetComponentsInChildren<Renderer>(true));
+
+                // Generated maps: silhouettes are placed props under Dressing,
+                // marked with their EnvPack role — the band object never exists.
+                foreach (var prop in FindObjectsByType<PlacedProp>(FindObjectsSortMode.None))
+                    if (prop != null && prop.role == "Silhouette")
+                        _resolvedTargets.AddRange(prop.GetComponentsInChildren<Renderer>(true));
             }
 
-            var band = GameObject.Find("SilhouetteBand");
-            if (band != null)
-                _resolvedTargets.AddRange(band.GetComponentsInChildren<Renderer>(true));
+            ResolveRoadways();
+
+            // Capture each target's authored material colour once — the value the
+            // multiplicative tint composes over and the restore returns to.
+            _baseTints.Clear();
+            for (int i = 0; i < _resolvedTargets.Count; i++)
+            {
+                Renderer r = _resolvedTargets[i];
+                Color baseColor = Color.white;
+                Material m = r != null ? r.sharedMaterial : null;
+                if (m != null)
+                {
+                    if (m.HasProperty(BaseColorId)) baseColor = m.GetColor(BaseColorId);
+                    else if (m.HasProperty(ColorId)) baseColor = m.GetColor(ColorId);
+                }
+                _baseTints.Add(baseColor);
+            }
+        }
+
+        // ---------------------------------------------------------- roadways
+
+        /// <summary>
+        /// The generated worn-path ribbons (LookStage): dark unlit transparent
+        /// bands floating 5 cm over the ground along every route.
+        ///
+        /// They matter to weather for a reason that is easy to miss and ruins
+        /// the effect: enemies walk EXACTLY on them, so the trails carved into
+        /// the terrain's snow film are drawn underneath a ribbon that covers
+        /// them and does not itself respond to weather. Snow settling over a
+        /// path should bury the path — that is what makes tracks the only thing
+        /// left to read — so the ribbon's alpha falls as the film rises.
+        ///
+        /// Not folded into the tint targets: a roadway must NOT take the ground
+        /// tint or the snow colour (it would stop being a road), and it is the
+        /// alpha, not the colour, that has to move.
+        /// </summary>
+        private readonly List<Renderer> _roadways = new List<Renderer>();
+        private readonly List<Color> _roadwayBase = new List<Color>();
+
+        /// <summary>How much of the ribbon a full film covers. Not 1: the lane
+        /// is gameplay-critical reading, and a path that vanishes entirely
+        /// costs the player more than the snow buys.</summary>
+        private const float RoadwaySnowCover = 0.75f;
+
+        private void ResolveRoadways()
+        {
+            _roadways.Clear();
+            _roadwayBase.Clear();
+            var root = GameObject.Find("Roadways");
+            if (root == null)
+                return;
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || r.sharedMaterial == null)
+                    continue;
+                Color c = r.sharedMaterial.HasProperty(BaseColorId)
+                    ? r.sharedMaterial.GetColor(BaseColorId)
+                    : r.sharedMaterial.HasProperty(ColorId)
+                        ? r.sharedMaterial.GetColor(ColorId)
+                        : Color.white;
+                _roadways.Add(r);
+                _roadwayBase.Add(c);
+            }
+        }
+
+        /// <summary>How much more the worn path reads when it is soaked. A dirt
+        /// track is the FIRST thing to darken in rain — it is compacted, so the
+        /// water sits on it rather than draining through.</summary>
+        private const float RoadwayWetGain = 0.45f;
+
+        /// <summary>Sink the worn-path ribbons under the accumulating film, and
+        /// deepen them under rain.</summary>
+        private void ApplyRoadwayCover(float snow, float wet)
+        {
+            if (_roadways.Count == 0)
+                return;
+            if (_block == null)
+                _block = new MaterialPropertyBlock();
+
+            // Snow BURIES the path; rain DEEPENS it. Both at once is a thaw,
+            // and the snow wins — which is correct, since what is on top is
+            // what you see.
+            float keep = (1f + RoadwayWetGain * Mathf.Clamp01(wet)) *
+                         (1f - RoadwaySnowCover * Mathf.Clamp01(snow));
+            for (int i = 0; i < _roadways.Count; i++)
+            {
+                Renderer r = _roadways[i];
+                if (r == null)
+                    continue;
+                Color c = _roadwayBase[i];
+                c.a = Mathf.Clamp01(c.a * keep);
+                r.GetPropertyBlock(_block);
+                _block.SetColor(BaseColorId, c);
+                _block.SetColor(ColorId, c);
+                r.SetPropertyBlock(_block);
+            }
         }
 
         // ------------------------------------------------------ precipitation
@@ -485,9 +1475,12 @@ namespace Corehold.Systems
                     main.startLifetime = Mathf.Clamp(t1, t0, t0 * 8f);
                 }
 
-                // Size cap (dust motes): never enlarge an authored look.
+                // Size cap (dust motes): never enlarge an authored look. The cap
+                // carries the preset's spread with it, so an authored system
+                // brought down to size gains the depth cue rather than becoming
+                // a field of identical dots.
                 if (p.particleSize > 0.004f && main.startSize.constantMax > p.particleSize)
-                    main.startSize = p.particleSize;
+                    main.startSize = SizeCurve(p);
 
                 // Rate: proportional reshape toward the preset total.
                 var emission = ps.emission;
@@ -537,6 +1530,26 @@ namespace Corehold.Systems
             else DestroyImmediate(o);
         }
 
+        /// <summary>
+        /// The preset's size as a RANGE rather than a constant — the sheet's
+        /// only depth cue.
+        ///
+        /// The spread is applied around the authored size, not above it, so
+        /// raising the jitter never raises the average: the mean stays exactly
+        /// `particleSize` and the R14 legibility budget (alpha layers, overdraw)
+        /// is unchanged. Jitter 0 collapses back to the constant the preset
+        /// asked for, which is what keeps every already-authored asset looking
+        /// the way it looked.
+        /// </summary>
+        private static ParticleSystem.MinMaxCurve SizeCurve(WeatherPreset p)
+        {
+            float j = Mathf.Clamp(p.particleSizeJitter, 0f, 0.9f);
+            if (j <= 0.001f)
+                return new ParticleSystem.MinMaxCurve(p.particleSize);
+            return new ParticleSystem.MinMaxCurve(p.particleSize * (1f - j),
+                                                  p.particleSize * (1f + j));
+        }
+
         private void ConfigureProceduralParticles(GameObject host, WeatherPreset p, Camera cam)
         {
             var ps = host.GetComponent<ParticleSystem>();
@@ -559,35 +1572,96 @@ namespace Corehold.Systems
             // driven by the layer distance (12 m), where one pixel at 907×510 is
             // roughly 0.015 m, so these numbers are far smaller than world-scale
             // intuition suggests.
-            main.startSize = p.particleSize;
+            //
+            // SPREAD is the depth cue. The sheet is a flat plane, so nothing in
+            // it is genuinely nearer or further; identical dots therefore read
+            // as a texture laid over the screen rather than as weather the
+            // camera is inside. A size range fakes the parallax the flat sheet
+            // cannot have — big motes read as close, small as far — and costs
+            // one MinMaxCurve at build time, no per-frame work and no extra draw.
+            main.startSize = SizeCurve(p);
             main.startColor = p.particleColor;
-            // Lifetime must cover the TRAVERSE, not the screen height: the camera
-            // is pitched, so world-down crosses screen-up at fallSpeed·up.y (≈0.79
-            // at 38°), and the spawn box spreads particles up to 0.3·height DEEPER
-            // than the 12 m layer, where the same screen height spans more metres.
-            // `height / fallSpeed` ignored both, and rain died ~70% down the view.
-            float upShare = Mathf.Max(0.35f, cam.transform.up.y);
-            float span = height * ((12f + height * 0.3f) / 12f);
-            main.startLifetime = (span / upShare + 2f) / Mathf.Max(0.1f, p.fallSpeed);
-            main.maxParticles = Mathf.CeilToInt(p.precipitationRate * main.startLifetime.constant) + 32;
             main.gravityModifier = 0f;
 
-            var emission = ps.emission;
-            emission.enabled = true;
-            emission.rateOverTime = p.precipitationRate;
-
-            var shape = ps.shape;
-            shape.enabled = true;
-            shape.shapeType = ParticleSystemShapeType.Box;
-            shape.scale = new Vector3(width, 0.1f, height * 0.6f);
-            shape.position = new Vector3(0f, height * 0.5f, 0f);
-
-            // Fall + wind drift, expressed in the camera's local frame.
+            // MOTION FIRST — it decides where the emitter belongs. Fall + wind,
+            // resolved into the camera's frame (the sheet is camera-local).
             Vector3 wind = p.windDirection.sqrMagnitude > 0.0001f
                 ? p.windDirection.normalized * p.windStrength
                 : Vector3.zero;
             Vector3 worldVel = Vector3.down * p.fallSpeed + wind;
             Vector3 localVel = cam.transform.InverseTransformDirection(worldVel);
+
+            // Time in frame on each screen axis. The spawn box reaches 0.3·height
+            // DEEPER than the 12 m layer, where the same screen height spans more
+            // metres — hence the stretched span. Both speeds are the REAL ones
+            // (fall projected onto screen-up, plus wind), not fallSpeed alone.
+            float span = height * ((12f + height * 0.3f) / 12f);
+            float downSpeed = Mathf.Max(0f, -localVel.y);
+            float sideSpeed = Mathf.Abs(localVel.x);
+            float tDown = downSpeed > 0.05f ? span / downSpeed : float.PositiveInfinity;
+            float tSide = sideSpeed > 0.05f ? width / sideSpeed : float.PositiveInfinity;
+
+            var shape = ps.shape;
+            shape.enabled = true;
+            shape.shapeType = ParticleSystemShapeType.Box;
+
+            if (tDown <= 0.6f * tSide)
+            {
+                // FALLS through the frame (rain): a thin slab along the top edge,
+                // raining down. Streaks read best entering from above, and the
+                // crosswind is far too slow to blow them out on the way.
+                shape.scale = new Vector3(width, 0.1f, height * 0.6f);
+                shape.position = new Vector3(0f, height * 0.5f, 0f);
+                main.startLifetime = tDown + 2f / Mathf.Max(0.1f, downSpeed);
+
+                // The sheet is ONE reused system across presets, so the drift
+                // branch's fade has to be cleared here or a dust→rain change
+                // would leave rain fading in and out mid-fall.
+                var fade = ps.colorOverLifetime;
+                fade.enabled = false;
+            }
+            else
+            {
+                // DRIFTS across the frame (dust on a crosswind). The top slab is
+                // WRONG here, and was the bug: dust's wind (5 m/s, mostly sideways)
+                // beats its fall (1.6 m/s), so motes spawned along the top edge blew
+                // out of the SIDE before they could cross the view — the sheet only
+                // ever painted the upper strip, at every camera pitch. Fill the
+                // whole visible volume instead: motes exist wherever the player
+                // looks, whatever direction the wind takes them.
+                shape.scale = new Vector3(width * 1.1f, height * 1.15f, height * 0.6f);
+                shape.position = Vector3.zero;
+                main.startLifetime = Mathf.Clamp(Mathf.Min(tDown, tSide) * 0.9f, 0.5f, 20f);
+
+                // Volume spawning means motes appear INSIDE the frame, so fade them
+                // in and out instead of popping.
+                var col = ps.colorOverLifetime;
+                col.enabled = true;
+                var grad = new Gradient();
+                grad.SetKeys(
+                    new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                    new[]
+                    {
+                        new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.15f),
+                        new GradientAlphaKey(1f, 0.85f), new GradientAlphaKey(0f, 1f)
+                    });
+                col.color = new ParticleSystem.MinMaxGradient(grad);
+            }
+
+            // Looping + prewarm so the layer is already full on the first frame
+            // (a volume that fills in over its lifetime reads as weather fading in).
+            main.prewarm = true;
+            main.maxParticles = Mathf.CeilToInt(p.precipitationRate * main.startLifetime.constant) + 32;
+
+            var emission = ps.emission;
+            emission.enabled = true;
+            // In play the rate starts at the envelope (0 on a fresh apply) and
+            // the throttled tick ramps it in with the surfaces — precipitation
+            // that snaps to full blast reads as a switch, not as weather.
+            emission.rateOverTime = Application.isPlaying
+                ? p.precipitationRate * Mathf.SmoothStep(0f, 1f, _envelope)
+                : p.precipitationRate;
+            _resolvedRate = p.precipitationRate;
 
             var vel = ps.velocityOverLifetime;
             vel.enabled = true;
@@ -627,6 +1701,17 @@ namespace Corehold.Systems
                 _precipitationMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                 _precipitationMaterial.DisableKeyword("_ALPHATEST_ON");
                 _precipitationMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 80;
+
+                // A particle material with NO base map draws a flat opaque
+                // QUAD — which is why dust rendered as a field of hard grey
+                // squares over the whole map instead of soft motes. Generated
+                // rather than authored, so it needs no asset and cannot go
+                // missing in a build: a 32×32 radial alpha falloff.
+                Texture2D sprite = BuildMoteSprite();
+                if (_precipitationMaterial.HasProperty("_BaseMap"))
+                    _precipitationMaterial.SetTexture("_BaseMap", sprite);
+                if (_precipitationMaterial.HasProperty("_MainTex"))
+                    _precipitationMaterial.SetTexture("_MainTex", sprite);
             }
             renderer.sharedMaterial = _precipitationMaterial;
             renderer.renderMode = rain
@@ -646,8 +1731,61 @@ namespace Corehold.Systems
             renderer.receiveShadows = false;
             renderer.alignment = ParticleSystemRenderSpace.View;
 
+            // Cache for the live loop: gusts modulate THESE base velocities and
+            // the ramp raises THIS system's rate, without a GetComponent per tick.
+            _sheetPs = ps;
+            _sheetBaseVel = localVel;
+
             ps.Clear();
             ps.Play();
+        }
+
+        /// <summary>
+        /// The soft round mote every precipitation particle wears: a 32×32
+        /// radial alpha falloff, generated once and shared.
+        ///
+        /// Generated rather than authored for the same reason the terrain
+        /// detail noise is — an asset can be missing, mis-imported or stripped
+        /// from a build, and this must never be any of those. Without it a
+        /// URP particle material has no base map and draws a flat opaque QUAD,
+        /// which is exactly how dust came out as a field of hard grey squares
+        /// across the whole map.
+        ///
+        /// Alpha is squared so the edge fades faster than linearly — a linear
+        /// falloff still reads as a disc with a visible rim at this size.
+        /// </summary>
+        private static Texture2D _moteSprite;
+
+        private static Texture2D BuildMoteSprite()
+        {
+            if (_moteSprite != null)
+                return _moteSprite;
+
+            const int size = 32;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, true, true)
+            {
+                name = "Weather_Mote (generated)",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            var px = new Color32[size * size];
+            const float centre = (size - 1) * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x - centre) / centre, dy = (y - centre) / centre;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float a = Mathf.Clamp01(1f - d);
+                    a *= a;
+                    px[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
+                }
+            }
+            tex.SetPixels32(px);
+            tex.Apply(true, false);
+            _moteSprite = tex;
+            return tex;
         }
     }
 }

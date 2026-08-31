@@ -16,6 +16,7 @@ using UnityEngine;
 public static class RosterRegistry
 {
     private const string TowersFolder = "Assets/_COREHOLD/Data/Towers";
+    private const string EnemiesFolder = "Assets/_COREHOLD/Data/Enemies";
 
     /// <summary>Every TowerDefinition, in build-menu order.</summary>
     public static TowerDefinition[] AllTowersOrdered()
@@ -25,6 +26,24 @@ public static class RosterRegistry
             .Select(AssetDatabase.LoadAssetAtPath<TowerDefinition>)
             .Where(d => d != null)
             .OrderBy(d => d.menuOrder)
+            .ThenBy(d => d.name, System.StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    /// <summary>Buildable turrets (a chassis prefab exists) in menu order —
+    /// the pool a stage's roster count (R-UI-2) slices from.</summary>
+    public static TowerDefinition[] BuildableTowersOrdered()
+        => AllTowersOrdered().Where(d => d.basePrefab != null).ToArray();
+
+    /// <summary>Every EnemyDefinition, weakest first — the field guide's
+    /// catalogue order (R-UI-7). Ties resolve alphabetically.</summary>
+    public static EnemyDefinition[] AllEnemiesOrdered()
+    {
+        return AssetDatabase.FindAssets("t:EnemyDefinition", new[] { EnemiesFolder })
+            .Select(AssetDatabase.GUIDToAssetPath)
+            .Select(AssetDatabase.LoadAssetAtPath<EnemyDefinition>)
+            .Where(d => d != null)
+            .OrderBy(d => d.baseHealth)
             .ThenBy(d => d.name, System.StringComparer.Ordinal)
             .ToArray();
     }

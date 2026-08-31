@@ -119,15 +119,26 @@ namespace CoreholdEditor.Campaign
                     }
                 }
 
-                // ---- mutator roll (never on the finale — the boss IS the event) ----
-                WaveMutator mutators = WaveMutator.None;
-                if (!finale && w >= recipe.mutatorsFromWave &&
-                    NextFloat(ref rng) < recipe.mutatorChance)
-                {
-                    var pool = new List<WaveMutator> { WaveMutator.Convoy, WaveMutator.Overcharge, WaveMutator.Blackout };
-                    if (groups.Any(g => g.enemy.isAir)) pool.Add(WaveMutator.Storm); // Storm needs air to mean anything
-                    mutators = pool[Next(ref rng, pool.Count)];
-                }
+                // ---- the mutator pool (never on the finale — the boss IS the event) ----
+                //
+                // The pool is STAMPED, not resolved: the wave draws from it at
+                // runtime, so the same synthesized level plays differently every
+                // run, and the gate certifies its worst member rather than one
+                // roll that happened at authoring time.
+                bool hasAir = groups.Any(g => g.enemy.isAir);
+                var wavePool = new List<WaveMutatorDefinition>();
+                if (!finale && w >= recipe.mutatorsFromWave && recipe.mutatorPool != null)
+                    foreach (WaveMutatorDefinition d in recipe.mutatorPool)
+                    {
+                        if (d == null || wavePool.Contains(d))
+                            continue;
+                        // A mutator that can only touch air is a promise this
+                        // wave cannot keep: banner, weather, and nothing behind
+                        // either of them.
+                        if (!hasAir && OnlyAffectsAir(d))
+                            continue;
+                        wavePool.Add(d);
+                    }
 
                 int clear = 60 + 18 * w; // the shipped clear-bonus formula
 
@@ -136,13 +147,17 @@ namespace CoreholdEditor.Campaign
                 def.name = $"Wave_{w:00}";
                 def.groups = groups.ToArray();
                 def.clearBonus = clear;
-                def.mutators = mutators;
+                def.poolMutators = wavePool.ToArray();
+                def.poolNothingWeight = recipe.poolNothingWeight;
                 AssetDatabase.CreateAsset(def, $"{wavesFolder}/Wave_{w:00}.asset");
                 defs.Add(def);
 
                 log.AppendLine($"  w{w,-2} budget {Mathf.RoundToInt(budget),4}  " +
                                string.Join(" + ", groups.Select(g => $"{g.count}×{g.enemy.id}@s{g.spawnerIndex}")) +
-                               (mutators != WaveMutator.None ? $"  [{mutators}]" : ""));
+                               (wavePool.Count > 0
+                                   ? $"  [pool: {string.Join("/", wavePool.Select(m => m.ResolvedId))}" +
+                                     $" +{recipe.poolNothingWeight} none]"
+                                   : ""));
             }
 
             AssetDatabase.SaveAssets();
@@ -151,6 +166,28 @@ namespace CoreholdEditor.Campaign
         }
 
         // ------------------------------------------------------------- helpers
+
+        /// <summary>
+        /// True when a mutator's ONLY effect is on air units, so it would do
+        /// nothing at all on a wave with no air in it.
+        ///
+        /// Read off the effects rather than off a name: a mutator authored next
+        /// year gets the same treatment as Storm without anyone remembering to
+        /// add it to a list here.
+        /// </summary>
+        private static bool OnlyAffectsAir(WaveMutatorDefinition d)
+        {
+            MutatorEffects e = d.Effects;
+            if (Mathf.Approximately(e.airSpeed, 1f))
+                return false;   // it does not touch air at all, so this is not the reason to drop it
+
+            return !e.singleApproach &&
+                   Mathf.Approximately(e.groundSpeed, 1f) &&
+                   Mathf.Approximately(e.health, 1f) &&
+                   Mathf.Approximately(e.bounty, 1f) &&
+                   Mathf.Approximately(e.turretRange, 1f) &&
+                   Mathf.Approximately(e.spawnGap, 1f);
+        }
 
         private static SpawnGroup Group(EnemyDefinition e, int count, float gap, float offset, int spawner)
             => new SpawnGroup { enemy = e, count = count, spawnGap = gap, startOffset = offset, spawnerIndex = spawner };

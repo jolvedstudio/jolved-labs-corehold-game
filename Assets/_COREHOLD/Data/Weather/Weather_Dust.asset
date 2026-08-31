@@ -13,20 +13,25 @@ MonoBehaviour:
   m_Name: Weather_Dust
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.WeatherPreset
   overrideAmbient: 1
-  ambientColor: {r: 0.38, g: 0.32, b: 0.24, a: 1}
+  ambientColor: {r: 0.28, g: 0.31, b: 0.38, a: 1}
+  overrideSun: 1
+  sunTemperatureKelvin: 5200
+  sunFilter: {r: 1, g: 0.97, b: 0.9, a: 1}
+  sunIntensityMult: 1
+  sunShadowStrengthMult: 1
   overrideFog: 1
-  fogColor: {r: 0.22, g: 0.18, b: 0.13, a: 1}
-  fogDensity: 0.0068
+  fogColor: {r: 0.68, g: 0.66, b: 0.62, a: 1}
+  fogDensity: 0.006
   overrideGroundTint: 1
   groundTint: {r: 1, g: 0.94, b: 0.82, a: 1}
   precipitation: 2
-  ambientLoop: {fileID: 0}
+  ambientLoop: {fileID: 8300000, guid: 95ad359a219f31f46a5c495c69b0b38a, type: 3}
   ambientVolume: 0.32
-  precipitationPrefab: {fileID: 100894, guid: d4d6a29c9156ee948a0a44b98b1f1da8, type: 3}
+  precipitationPrefab: {fileID: 0}
   precipitationRate: 180
   fallSpeed: 1.6
   particleSize: 0.065
-  streakLength: 18
+  streakLength: 20.5
   particleColor: {r: 0.85, g: 0.76, b: 0.6, a: 0.16}
   overridePostProfile: 1
   postProfile: {fileID: 11400000, guid: 9eb25121f2872f947970796783f326ca, type: 2}

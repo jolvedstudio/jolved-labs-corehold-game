@@ -46,6 +46,35 @@ namespace Corehold.Data
             Silhouette = 4
         }
 
+        /// <summary>
+        /// What KIND of ground a prop belongs on (E1). The placer publishes
+        /// low-frequency substrate fields — rockiness, its anti-correlate
+        /// fertility, corridor disturbance, slope — and weights every candidate
+        /// position by how much the prop wants to be there. That is what turns
+        /// uniform scatter into a zoned place: a stony shelf bare of plants, a
+        /// scrub flat free of boulders, wreckage along the road.
+        ///
+        /// <see cref="Auto"/> is value 0 so every pack already on disk gets
+        /// zoned dressing with no re-authoring: the affinity is inferred from
+        /// the prefab NAME, conservatively, falling back to Neutral. Unlike
+        /// <see cref="PropRole.Unassigned"/> this default is safe to act on —
+        /// role is intent the prefab cannot reveal, whereas a rock is usually
+        /// called a rock — so it infers instead of failing the gate.
+        /// </summary>
+        public enum SubstrateAffinity
+        {
+            /// <summary>Infer from the prefab name; Neutral when unrecognised.</summary>
+            Auto = 0,
+            /// <summary>Stone. Seeks stony ground and steep faces.</summary>
+            Rock = 1,
+            /// <summary>Vegetation. Seeks the ground rock did not take; thins near traffic.</summary>
+            Scrub = 2,
+            /// <summary>No opinion — scatters at roughly the old uniform rate.</summary>
+            Neutral = 3,
+            /// <summary>Wreckage and man-made litter. Gathers ALONG the corridor.</summary>
+            Debris = 4
+        }
+
         [System.Serializable]
         public struct Entry
         {
@@ -66,6 +95,9 @@ namespace Corehold.Data
 
             [Tooltip("May this sit inside a hairpin pocket? Pockets are where hardpoints live (R27's 10-14 m fold band), so most props should NOT.")]
             public bool allowInFold;
+
+            [Tooltip("What ground this prop belongs on. Auto (the default) infers it from the prefab name — rock/boulder/cliff → Rock, tree/bush/cactus → Scrub, wreck/crate/rubble → Debris, anything else → Neutral. Set it explicitly when the name lies. This is a SOFT preference: the placer relaxes it as a slot runs out of attempts, so zoning never costs fill rate.")]
+            public SubstrateAffinity affinity;
         }
 
         [Tooltip("Theme this pack represents, set from its folder under Assets/Authoring/EnvPack/. Identifies the pack in generation reports and contact sheets (R31).")]
@@ -98,6 +130,19 @@ namespace Corehold.Data
 
         [Tooltip("How many times denser than the base map the detail tiles.")]
         [Range(2f, 32f)] public float groundDetailScale = 9f;
+
+        [Tooltip("Coarse near-field detail for ROCKY ground (E2). Rocky ground wears a chunkier " +
+                 "breakup than soil does, which is most of what separates gravel from sand at this " +
+                 "camera distance. Empty = a generated coarse noise, which already works; assign a " +
+                 "real gravel texture to art-direct it. The terrain shader blends between this and " +
+                 "the fine detail by the substrate's rock weight, baked into the mesh's vertex alpha.")]
+        public Texture2D groundRockDetail;
+
+        [Tooltip("How strongly the SUBSTRATE zones show in the ground itself (E2): the rock/soil " +
+                 "tint split, the scuffed band along the routes, and the coarse-vs-fine detail " +
+                 "blend. Zoned props standing on an unzoned sheet only get half the effect — the " +
+                 "eye reads the ground first. 0 restores a single uniform ground.")]
+        [Range(0f, 1f)] public float groundZoneStrength = 0.6f;
 
         [Header("Dressing composition")]
 
@@ -132,27 +177,35 @@ namespace Corehold.Data
                  "the full value, mid-field ×0.6, silhouettes ×0.8, landmarks ×0.25 (a leaning " +
                  "building reads as a mistake, a leaning rock reads as geology). Composes with the " +
                  "terrain slope settle. 0 keeps everything perfectly plumb.")]
-        [Range(0f, 10f)] public float uprightJitterDegrees = 2.5f;
+        [Range(0f, 20f)] public float uprightJitterDegrees = 2.5f;
+
+        [Tooltip("How much of the ROUTE this theme may hide behind dressing, as a multiplier on the " +
+                 "standard 6% budget. 1 = standard; 2.5 = a visually busy theme where the lanes read " +
+                 "through gaps rather than in the clear. Raise it alongside density: a saturated field " +
+                 "that must respect the sparse budget just fails the gate instead of looking full.\n\n" +
+                 "This NEVER relaxes the camera's sight line to a pad. That one has no budget and gets " +
+                 "none — a pad the player cannot see is a broken level, not a dense one.")]
+        [Range(1f, 4f)] public float occlusionTolerance = 1f;
 
         [Header("Dressing density")]
 
         [Tooltip("Multiplier on LANDMARK placements inside the design box (1 ≈ 3 on the standard field). 0 disables the role for this theme.")]
-        [Range(0f, 4f)] public float landmarkDensity = 1f;
+        [Range(0f, 8f)] public float landmarkDensity = 1f;
 
         [Tooltip("Multiplier on MID-FIELD placements (1 ≈ 8 on the standard field).")]
-        [Range(0f, 4f)] public float midFieldDensity = 1f;
+        [Range(0f, 8f)] public float midFieldDensity = 1f;
 
         [Tooltip("Multiplier on CLUTTER placements (1 ≈ 17 on the standard field).")]
-        [Range(0f, 4f)] public float clutterDensity = 1f;
+        [Range(0f, 8f)] public float clutterDensity = 1f;
 
         [Tooltip("Multiplier on the far-band SILHOUETTES beyond the north edge (1 ≈ 8).")]
-        [Range(0f, 4f)] public float silhouetteDensity = 1f;
+        [Range(0f, 8f)] public float silhouetteDensity = 1f;
 
         [Tooltip("Fills the VISIBLE APRON — the frustum-fit ground beyond the design box, where the " +
                  "terrain hills live — with this theme's non-silhouette props: roughly one per 180 m² " +
                  "at 1. The apron used to stay completely bare, which is most of why maps read as " +
                  "empty. 0 restores the bare apron.")]
-        [Range(0f, 4f)] public float outfieldDensity = 1f;
+        [Range(0f, 8f)] public float outfieldDensity = 1f;
 
         [Header("Look & lighting (M-d)")]
 

@@ -59,6 +59,11 @@ namespace Corehold.Systems
         [Tooltip("[TUNE] Kick distance (m) per splash explosion (PlayExplosion).")]
         [SerializeField] private float kickExplosion = 0.14f;
 
+        [Tooltip("[TUNE] Trauma (0..1) added per splash explosion so big blasts RUMBLE " +
+                 "rather than nudge (VFX plan Tier 4). Rides the standard Shake() path, " +
+                 "so the 1.5 s cooldown and the global feedback scale both apply.")]
+        [Range(0f, 1f)] [SerializeField] private float explosionTrauma = 0.22f;
+
         [Tooltip("[TUNE] Exponential decay rate (per unscaled second) back to the framed position — high = a sharp nudge that settles fast.")]
         [SerializeField] private float kickDecayPerSecond = 9f;
 
@@ -87,6 +92,36 @@ namespace Corehold.Systems
 
         /// <summary>The active shaker, if one exists in the scene.</summary>
         public static CameraShake Instance => _instance;
+
+        // ---- Self-bootstrap (ticket 37 hardening) ---------------------------
+        // The shaker used to be wired into scenes by an editor tool, and scene
+        // rework silently dropped it: the live scenes shipped with NO shake,
+        // hit-stop or haptics (only GameBackup still carried the component,
+        // and every caller null-guards, so nothing ever complained). A feel
+        // system must not depend on per-scene wiring surviving — attach to the
+        // main camera on every scene load when absent. A scene that DOES carry
+        // a hand-tuned instance keeps it untouched; the code defaults on the
+        // fields above are the tuned values an auto-added instance runs with.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void Bootstrap()
+        {
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+            EnsureOnMainCamera();
+        }
+
+        private static void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene,
+                                          UnityEngine.SceneManagement.LoadSceneMode mode)
+            => EnsureOnMainCamera();
+
+        private static void EnsureOnMainCamera()
+        {
+            if (_instance != null)
+                return;
+            Camera cam = Camera.main;
+            if (cam != null && cam.GetComponent<CameraShake>() == null)
+                cam.gameObject.AddComponent<CameraShake>();
+        }
 
         // ----- Runtime -----
         private float _trauma;             // current shake energy (0..1)
@@ -220,7 +255,13 @@ namespace Corehold.Systems
         public void KickImpact(Vector3 worldFrom) => Kick(worldFrom, kickImpact);
 
         /// <summary>Kick for a Core hit (wired from VFXDirector.PlayCoreHit).</summary>
-        public void KickCoreHit(Vector3 worldFrom) => Kick(worldFrom, kickCoreHit);
+        public void KickCoreHit(Vector3 worldFrom)
+        {
+            Kick(worldFrom, kickCoreHit);
+            // The single strongest haptic beat the game has: the Core taking a
+            // hit. Intensity rides the same accessibility scale as the shake.
+            Haptics.Pulse(0.15f, 1f * Mathf.Clamp01(effectScale));
+        }
 
         /// <summary>
         /// Larger kick for a splash explosion (wired from VFXDirector.PlayExplosion),
@@ -230,6 +271,14 @@ namespace Corehold.Systems
         public void KickExplosion(Vector3 worldFrom)
         {
             Kick(worldFrom, kickExplosion);
+            // A big blast RUMBLES, not just nudges (VFX plan Tier 4): a small
+            // trauma add rides the existing noise shake. Shake() honours the
+            // shared cooldown, so chained explosions cannot stack into nausea,
+            // and the global feedbackScale/accessibility scaling still applies.
+            Shake(explosionTrauma);
+            // …and on WebGL the blast is FELT: a short rumble through the
+            // browser haptics bridge, on the same accessibility scale.
+            Haptics.Pulse(0.09f, 0.8f * Mathf.Clamp01(effectScale));
             if (enableHitStop && Corehold.Core.GameManager.Instance != null)
                 Corehold.Core.GameManager.Instance.TimeDip(hitStopScale, hitStopSeconds);
         }

@@ -1,0 +1,41 @@
+==== ESTIMATED TEXTURE FOOTPRINT AFTER COMPRESSION (imported/runtime bytes) ====
+Total texture memory: 1,066.4 MB (uncompressed GPU size; on-disk crunched is smaller again)
+
+By category:
+   669.75 MB  Assets/Vendor/SCI-FI UI Pack Pro
+   196.19 MB  Assets/Layer Lab/GUI Pro-CasualGame
+    46.61 MB  Assets/Vendor/Ciconia Studio
+    38.14 MB  Assets/Vendor/Fantasy Skybox FREE
+    19.90 MB  Assets/Vendor/Stylized_Desert_Nature
+    14.48 MB  Assets/Vendor/Creepy_Cat
+    11.25 MB  Assets/Vendor/JMO Assets
+     9.59 MB  Assets/Vendor/Epic Toon FX
+     6.31 MB  Assets/Vendor/TD_Sci-Fi_Turrets_Pack_V2
+     5.41 MB  Assets/Vendor/Mech_Constructor_Spiders
+     4.88 MB  Assets/Vendor/GabrielAguiarProductions
+     4.41 MB  Assets/Vendor/SciFi_Drones_pack
+     4.31 MB  Assets/Vendor/Yoge
+     4.27 MB  Assets/_COREHOLD/Art
+     3.79 MB  Assets/TextMesh Pro/Examples & Extras
+     3.66 MB  Assets/Vendor/RockAndStoneMaterialPack
+     3.35 MB  Assets/Vendor/Mech_Constructor_Humanoids
+     3.16 MB  Assets/Vendor/Rocks and Boulders 2
+     2.50 MB  Assets/TextMesh Pro/Resources
+     2.18 MB  Assets/Vendor/Mech_Constructor_Vehicles
+
+Top 15 textures:
+   32.00 MB  Assets/Vendor/Ciconia Studio/Shaders/Wet Shaders/Flood & Rain Puddles/URP/Demo Scene/Rainy Puddles - Demo_URP/ReflectionProbe-0.exr
+   32.00 MB  Assets/Vendor/Fantasy Skybox FREE/Scenes/Textures (Lightmaps)/ReflectionProbe-0.exr
+    8.00 MB  Assets/Vendor/Ciconia Studio/Shaders/Wet Shaders/Flood & Rain Puddles/URP/Demo Scene/Flood Puddles - Demo_URP/ReflectionProbe-0.exr
+    8.00 MB  Assets/Layer Lab/GUI Pro-CasualGame/ResourcesData/Fonts/LilitaOne-Regular Outline_Extended ASCII_210 Bitmap.asset
+    8.00 MB  Assets/Layer Lab/GUI Pro-CasualGame/ResourcesData/Fonts/LilitaOne-Regular Outline_Extended ASCII_210 SDF.asset
+    4.00 MB  Assets/Layer Lab/GUI Pro-CasualGame/ResourcesData/Fonts/LilitaOne-Regular Outline 210 Bitmap.asset
+    4.00 MB  Assets/Layer Lab/GUI Pro-CasualGame/ResourcesData/Fonts/LilitaOne-Regular Outline 210 SDF.asset
+    4.00 MB  Assets/Layer Lab/GUI Pro-CasualGame/ResourcesData/Sprites/Components/Slider/Slider_Fusion_Bg1.png
+    3.59 MB  Assets/Layer Lab/GUI Pro-CasualGame/ResourcesData/Sprites/Demo/Demo_Play/Play_Roulette_wheel.png
+    3.22 MB  Assets/Layer Lab/GUI Pro-CasualGame/ResourcesData/Sprites/Components/Slider/Slider_Fusion_Bg2.png
+    3.08 MB  Assets/Vendor/SCI-FI UI Pack Pro/SCI-FI UI Pack_V1 Pro(Blue)/Textures/DemoScene_Blue/PopupsAndPanels/Panel_Backpack.png
+    3.08 MB  Assets/Vendor/SCI-FI UI Pack Pro/SCI-FI UI Pack_V2 Pro(Cyan)/Textures/DemoScene_Cyan/PopupsAndPanels/Panel_Backpack.png
+    3.07 MB  Assets/Vendor/SCI-FI UI Pack Pro/SCI-FI UI Pack_V2 Pro(Cyan)/Textures/DemoScene_Cyan/PopupsAndPanels/Panel_Weapon.png
+    2.78 MB  Assets/Vendor/SCI-FI UI Pack Pro/SCI-FI UI Pack_V1 Pro(Blue)/Textures/DemoScene_Blue/PopupsAndPanels/Popup_DailyRewards.png
+    2.78 MB  Assets/Vendor/SCI-FI UI Pack Pro/SCI-FI UI Pack_V2 Pro(Cyan)/Textures/DemoScene_Cyan/PopupsAndPanels/Popup_DailyRewards.png

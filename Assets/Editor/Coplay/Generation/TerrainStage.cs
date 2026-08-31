@@ -45,9 +45,17 @@ public static class TerrainStage
     /// just past the 1.0 m pad visual so the slope seam hides under art.</summary>
     private const float SocketRadius = 1.15f;
 
-    /// <summary>[TUNE] Relief mesh resolution in cells per side. 96 → 9,409
-    /// vertices, inside the 16-bit index budget with headroom.</summary>
-    private const int MeshCells = 96;
+    /// <summary>[TUNE] Relief mesh resolution in cells per side. 160 → 25,921
+    /// vertices, still well inside the 16-bit index budget.
+    ///
+    /// Raised from 96 because vertex colours are the ground's ONLY defence
+    /// against tiling, and 96 cells over a frustum-fit floor (~600 m) put a
+    /// vertex every 6.25 m — so a 38 m substrate zone got six samples, the
+    /// 20 m worn corridor band got three, and the triangulation was visible as
+    /// faceting in play. At 160 it is 3.75 m: the substrate reads as ground
+    /// rather than as a wash. Purely visual — the gates sample the ANALYTIC
+    /// field, never this mesh.</summary>
+    private const int MeshCells = 160;
 
     /// <summary>[TUNE] T3 gate: fraction of a pad's nearby route samples the
     /// terrain may hide before the seed is discarded (R29).</summary>
@@ -180,9 +188,19 @@ public static class TerrainStage
         float uvPerMetre = ctx.theme != null && ctx.theme.groundTilingPerMetre > 0f
             ? ctx.theme.groundTilingPerMetre
             : 0.08f;
+        // E2: the SAME substrate the props were placed against — identical seed
+        // purpose and identical corridor field, so the zoning in the ground and
+        // the zoning in the dressing are one decision, not two that nearly
+        // agree. Rebuilt rather than passed through the context because both
+        // stages derive it from data they already hold.
+        var substrate = new SubstrateField(
+            unchecked((int)GenerationPipeline.Fnv1a(ctx.blueprint.randomSeed, "substrate")),
+            field, true);
+        float zoneStrength = ctx.theme != null ? ctx.theme.groundZoneStrength : 0.6f;
+
         var meshGo = new GameObject("TerrainRelief");
         meshGo.transform.SetParent(SceneContainers.Ensure("_Level"), false);
-        Mesh reliefMesh = BuildMesh(field, bounds, uvPerMetre);
+        Mesh reliefMesh = BuildMesh(field, substrate, zoneStrength, bounds, uvPerMetre);
         meshGo.AddComponent<MeshFilter>().sharedMesh = reliefMesh;
         // CAMERA OCCLUSION ONLY: the Cinemachine deoccluder on the turret-cam
         // rigs needs the hills to exist physically or it cannot push the camera
@@ -226,6 +244,25 @@ public static class TerrainStage
             tMat.SetTexture("_DetailMap", detail);
             tMat.SetFloat("_DetailScale", Mathf.Max(1f, detailScale));
             tMat.SetFloat("_DetailStrength", Mathf.Clamp01(detailStrength));
+
+            // E2 second detail lane: rocky ground wears a CHUNKIER breakup than
+            // soil does, which is most of what separates gravel from sand at
+            // this camera distance — and it needs no new art, since the coarse
+            // map generates the same way the fine one always has. The theme can
+            // drop a real gravel texture into the slot when one is bought.
+            //
+            // The blend scalar is what keeps this safe: it defaults to 0 in the
+            // shader, so a scene baked before E2 (whose mesh has alpha 1
+            // everywhere) renders exactly as it did. Only a freshly generated
+            // material turns it on.
+            Texture2D rockDetail = ctx.theme != null && ctx.theme.groundRockDetail != null
+                ? ctx.theme.groundRockDetail
+                : BuildDetailNoise("TerrainRockDetail(Noise)", cells: 8, contrast: 1.35f,
+                                   seedA: 71, seedB: 137);
+            tMat.SetTexture("_RockDetailMap", rockDetail);
+            tMat.SetFloat("_RockDetailScale", Mathf.Max(1f, detailScale * 0.45f));
+            tMat.SetFloat("_RockDetailStrength", Mathf.Clamp01(detailStrength * 1.5f));
+            tMat.SetFloat("_RockDetailBlend", Mathf.Clamp01(zoneStrength));
 
             mr.sharedMaterial = tMat;
         }
@@ -353,7 +390,11 @@ public static class TerrainStage
     /// the theme's tiles-per-metre so texel density matches the flat floor it
     /// replaces.
     /// </summary>
-    private static Mesh BuildMesh(TerrainField field, Bounds bounds, float uvPerMetre)
+    /// <summary>Internal so the lookdev stager builds its review ground with
+    /// THIS rasteriser rather than a primitive plane — a ground review that
+    /// does not run the ground pipeline reviews nothing.</summary>
+    internal static Mesh BuildMesh(TerrainField field, SubstrateField substrate,
+                                   float zoneStrength, Bounds bounds, float uvPerMetre)
     {
         int n = MeshCells;
         var verts = new Vector3[(n + 1) * (n + 1)];
@@ -373,7 +414,7 @@ public static class TerrainStage
                 float h = field.Height(x, z);
                 verts[v] = new Vector3(x, h, z);
                 uvs[v] = new Vector2(x * uvPerMetre, z * uvPerMetre);
-                colors[v] = TintAt(field, x, z, h);
+                colors[v] = TintAt(field, substrate, zoneStrength, x, z, h);
             }
         }
 
@@ -408,13 +449,19 @@ public static class TerrainStage
     /// seed (content-identical on every map): wrap-around value noise, two
     /// octaves, centred on 0.5 so the overlay-multiply is neutral on average.
     /// </summary>
-    internal static Texture2D BuildDetailNoise()
+    /// <param name="cells">Lattice period — MUST be a power of two, since the
+    /// wrap that makes the tile seamless is a bitmask. Fewer cells = chunkier
+    /// blobs, which is what reads as gravel rather than as fine sand.</param>
+    /// <param name="contrast">Spread about 0.5. Above 1 clips, which is fine —
+    /// clipped highlights read as lit stone chips.</param>
+    internal static Texture2D BuildDetailNoise(string name = "TerrainDetail(Noise)",
+                                               int cells = 16, float contrast = 0.9f,
+                                               int seedA = 11, int seedB = 29)
     {
         const int size = 128;
-        const int cells = 16;   // lattice period — wrapping makes the tile seamless
         var tex = new Texture2D(size, size, TextureFormat.RGB24, true, true)
         {
-            name = "TerrainDetail(Noise)",
+            name = name,
             wrapMode = TextureWrapMode.Repeat,
             filterMode = FilterMode.Bilinear
         };
@@ -450,8 +497,8 @@ public static class TerrainStage
             {
                 float u = x * (cells / (float)size);
                 float v = y * (cells / (float)size);
-                float n = Value(u, v, 11) * 0.65f + Value(u * 2f, v * 2f, 29) * 0.35f;
-                byte g = (byte)Mathf.Clamp(Mathf.RoundToInt((0.5f + (n - 0.5f) * 0.9f) * 255f), 0, 255);
+                float n = Value(u, v, seedA) * 0.65f + Value(u * 2f, v * 2f, seedB) * 0.35f;
+                byte g = (byte)Mathf.Clamp(Mathf.RoundToInt((0.5f + (n - 0.5f) * contrast) * 255f), 0, 255);
                 pixels[y * size + x] = new Color32(g, g, g, 255);
             }
         }
@@ -466,8 +513,24 @@ public static class TerrainStage
     /// (moisture/shadow), steep relief faces darken and desaturate toward rock,
     /// crests keep near-full albedo. Multiplied over the ground texture by the
     /// terrain shader — a flat map has no relief mesh, so nothing else changes.
+    ///
+    /// E2 adds the SUBSTRATE on top of the relief: the same rock/scrub zoning
+    /// the props obey, now visible in the ground under them. Zoned props on an
+    /// unzoned sheet only get half the effect — the eye reads the ground first,
+    /// and a single flat texture tells it the whole field is one material no
+    /// matter what is standing on it.
+    ///
+    /// Everything here can only ever DARKEN (the tint multiplies albedo, and
+    /// vertex colours clamp at 1), so "bleached corridor" is expressed as
+    /// darkening less, not as brightening. That keeps the overall exposure of
+    /// the look pass intact.
+    ///
+    /// ALPHA carries the rock weight for the shader's coarse-detail blend —
+    /// unused by the old shader path, and gated behind a blend scalar that
+    /// defaults to 0, so scenes already baked on disk render unchanged.
     /// </summary>
-    private static Color TintAt(TerrainField field, float x, float z, float h)
+    private static Color TintAt(TerrainField field, SubstrateField substrate,
+                                float zoneStrength, float x, float z, float h)
     {
         const float e = 0.75f;
         float dhx = field.Height(x + e, z) - field.Height(x - e, z);
@@ -483,6 +546,35 @@ public static class TerrainStage
         c = Color.Lerp(c, new Color(0.72f, 0.74f, 0.78f), valley * 0.8f);
         c = Color.Lerp(c, new Color(0.55f, 0.53f, 0.50f), steep);
         c = Color.Lerp(c, Color.white, crest * 0.25f);
+
+        // ---- E2: the substrate, in the ground itself -------------------------
+        float rock = 0f;
+        if (substrate != null && zoneStrength > 0f)
+        {
+            rock = substrate.Rockiness(x, z);
+            float dist = substrate.Disturbance(x, z);
+
+            // The two zone tints are picked BY the anti-correlated field, so a
+            // map reads as stone shelves and soil flats rather than as one
+            // averaged colour. Both sit below white: cool grey for exposed
+            // stone, warm ochre for ground that holds anything.
+            Color zone = Color.Lerp(new Color(0.90f, 0.84f, 0.70f),    // soil
+                                    new Color(0.88f, 0.90f, 0.94f),    // stone
+                                    rock);
+
+            // The corridor is walked on. Worn ground is paler than either
+            // zone, so this is the one term that pulls back UP toward white —
+            // it draws a scuffed band along every route, which is both the
+            // prettiest part of this and the most gameplay-legible.
+            zone = Color.Lerp(zone, new Color(0.97f, 0.95f, 0.90f), dist);
+
+            c *= Color.Lerp(Color.white, zone, Mathf.Clamp01(zoneStrength));
+
+            // Gravel where it is stony, and along the worn band too.
+            rock = Mathf.Max(rock, dist * 0.6f);
+        }
+
+        c.a = rock;
         return c;
     }
 }

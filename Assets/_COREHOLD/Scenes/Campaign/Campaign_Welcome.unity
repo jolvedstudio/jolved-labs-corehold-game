@@ -925,7 +925,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bc5e20bf78af44890d549c0d2788a8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.UI.CampaignWelcome
-  manifest: {fileID: 11400000, guid: 0051a81b9831ee44d8b9641b71dda8cc, type: 2}
+  manifest: {fileID: 11400000, guid: 12bcd0b135e19b6479c0f8d2ef519b47, type: 2}
   titleLabel: {fileID: 452906276}
   subtitleLabel: {fileID: 2078470411}
   normalButton: {fileID: 702062787}

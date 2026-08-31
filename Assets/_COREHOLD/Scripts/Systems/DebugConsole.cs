@@ -28,7 +28,9 @@ namespace Corehold.Systems
     ///   RUN        V  force VICTORY  X  force DEFEAT                 1/2/3 difficulty
     ///   CAMPAIGN   C  status dump    ⇧C wipe this campaign's saves
     ///   TIME       P  pause/resume   ,  slower                       .  faster
-    ///   LOOK       T  cycle mutators N  night toggle                 W  re-apply weather
+    ///   LOOK       T  cycle this level's mutators                   ⇧R re-roll wave draws
+    ///              N  night toggle
+    ///              W  re-apply weather                              ⇧W re-roll wave weather
     ///   OUTPUT     F1 stats overlay  F2 key map                      F3 screenshot
     ///
     /// The campaign keys are the reason this file grew: without V, walking to
@@ -108,11 +110,16 @@ namespace Corehold.Systems
             if (kb.periodKey.wasPressedThisFrame)
                 StepSpeed(+1);
             if (kb.tKey.wasPressedThisFrame)
-                CycleForcedMutators();
+                CycleForcedMutatorAsset();
             if (kb.nKey.wasPressedThisFrame)
                 ToggleNight();
+            if (shift && kb.rKey.wasPressedThisFrame)
+                RerollMutatorDraw();
             if (kb.wKey.wasPressedThisFrame)
-                ReapplyWeather();
+            {
+                if (shift) RerollWaveWeather();
+                else ReapplyWeather();
+            }
             if (kb.digit1Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Normal);
             if (kb.digit2Key.wasPressedThisFrame)
@@ -475,10 +482,16 @@ namespace Corehold.Systems
         // ----- Look -----
 
         /// <summary>
-        /// R20 test: cycle a forced mutator set, OR-ed into every wave started
-        /// after the press (already-spawned units keep their stamps).
+        /// Cycle through this level's mutators, adding one to every wave
+        /// started after the press.
+        ///
+        /// The reason a new mutator is worth authoring at all: without this,
+        /// seeing what one does means editing a wave asset, re-entering play
+        /// and walking to that wave. The library comes off the WaveManager, so
+        /// a mutator that is not in the level's list is not offered — which is
+        /// also how a designer finds out they forgot to register one.
         /// </summary>
-        private void CycleForcedMutators()
+        private void CycleForcedMutatorAsset()
         {
             var wm = FindFirstObjectByType<WaveManager>();
             if (wm == null)
@@ -487,21 +500,70 @@ namespace Corehold.Systems
                 return;
             }
 
-            var cycle = new[]
+            var lib = wm.MutatorLibrary;
+            if (lib == null || lib.Count == 0)
             {
-                Corehold.Data.WaveMutator.None,
-                Corehold.Data.WaveMutator.Storm,
-                Corehold.Data.WaveMutator.Convoy,
-                Corehold.Data.WaveMutator.Overcharge,
-                Corehold.Data.WaveMutator.Blackout,
-                Corehold.Data.WaveMutator.Storm | Corehold.Data.WaveMutator.Convoy |
-                Corehold.Data.WaveMutator.Overcharge | Corehold.Data.WaveMutator.Blackout,
-            };
+                Debug.LogWarning("[DebugConsole] This scene's WaveManager has no mutator library. " +
+                                 "Run Tools → COREHOLD → Scene Setup → Wave Mutators to fill it.");
+                return;
+            }
 
-            int at = System.Array.IndexOf(cycle, wm.DebugForceMutators);
-            wm.DebugForceMutators = cycle[(at + 1) % cycle.Length];
-            Debug.Log($"[DebugConsole] Forced wave mutators: {wm.DebugForceMutators} " +
-                      "(applies to waves started from now; T again to cycle).");
+            // The cycle is None, then each asset in order, so a press always
+            // has somewhere to go back to.
+            int at = -1;
+            for (int i = 0; i < lib.Count; i++)
+                if (lib[i] == wm.DebugForceMutatorAsset) { at = i; break; }
+
+            int next = at + 1;
+            wm.DebugForceMutatorAsset = next >= lib.Count ? null : lib[next];
+
+            var forced = wm.DebugForceMutatorAsset;
+            Debug.Log(forced == null
+                ? "[DebugConsole] Forced mutator: none (T again to cycle)."
+                : $"[DebugConsole] Forced authored mutator: {forced.ResolvedId} — " +
+                  $"{forced.title}: {forced.clause} (applies to waves started from now).");
+        }
+
+        /// <summary>
+        /// Draw a new MUTATOR sequence for this run (R36).
+        ///
+        /// The counterpart of ⇧W for the gameplay half. Waves already started
+        /// keep what they drew — re-rolling under a live wave would change the
+        /// fight mid-fight — so the new sequence lands at the next wave start.
+        /// </summary>
+        private void RerollMutatorDraw()
+        {
+            var wm = FindFirstObjectByType<WaveManager>();
+            if (wm == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WaveManager to re-roll.");
+                return;
+            }
+            uint seed = wm.RerollRunSeed();
+            var next = wm.DrawnMutatorForWave(wm.NextWaveIndex + 1);
+            Debug.Log($"[DebugConsole] Mutator draws re-rolled (seed {seed}). " +
+                      $"Next wave draws: {(next != null ? next.ResolvedId : "nothing")}.");
+        }
+
+        /// <summary>
+        /// Draw a NEW weather sequence for this run without leaving play mode.
+        ///
+        /// The roll is seeded per run, which is the point of it — and which
+        /// makes judging the feature painful without this key, since every look
+        /// at a different sequence would otherwise cost a level reload. Takes
+        /// effect at the next wave start, the same moment a roll normally lands.
+        /// </summary>
+        private void RerollWaveWeather()
+        {
+            var weather = FindFirstObjectByType<WeatherApplier>();
+            if (weather == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WeatherApplier in the scene.");
+                return;
+            }
+            uint seed = weather.RerollRunSeed();
+            Debug.Log($"[DebugConsole] Wave-weather sequence re-rolled (seed {seed}). " +
+                      "The next wave to start draws from the new sequence.");
         }
 
         /// <summary>Re-apply the active weather preset so live [TUNE] edits show now.</summary>
@@ -627,8 +689,8 @@ namespace Corehold.Systems
 #endif
 
             string speed = _paused ? "PAUSED" : $"×{SpeedLadder[_speedIndex]}";
-            string mutators = wm != null && wm.DebugForceMutators != Corehold.Data.WaveMutator.None
-                ? $"   forced: {wm.DebugForceMutators}" : "";
+            string mutators = wm != null && wm.DebugForceMutatorAsset != null
+                ? $"   forced: {wm.DebugForceMutatorAsset.ResolvedId}" : "";
             var night = NightVariant.Instance;
 
             string text =
@@ -675,7 +737,9 @@ namespace Corehold.Systems
                 "RUN       V  force WIN     X  force LOSS     1/2/3 difficulty\n" +
                 "CAMPAIGN  C  status dump   shift+C  wipe this campaign's saves\n" +
                 "TIME      P  pause         ,  slower         .  faster\n" +
-                "LOOK      T  mutators      N  night          W  reapply weather\n" +
+                "LOOK      T  force mutator                \u21e7R reroll draws\n" +
+                "          N  night\n" +
+                "          W  reapply weather              \u21e7W reroll wave weather\n" +
                 "OUTPUT    F1 stats         F2 this list      F3 screenshot\n\n" +
                 "V is the campaign accelerator: force a win, press CONTINUE,\n" +
                 "and the next stage loads with the carry rules applied.";

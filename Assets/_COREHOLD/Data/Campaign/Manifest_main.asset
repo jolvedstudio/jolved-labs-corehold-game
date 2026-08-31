@@ -29,18 +29,8 @@ MonoBehaviour:
   - kind: 1
     title: Operation 1
     briefing: 
-    scenePath: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s650198.unity
-    seed: 0
-  - kind: 1
-    title: Operation 2
-    briefing: 
-    scenePath: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s133471.unity
-    seed: 0
-  - kind: 1
-    title: Operation 3
-    briefing: 
-    scenePath: Assets/_COREHOLD/Scenes/Generated/Blueprint_SandyDesert_s341610.unity
-    seed: 0
+    scenePath: Assets/_COREHOLD/Scenes/Campaign/main/L01_Blueprint_SandyDesert_s619860.unity
+    seed: 619860
   - kind: 2
     title: Debrief
     briefing: 

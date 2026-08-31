@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.TowerDefinition
   id: autocannon
   displayName: Autocannon
+  menuOrder: 0
   icon: {fileID: 21300000, guid: 0bd3ca247dc776648b47f6ba9bfab764, type: 3}
   description: Two-barrel kinetic cannon. Hitscan, single target. The workhorse.
   damageType: 0
@@ -44,8 +45,11 @@ MonoBehaviour:
     projectilePrefab: {fileID: 0}
     projectileSpeed: 0
     weaponVisualIndex: 0
-    muzzleVfx: {fileID: 8771972552311404799, guid: bbf9e36a48d6c5648a13889afab076fd, type: 3}
-    fireSfx: {fileID: 8300000, guid: 8fdcabd035384834882e425db462a5f3, type: 3}
+    muzzleVfx: {fileID: 117382, guid: 64258f385f661894c8baa7ef510bb81c, type: 3}
+    fireSfx: {fileID: 8300000, guid: 888789d76aac5234e90454b7827df3c1, type: 3}
+    shieldHitPoints: 0
+    shieldRegenPerSec: 0
+    shieldRegenDelay: 0
     auraRadius: 0
     auraFireRateBonus: 0
     auraRangeBonus: 0
@@ -75,6 +79,9 @@ MonoBehaviour:
     weaponVisualIndex: 1
     muzzleVfx: {fileID: 0}
     fireSfx: {fileID: 0}
+    shieldHitPoints: 0
+    shieldRegenPerSec: 0
+    shieldRegenDelay: 0
     auraRadius: 0
     auraFireRateBonus: 0
     auraRangeBonus: 0
@@ -104,6 +111,9 @@ MonoBehaviour:
     weaponVisualIndex: 2
     muzzleVfx: {fileID: 0}
     fireSfx: {fileID: 0}
+    shieldHitPoints: 0
+    shieldRegenPerSec: 0
+    shieldRegenDelay: 0
     auraRadius: 0
     auraFireRateBonus: 0
     auraRangeBonus: 0

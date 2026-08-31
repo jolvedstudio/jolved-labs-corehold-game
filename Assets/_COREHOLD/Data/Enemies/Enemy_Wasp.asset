@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: wasp
   displayName: Wasp
+  description: 'Almost too fast to track - catch it early, before it clears your gun line.'
   icon: {fileID: 21300000, guid: 981432943546c1949bd45a6ecf50eb63, type: 3}
   prefab: {fileID: 962232795528168992, guid: f6f7b47478ef97a44a0de783a2ccea31, type: 3}
   baseHealth: 70
@@ -21,10 +22,10 @@ MonoBehaviour:
   moveSpeed: 9
   bounty: 14
   leakDamage: 2
-  fireSound: {fileID: 8300000, guid: b33e2cff5225f4437a43a11d35763d46, type: 3}
+  fireSound: {fileID: 8300000, guid: b169a58da34cfc942b4c04b51d39bc56, type: 3}
   fireVolume: 0.7
   firePitchSpread: 0.08
-  deathSound: {fileID: 8300000, guid: c27036221e6b287498c43036f7767c3e, type: 3}
+  deathSound: {fileID: 8300000, guid: 110b7355d293549459efdea41e6ff795, type: 3}
   deathVolume: 0.8
   deathPitchSpread: 0.06
   isAir: 0

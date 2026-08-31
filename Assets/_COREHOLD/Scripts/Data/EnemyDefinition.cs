@@ -19,6 +19,10 @@ namespace Corehold.Data
         [Tooltip("Icon rendered from the prefab (GDD §9.5).")]
         public Sprite icon;
 
+        [Tooltip("One plain-words sentence for the field guide (R-UI-7). Player-facing: " +
+                 "machines, gates, the Core — no bible jargon.")]
+        [TextArea] public string description;
+
         [Tooltip("Enemy prefab spawned into the scene.")]
         public GameObject prefab;
 

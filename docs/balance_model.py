@@ -256,13 +256,109 @@ R22 = {
 }
 
 
+# The four originals, as effect vectors. A bare mutator NAME in a wave table
+# resolves through here, which is what keeps every table written before R33
+# producing exactly the numbers it always did — the constants above are still
+# the only source for them.
+BUILTIN_MUTATORS = {
+    "storm":      {"air_speed": MUTATOR_STORM_AIR_SPEED},
+    "convoy":     {"convoy": True},
+    "overcharge": {"hp": MUTATOR_OC_HP, "bounty": MUTATOR_OC_BOUNTY},
+    "blackout":   {"range": MUTATOR_BLACKOUT_RANGE},
+}
+
+# Every term a mutator may move, with its identity. CLOSED SET: an exporter
+# writing a key that is not here is rejected rather than silently ignored,
+# because a mutator the model cannot price is a mutator the gate would certify
+# without seeing. Adding a term means adding it here AND applying it below.
+MUTATOR_TERMS = {
+    "air_speed": 1.0,
+    "ground_speed": 1.0,
+    "hp": 1.0,
+    "bounty": 1.0,
+    "range": 1.0,
+    "gap": 1.0,
+}
+MUTATOR_SWITCHES = {"convoy": False}
+
+
 def r22_mutators(wave: dict, wave_number: int) -> frozenset:
-    """The mutator flags in force for a wave: authored on the table + forced."""
+    """The mutator IDS in force for a wave: authored on the table + forced.
+
+    Kept as a set of names because the advice lines and the wave report read
+    it to say WHICH mutator is on; the numbers come from r22_effects().
+    """
     if not R22["on"]:
         return frozenset()
     authored = wave.get("mutators", ())
     forced = R22["forced_mutators"].get(wave_number, ())
-    return frozenset(authored) | frozenset(forced)
+    names = set()
+    for m in list(authored) + list(forced):
+        names.add(m["id"] if isinstance(m, dict) else str(m))
+    return frozenset(names)
+
+
+def wave_variants(wave: dict) -> list:
+    """Every mutator draw a wave can produce at runtime, as concrete waves.
+
+    A wave with a `mutator_pool` does not run one fight, it runs one of
+    several. Each is returned as a full wave dict with the drawn member
+    appended to whatever the wave carries outright, so every downstream
+    reader — r22_effects, r22_mutators, wave_income — sees an ordinary wave
+    and needs no idea a pool exists.
+
+    The caller evaluates all of them and gates on the WORST, which is the
+    guarantee that makes a random draw safe to ship: a run can never be
+    harder than what certification signed off.
+    """
+    pool = wave.get("mutator_pool") or ()
+    if not pool:
+        return [(wave, "")]
+
+    base = list(wave.get("mutators", ()))
+    out = []
+    # "Nothing drawn" is a real outcome and usually the EASIEST, so it is
+    # evaluated too — the band's upper end is as much a design signal as its
+    # lower one, and a wave that is trivial on a blank draw is worth seeing.
+    if int(wave.get("mutator_pool_none", 0)) > 0:
+        out.append((wave, "-"))
+    for cand in pool:
+        variant = dict(wave)
+        variant["mutators"] = base + [cand]
+        variant.pop("mutator_pool", None)
+        out.append((variant, cand["id"] if isinstance(cand, dict) else str(cand)))
+    return out
+
+
+def r22_effects(wave: dict, wave_number: int) -> dict:
+    """The COMPOSED effect of every mutator on a wave.
+
+    Multipliers multiply and switches OR, matching MutatorEffects.Fold on the
+    Unity side exactly — two implementations of one rule, which is the drift
+    this file exists to prevent, so if one changes, change both.
+
+    Two shapes arrive here. A NAME is one of the four originals and resolves
+    to the constants at the top of this file. An OBJECT is an authored mutator
+    asset carrying its own numbers, because the model cannot hold a constant
+    for a mutator that did not exist when it was written.
+    """
+    eff = dict(MUTATOR_TERMS)
+    eff.update(MUTATOR_SWITCHES)
+    if not R22["on"]:
+        return eff
+
+    authored = wave.get("mutators", ())
+    forced = R22["forced_mutators"].get(wave_number, ())
+    for m in list(authored) + list(forced):
+        vec = BUILTIN_MUTATORS.get(m, {}) if not isinstance(m, dict) else m
+        for key, value in vec.items():
+            if key == "id":
+                continue
+            if key in MUTATOR_SWITCHES:
+                eff[key] = eff[key] or bool(value)
+            elif key in MUTATOR_TERMS:
+                eff[key] *= float(value)
+    return eff
 
 
 def r22_dense(wave: dict) -> bool:
@@ -328,6 +424,17 @@ TOWER_HP_DEFAULT = 220.0
 # are 13-14 m), so return fire never discounts to zero. [TUNE]
 TOWER_LOSS_SURVIVAL_FLOOR = 0.15
 
+# Tower SHIELDS (authored per tier: shield/regen/delay — the VFX-Tier-1
+# barrier mechanic). Runtime truth (TowerHealth): the shield absorbs BEFORE
+# health with overflow carrying through; it regenerates at `regen`/s once the
+# turret has gone `delay` seconds without being hit; upgrades and rebuilds
+# refill it. Model mirror: shields refill BETWEEN waves when regen > 0 (the
+# build lull dwarfs authored delays), carry when regen == 0 (a one-time
+# buffer, like hp damage), and earn a during-fire regen credit of
+# regen × wave duration ONLY when delay is below the typical inter-hit gap —
+# a longer delay is reset by every hit and heals nothing under fire. [TUNE]
+SHIELD_REGEN_DELAY_SUPPRESS = 1.0   # delays above this heal nothing mid-fire
+
 # Full-model evaluations the counts-only tuner may spend (suggest_fix). Each
 # is one complete run (~0.2 s); the chunked cuts converge in a handful per
 # flagged wave, so this cap is a runaway stop, not a working budget.
@@ -378,7 +485,7 @@ def tower_incoming(geom: Geometry, built: dict, groups: list,
             bx, bz = geom.air_target
             length = math.hypot(bx - ax, bz - az)
             n = max(2, int(length / COVERAGE_SAMPLE_STEP_M))
-            dt = (length / n) / (enemy["speed"] * g["air_speed_mult"])
+            dt = (length / n) / (enemy["speed"] * g["speed_mult"])
             for i in range(n):
                 t = (i + 0.5) / n
                 pad = _nearest_pad_in_range(geom, built,
@@ -734,8 +841,9 @@ def traverse_time(enemy: dict, route: Route) -> float:
 class TowerInstance:
     pad: str
     tower_id: str
-    tier: int = 0        # index into tiers (0 = tier 1)
-    hp_lost: float = 0.0  # return fire soaked so far — nothing repairs it
+    tier: int = 0          # index into tiers (0 = tier 1)
+    hp_lost: float = 0.0   # return fire soaked so far — nothing repairs hp
+    shield_now: float = 0.0  # current shield charge (refilled on build/upgrade)
 
 
 _value_cache: dict = {}
@@ -780,6 +888,9 @@ def run_build_phase(geom: Geometry, salvage: int, built: dict) -> int:
             cost = TOWERS[tower_id]["tiers"][0]["cost"]
             if salvage - cost >= SALVAGE_RESERVE:
                 built[pad] = TowerInstance(pad, tower_id, 0)
+                # A fresh build starts with its tier's shield fully charged
+                # (TowerHealth.OnEnable/ConfigureShield refill).
+                built[pad].shield_now = TOWERS[tower_id]["tiers"][0].get("shield", 0.0)
                 salvage -= cost
                 progressed = True
                 break
@@ -809,6 +920,10 @@ def run_build_phase(geom: Geometry, salvage: int, built: dict) -> int:
         if best is not None:
             _, pad, target, cost = best
             built[pad].tier = target
+            # An upgrade re-configures the shield to the NEW tier's maximum,
+            # fully charged (live ConfigureShield semantics).
+            built[pad].shield_now = \
+                TOWERS[built[pad].tower_id]["tiers"][target].get("shield", 0.0)
             salvage -= cost
             progressed = True
     return salvage
@@ -844,11 +959,13 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                  wave: dict, difficulty: str):
     hp_mult = DIFFICULTY_HP_MULT[difficulty]
     scalar = wave_scalar(wave_number)
-    mutators = r22_mutators(wave, wave_number)
-    oc_hp = MUTATOR_OC_HP if "overcharge" in mutators else 1.0
-    storm = MUTATOR_STORM_AIR_SPEED if "storm" in mutators else 1.0
-    convoy = "convoy" in mutators
-    blackout_rng = MUTATOR_BLACKOUT_RANGE if "blackout" in mutators else 1.0
+    fx = r22_effects(wave, wave_number)
+    oc_hp = fx["hp"]
+    storm = fx["air_speed"]
+    ground_speed = fx["ground_speed"]
+    gap_scale = fx["gap"]
+    convoy = fx["convoy"]
+    blackout_rng = fx["range"]
 
     groups = []
     wave_duration = 0.0
@@ -876,13 +993,17 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
             # 1-leg generated map running the shipped wave table): those groups
             # walk the primary route instead, mirroring a single-entrance map.
             route = geom.routes.get(spawner) or geom.routes[min(geom.routes)]
-            traverse = traverse_time(enemy, route)
+            traverse = traverse_time(enemy, route) / ground_speed
         eff_hp = enemy["hp"] * scalar * hp_mult * count * oc_hp
+        # A mutator may compress or stretch the spawn cadence. The GAP scales
+        # and the OFFSET does not, mirroring SpawnGroupRoutine: offsets are the
+        # wave's composition, gaps are its tempo.
+        gap = gap * gap_scale
         groups.append(dict(id=enemy_id, enemy=enemy, count=count, gap=gap,
                            offset=offset, route=route, traverse=traverse,
                            eff_hp=eff_hp, delivered=0.0, exp_s=0.0,
                            lane=None if enemy["air"] else spawner,
-                           air_speed_mult=storm if enemy["air"] else 1.0))
+                           speed_mult=storm if enemy["air"] else ground_speed))
         wave_duration = max(wave_duration, offset + max(0, count - 1) * gap + traverse)
 
     # Deliverable damage, pad by pad. Each pad has a continuous-fire budget of
@@ -925,7 +1046,7 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
                 continue
             if enemy["air"]:
                 covered = air_covered_length(geom, px, pz, rng, enemy["altitude"])
-                t_per = covered / (enemy["speed"] * g["air_speed_mult"])
+                t_per = covered / (enemy["speed"] * g["speed_mult"])
                 dwell = 1.0
             else:
                 intervals = covered_intervals(g["route"], px, pz, rng,
@@ -989,13 +1110,23 @@ def compute_wave(geom: Geometry, built: dict, wave_number: int,
             if soak <= 0.0:
                 pad_uptime[pad] = 1.0
                 continue
+            # Authored tower shield (TowerHealth): absorbs before hp, with a
+            # during-fire regen credit only when the regen delay is short
+            # enough to keep flowing between hits.
+            tier = TOWERS[inst.tower_id]["tiers"][inst.tier]
+            regen = tier.get("regen", 0.0)
+            credit = (regen * wave_duration
+                      if regen > 0.0 and tier.get("delay", 0.0) <= SHIELD_REGEN_DELAY_SUPPRESS
+                      else 0.0)
+            shield_pool = inst.shield_now + credit
             remaining = max(0.0, TOWERS[inst.tower_id].get("hp", TOWER_HP_DEFAULT)
                             - inst.hp_lost)
-            if soak < remaining:
+            if soak < shield_pool + remaining:
                 pad_uptime[pad] = 1.0
-                pad_damage[pad] = soak
+                shield_spent = min(inst.shield_now, max(0.0, soak - credit))
+                pad_damage[pad] = (shield_spent, max(0.0, soak - shield_pool))
             else:
-                pad_uptime[pad] = remaining / soak if soak > 0.0 else 0.0
+                pad_uptime[pad] = (shield_pool + remaining) / soak
                 towers_lost.append(pad)
         # Pass 2 only when something actually went down — otherwise pass 1
         # already IS the answer, bit for bit.
@@ -1060,8 +1191,7 @@ def wave_income(wave: dict, wave_number: int, difficulty: str) -> int:
         # waves chain them reliably. Bounty component only — clears are flat.
         streak = STREAK_INCOME_DENSE if r22_dense(wave) else STREAK_INCOME_SPARSE
         bounties *= 1.0 + streak
-        if "overcharge" in r22_mutators(wave, wave_number):
-            bounties *= MUTATOR_OC_BOUNTY
+        bounties *= r22_effects(wave, wave_number)["bounty"]
     clear = wave["clear"] if wave["clear"] > 0 else 60 + 18 * wave_number
     return round(bounties * eco) + round(clear * eco)
 
@@ -1284,21 +1414,45 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
         wave_number = i + 1
         before = {p: (built[p].tower_id, built[p].tier) for p in built}
         salvage = run_build_phase(geom, salvage, built)
+
+        # Regenerating shields refill in the between-wave lull (it dwarfs the
+        # authored delays); a regen-0 shield is a one-time buffer and carries.
+        for inst in built.values():
+            t = TOWERS[inst.tower_id]["tiers"][inst.tier]
+            if t.get("regen", 0.0) > 0.0:
+                inst.shield_now = t.get("shield", 0.0)
         after = {p: (built[p].tower_id, built[p].tier) for p in built}
         changes = [f"{p}:{after[p][0]}@T{after[p][1] + 1}"
                    for p in after if before.get(p) != after[p]]
         build_log.append(changes)
 
-        result = compute_wave(geom, built, wave_number, wave, difficulty)
-        income = wave_income(wave, wave_number, difficulty)
+        # A wave with a draw pool is evaluated ONCE PER OUTCOME and gated on
+        # the worst of them. compute_wave is pure with respect to the carried
+        # tower state — it RETURNS the damage rather than applying it — which
+        # is what makes trying several futures on one board safe; only the
+        # surviving (worst) one's damage is then banked below.
+        #
+        # This is per-wave worst case, not worst-case-run: each wave is
+        # certified against the hardest draw IT can produce, carrying that same
+        # draw's economy. Searching every sequence of draws would be
+        # exponential, and the per-wave bound is the one that matters — it is
+        # the promise that no single wave can exceed what was certified.
+        variants = wave_variants(wave)
+        evaluated = [(compute_wave(geom, built, wave_number, v, difficulty), v, label)
+                     for v, label in variants]
+        result, wave_eff, worst_label = min(evaluated, key=lambda e: e[0]["margin"])
+        band_hi = max(e[0]["margin"] for e in evaluated)
+        income = wave_income(wave_eff, wave_number, difficulty)
         # Strike Wing cost (R22): a use is salvage the build phase never sees.
         income -= STRIKE_COST * result["strike_uses"]
 
-        # Tower loss: bank the soak on survivors, remove the dead. The next
+        # Tower loss: bank the soak on survivors — shield spend first, hp
+        # damage after (mirroring TowerHealth) — and remove the dead. The next
         # build phase re-buys a dead pad from tier 1 ("unbuilt pads first"),
         # which is exactly the salvage the player loses in play.
-        for pad, dmg in result.pop("_pad_damage").items():
-            built[pad].hp_lost += dmg
+        for pad, (shield_spent, hp_dmg) in result.pop("_pad_damage").items():
+            built[pad].shield_now = max(0.0, built[pad].shield_now - shield_spent)
+            built[pad].hp_lost += hp_dmg
         for pad in result["towers_lost"]:
             built.pop(pad, None)
 
@@ -1315,6 +1469,15 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
             flags.append(f"GROUP-STARVED({result['worst_group']})")
 
         result["advice"] = advise_wave(wave_number, flags, result, geom, built)
+
+        # What the DRAW can swing, when the wave has a pool. The gate reads the
+        # worst; a designer reads the spread, because that is the number that
+        # says whether the wave is still learnable. A wide band means the same
+        # wave is a different problem each run.
+        if len(evaluated) > 1:
+            result["draw_worst"] = worst_label
+            result["draw_band"] = round(band_hi - result["margin"], 3)
+            result["draw_outcomes"] = len(evaluated)
 
         rows.append(dict(wave=wave_number, salvage_before=salvage,
                          income=income, flags=flags, **result))
@@ -1594,6 +1757,13 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
             flags = f"LOST({','.join(r['towers_lost'])})" + ("," + flags if flags != "-" else "")
         if r.get("strike_uses"):
             flags = f"SW×{r['strike_uses']}" + ("," + flags if flags != "-" else "")
+        # The margin shown is the WORST draw. Naming which one, and how much
+        # easier the best draw is, keeps the number honest: without it a
+        # designer reads a pooled wave's margin as the margin, when it is the
+        # floor of a range.
+        if r.get("draw_outcomes"):
+            flags = (f"DRAW[{r['draw_worst']}/{r['draw_outcomes']} ±{r['draw_band']:.2f}]"
+                     + ("," + flags if flags != "-" else ""))
         builds = (" | " + ", ".join(changes)) if changes else ""
         w(f"{r['wave']:>2} {r['required']:>10.0f} {r['deliverable']:>11.0f} "
           f"{r['margin']:>6.2f} {worst:>16} {r['peak_live']:>4} "
@@ -1629,10 +1799,13 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
         w("Tower loss ON: enemies return fire (per-row gdps/grange) at the "
           "nearest built pad while walking, discounted to each group's alive "
           "fraction (out-delivered m-fold -> ~1/m of the walk, floor %.2f); "
-          "%d-HP turrets carry damage across waves (nothing repairs), die at 0 "
-          "(LOST(pad) markers) and cost a fresh tier-1 rebuild. "
+          "authored tower SHIELDS absorb first (refill between waves when "
+          "regenerating; mid-fire regen credited only at delay <= %.1f s); "
+          "%d-HP turrets carry damage across waves (nothing repairs hp), die "
+          "at 0 (LOST(pad) markers) and cost a fresh tier-1 rebuild. "
           "--tower-loss-off reproduces the pre-term report." % (
-              TOWER_LOSS_SURVIVAL_FLOOR, int(TOWER_HP_DEFAULT)))
+              TOWER_LOSS_SURVIVAL_FLOOR, SHIELD_REGEN_DELAY_SUPPRESS,
+              int(TOWER_HP_DEFAULT)))
     if R22["on"]:
         w("R22 terms ON: streak income +%.0f%%/+%.0f%% (dense>=%d), veterancy "
           "+%.0f%%/wave from w%d cap +%.0f%%, Strike Wing %s (+%.1f enemy-s to "
@@ -1872,6 +2045,12 @@ def main(argv=None) -> int:
                     for k in ("aura_radius", "aura_fire", "aura_range", "aura_dmg"):
                         if float(tr.get(k, 0.0)) > 0:
                             tier[k] = float(tr[k])
+                    # Authored tower shield (TowerHealth barrier): absorbed
+                    # before hp by the tower-loss term.
+                    if float(tr.get("shield", 0.0)) > 0:
+                        tier["shield"] = float(tr["shield"])
+                        tier["regen"] = max(0.0, float(tr.get("regen", 0.0)))
+                        tier["delay"] = max(0.0, float(tr.get("delay", 0.0)))
                     tiers.append(tier)
                 if not tiers:
                     raise ValueError(f"tower '{tid}': no tiers")
@@ -1883,12 +2062,62 @@ def main(argv=None) -> int:
                 groups = [(g["enemy"], int(g["count"]), float(g["gap"]),
                            float(g["offset"]), int(g["spawner"])) for g in w["groups"]]
                 d = dict(clear=int(w.get("clear", 0)), groups=groups)
-                muts = {str(m).strip().lower() for m in w.get("mutators", []) if str(m).strip()}
-                bad_m = muts - {"storm", "convoy", "overcharge", "blackout"}
-                if bad_m:
-                    raise ValueError(f"unknown mutator(s): {', '.join(sorted(bad_m))}")
+                # Two shapes: a NAME (one of the four originals, resolved from
+                # BUILTIN_MUTATORS) or an OBJECT carrying an authored mutator's
+                # own terms. The object form is checked against the CLOSED term
+                # list rather than against a list of known mutators — the whole
+                # point is that the model does not need to know the mutator,
+                # only that every term it moves is one this file prices.
+                def parse_mutator(m):
+                    if isinstance(m, dict):
+                        mid = str(m.get("id", "")).strip().lower()
+                        if not mid:
+                            raise ValueError("a mutator object has no id")
+                        bad_k = set(m) - {"id"} - set(MUTATOR_TERMS) - set(MUTATOR_SWITCHES)
+                        if bad_k:
+                            raise ValueError(
+                                f"mutator '{mid}': unknown term(s) {', '.join(sorted(bad_k))}. "
+                                f"Known terms: {', '.join(sorted(set(MUTATOR_TERMS) | set(MUTATOR_SWITCHES)))}")
+                        vec = {"id": mid}
+                        for k in MUTATOR_TERMS:
+                            if k in m:
+                                vec[k] = float(m[k])
+                        for k in MUTATOR_SWITCHES:
+                            if k in m:
+                                vec[k] = bool(m[k])
+                        return vec
+                    name = str(m).strip().lower()
+                    if not name:
+                        return None
+                    if name not in BUILTIN_MUTATORS:
+                        raise ValueError(
+                            f"unknown mutator '{name}'. Bare names must be one of "
+                            f"{', '.join(sorted(BUILTIN_MUTATORS))}; an authored mutator must be "
+                            f"exported as an object carrying its own terms")
+                    return name
+
+                muts = []
+                for m in w.get("mutators", []):
+                    parsed_m = parse_mutator(m)
+                    if parsed_m is not None:
+                        muts.append(parsed_m)
                 if muts:
                     d["mutators"] = muts
+
+                # The DRAW POOL, parsed through the same closed-term check as
+                # a fixed mutator. A pool member the model cannot price is the
+                # same lie as a fixed one it cannot price — more so, since it
+                # only appears on some runs.
+                pool = []
+                for m in w.get("mutator_pool", []):
+                    pool.append(parse_mutator(m))
+                if pool:
+                    d["mutator_pool"] = pool
+                    none_w = int(w.get("mutator_pool_none", 0))
+                    if none_w < 0:
+                        raise ValueError("mutator_pool_none cannot be negative")
+                    if none_w:
+                        d["mutator_pool_none"] = none_w
                 parsed.append(d)
         except (OSError, ValueError, KeyError, TypeError) as e:
             print(f"--waves '{args.waves}': {e}", file=sys.stderr)

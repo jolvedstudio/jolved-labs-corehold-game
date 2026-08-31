@@ -62,7 +62,24 @@ public static class RouteVisibility
     public static float TotalMetres(List<Vector3> samples) => samples.Count * SampleStep;
 
     /// <summary>Metres of route allowed to be hidden, for a route of this length.</summary>
-    public static float BudgetMetres(List<Vector3> samples) =>
+    /// <summary>
+    /// Per-theme multiplier on the route-hidden budget, set by the drawn
+    /// EnvPack's <c>occlusionTolerance</c> and pushed here for the run.
+    ///
+    /// This is a static because the budget is consulted from the placer, the
+    /// occlusion gate and the adapt loop, none of which share a context — and
+    /// a tolerance that reached only one of them would let dressing spend a
+    /// budget the gate then refused, which is worse than no lever at all.
+    /// <see cref="GenerationPipeline"/> sets it when the theme is drawn and
+    /// resets it on every run, so it can never leak between generations.
+    ///
+    /// It scales ONLY the route budget. The camera's sight line to a pad has
+    /// no budget and gains none: if the player cannot see where to build, the
+    /// level is broken, and that is not an art-direction decision.
+    /// </summary>
+    public static float ToleranceMultiplier = 1f;
+
+    public static float BudgetMetres(List<Vector3> samples) => ToleranceMultiplier *
         TotalMetres(samples) * HiddenBudgetFraction;
 
     /// <summary>

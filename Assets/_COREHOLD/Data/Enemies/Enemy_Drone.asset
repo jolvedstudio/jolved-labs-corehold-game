@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: drone
   displayName: Drone
+  description: 'A light flyer that skips the ground path entirely - only turrets that can aim upward will touch it.'
   icon: {fileID: 21300000, guid: b54a6e8f232e645449ef41dd1f87d7d6, type: 3}
   prefab: {fileID: 1474290544001657429, guid: a7caff37e64a2224ca42fd49539b5911, type: 3}
   baseHealth: 60
@@ -21,10 +22,10 @@ MonoBehaviour:
   moveSpeed: 8
   bounty: 12
   leakDamage: 2
-  fireSound: {fileID: 8300000, guid: 2203773368e4340d98c114f55c2dd7fd, type: 3}
+  fireSound: {fileID: 8300000, guid: f682e77b30a8bba4c816304a5c4bf61a, type: 3}
   fireVolume: 0.7
   firePitchSpread: 0.08
-  deathSound: {fileID: 8300000, guid: 1fd31868d68903d4f9e2c4a3b7ef98f3, type: 3}
+  deathSound: {fileID: 8300000, guid: 14828646610ee28499829297431f450b, type: 3}
   deathVolume: 0.8
   deathPitchSpread: 0.06
   isAir: 1

@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Corehold.Data.EnemyDefinition
   id: colossus_b
   displayName: Colossus Vanguard
+  description: 'A shielded siege giant that moves faster once wounded - pour kinetic fire into it early.'
   icon: {fileID: 21300000, guid: ca3a2eb53defbad4a80e45263f615a3a, type: 3}
   prefab: {fileID: 1733323383697513668, guid: 2305d24cbd18dc6458b829f40d5821d5, type: 3}
   baseHealth: 2400
@@ -21,10 +22,10 @@ MonoBehaviour:
   moveSpeed: 3.4
   bounty: 220
   leakDamage: 18
-  fireSound: {fileID: 8300000, guid: 8fdcabd035384834882e425db462a5f3, type: 3}
+  fireSound: {fileID: 8300000, guid: 888789d76aac5234e90454b7827df3c1, type: 3}
   fireVolume: 0.7
   firePitchSpread: 0.08
-  deathSound: {fileID: 8300000, guid: a4934d1a3017c7148b17fa67d52005e8, type: 3}
+  deathSound: {fileID: 8300000, guid: 0a8a1a3bb0fc36448b7b41871cf47ad8, type: 3}
   deathVolume: 0.8
   deathPitchSpread: 0.06
   isAir: 0

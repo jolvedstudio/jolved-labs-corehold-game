@@ -29,7 +29,7 @@ namespace Corehold.Core
     ///     being a pacing choice: every remaining wave lands as a single pile.
     ///   • Applies the wave HP scalar 1.0 + 0.18·(wave − 1) and the difficulty
     ///     multipliers (§8.2) at spawn time.
-    ///   • Applies the wave's optional <see cref="WaveMutator"/> flags (R20) at
+    ///   • Applies the wave's mutators (<see cref="WaveMutatorDefinition"/>) at
     ///     spawn: Storm air speed, Convoy single-lane funnelling, Overcharge
     ///     HP/bounty, Blackout acquisition stamps. Vanilla when the field is None.
     ///
@@ -79,18 +79,18 @@ namespace Corehold.Core
         [Tooltip("Largest body radius any spawnable enemy has, used for the conservative derived-capacity calculation. Set to your biggest unit's radius.")]
         [SerializeField] private float largestBodyRadius = 1.2f;
 
-        [Header("Wave mutators (R20) — applied at spawn when a wave carries the flag")]
-        [Tooltip("[TUNE] Storm: speed multiplier for AIR units of a Storm wave (1.3 = +30%).")]
-        [SerializeField] private float stormAirSpeedMultiplier = 1.3f;
+        [Header("Wave mutators")]
+        [Tooltip("Every mutator asset this level can use. Waves reference the assets they carry " +
+                 "directly, so this list exists for TOOLING: the debug console cycles it, and the " +
+                 "exporter and validator read it to check that nothing a wave uses is missing. " +
+                 "Populate it with Tools → COREHOLD → Scene Setup → Wave Mutators.\n\n" +
+                 "A mutator's NUMBERS are not here — they live on the mutator asset, which is the " +
+                 "one place a mutator is defined.")]
+        [SerializeField] private WaveMutatorDefinition[] mutatorLibrary;
 
-        [Tooltip("[TUNE] Overcharge: HP multiplier for every unit of the wave (1.3 = +30%).")]
-        [SerializeField] private float overchargeHpMultiplier = 1.3f;
-
-        [Tooltip("[TUNE] Overcharge: bounty multiplier for every unit of the wave (1.5 = +50%).")]
-        [SerializeField] private float overchargeBountyMultiplier = 1.5f;
-
-        [Tooltip("[TUNE] Blackout: acquisition-distance multiplier stamped on unlit units (2 = towers see them at half range). Floodlights (R24) restore full range inside their radius.")]
-        [SerializeField] private float blackoutAcquisitionDistanceScale = 2f;
+        /// <summary>The authored mutators this scene knows about, for tooling.</summary>
+        public IReadOnlyList<WaveMutatorDefinition> MutatorLibrary =>
+            mutatorLibrary != null ? mutatorLibrary : NoMutatorAssets;
 
         // ----- Runtime rule values (resolved from the level or the fallbacks) -----
         private int _maxLiveEnemies = 14;
@@ -185,6 +185,23 @@ namespace Corehold.Core
         /// <summary>Stable id of the level driving this manager — the LevelDefinition asset name (R4 records are keyed per map).</summary>
         public string LevelId => level != null ? level.name : "default";
 
+        /// <summary>This level's turret roster (R-UI-2). Null/empty = the full roster.</summary>
+        public TowerDefinition[] LevelRoster => level != null ? level.roster : null;
+
+        /// <summary>The Core transform, via the first spawner that knows it (the
+        /// PANIC auto-deploy sorts free pads by distance to it).</summary>
+        public Transform CoreTarget
+        {
+            get
+            {
+                if (spawners == null) return null;
+                foreach (var s in spawners)
+                    if (s != null && s.CoreTarget != null)
+                        return s.CoreTarget;
+                return null;
+            }
+        }
+
         /// <summary>Number of enemies waiting for a free slot under the 14-cap.</summary>
         public int PendingCount => _pending.Count;
 
@@ -201,6 +218,12 @@ namespace Corehold.Core
         /// </summary>
         public WaveDefinition NextWave => GetWave(_nextWaveIndex);
 
+        /// <summary>Wave definition at an offset from the next unstarted wave —
+        /// 0 = next, 1 = the one after (the HUD's two-wave queue, R-UI-4),
+        /// -1 = the wave that just started (banner composition). Null when out
+        /// of range.</summary>
+        public WaveDefinition PeekWave(int offset) => GetWave(_nextWaveIndex + offset);
+
         /// <summary>Get the wave definition at a 0-based index, or null if out of range.</summary>
         public WaveDefinition GetWave(int index)
         {
@@ -211,22 +234,131 @@ namespace Corehold.Core
         }
 
         /// <summary>
-        /// Debug/test override (DebugConsole `T`): OR-ed into every wave's mutators
-        /// at start and at each spawn. Not serialized — resets with the domain.
+        /// Debug/test override (DebugConsole T): a mutator added to every wave.
+        /// A new mutator has to be testable without authoring a wave for it, or
+        /// nobody will iterate on one. Not serialized — resets with the domain.
         /// </summary>
-        public WaveMutator DebugForceMutators { get; set; } = WaveMutator.None;
+        public WaveMutatorDefinition DebugForceMutatorAsset { get; set; }
+
+        // ------------------------------------------------- the per-run draw
 
         /// <summary>
-        /// The mutators in force for a 1-based wave number: the authored flags on
-        /// its WaveDefinition plus any debug override. Derived from the wave number
-        /// (never threaded through spawn state) so pending-queue spawns admitted
-        /// seconds later still read the same answer.
+        /// This run's mutator sequence. Fresh per run, which is the point: the
+        /// same level replayed — or retried after a loss — draws a different
+        /// shape of fight.
+        ///
+        /// Not serialized, and deliberately not saved: a retry is a new run.
         /// </summary>
-        public WaveMutator MutatorsForWave(int waveNumber)
+        private uint _runSeed;
+        private bool _runSeedSet;
+
+        private uint RunSeed
+        {
+            get
+            {
+                if (!_runSeedSet)
+                {
+                    _runSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue);
+                    _runSeedSet = true;
+                }
+                return _runSeed;
+            }
+        }
+
+        /// <summary>Draw a new mutator sequence (DebugConsole ⇧R). Waves already
+        /// started keep what they drew; the next one reads the new sequence.</summary>
+        public uint RerollRunSeed()
+        {
+            _runSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue);
+            _runSeedSet = true;
+            return _runSeed;
+        }
+
+        /// <summary>
+        /// The mutator this wave DREW from its pool, or null.
+        ///
+        /// Derived from (run seed, wave number) and never stored: a unit
+        /// admitted from the pending queue thirty seconds after the wave began
+        /// has to read the same answer as the one that spawned instantly, and
+        /// the HUD banner has to agree with both.
+        /// </summary>
+        public WaveMutatorDefinition DrawnMutatorForWave(int waveNumber)
         {
             WaveDefinition w = GetWave(waveNumber - 1);
-            WaveMutator m = w != null ? w.mutators : WaveMutator.None;
-            return m | DebugForceMutators;
+            if (w == null)
+                return null;
+
+            // Distinct members only: a duplicated or empty pool entry would
+            // otherwise silently reweight the hat against what the gate priced.
+            var pool = w.DrawablePool();
+            if (pool.Count == 0)
+                return null;
+
+            int slots = pool.Count + Mathf.Max(0, w.poolNothingWeight);
+            int pick = (int)(Hash(RunSeed, (uint)waveNumber) % (uint)slots);
+            return pick < pool.Count ? pool[pick] : null;
+        }
+
+        /// <summary>FNV-1a plus murmur3's finalizer. The mix is not decoration:
+        /// consecutive waves differ only in the low salt byte, and without it
+        /// adjacent waves draw the same member far more often than 1-in-N.</summary>
+        private static uint Hash(uint seed, uint salt)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                for (int i = 0; i < 4; i++) { h ^= (seed >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                for (int i = 0; i < 4; i++) { h ^= (salt >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                h ^= h >> 16; h *= 0x85EBCA6Bu;
+                h ^= h >> 13; h *= 0xC2B2AE35u;
+                h ^= h >> 16;
+                return h;
+            }
+        }
+
+        /// <summary>
+        /// Every mutator in force for a 1-based wave number: whatever the wave
+        /// drew from its pool, plus the debug override. Never null.
+        ///
+        /// This is THE question the rest of the game asks. The HUD banner, the
+        /// weather stack and the effect fold all read this one list, so a
+        /// mutator that shows in the banner is by construction a mutator that
+        /// is also applied and also lit — they cannot disagree, because there
+        /// is nothing for them to disagree about.
+        /// </summary>
+        public List<WaveMutatorDefinition> MutatorAssetsForWave(int waveNumber)
+        {
+            var result = new List<WaveMutatorDefinition>(2);
+
+            WaveMutatorDefinition drawn = DrawnMutatorForWave(waveNumber);
+            if (drawn != null)
+                result.Add(drawn);
+
+            if (DebugForceMutatorAsset != null && !result.Contains(DebugForceMutatorAsset))
+                result.Add(DebugForceMutatorAsset);
+
+            return result;
+        }
+
+        /// <summary>
+        /// The composed mechanical effect of every mutator on a wave.
+        ///
+        /// Folded straight off <see cref="MutatorAssetsForWave"/>, which is the
+        /// point: the list that the player is TOLD about is the list that is
+        /// applied. Multipliers compose by multiplication and switches by OR
+        /// (see <see cref="MutatorEffects.Fold"/>), which is also exactly what
+        /// the balance model does with the same numbers.
+        ///
+        /// Derived from the wave number rather than threaded through spawn
+        /// state: a unit admitted from the pending queue thirty seconds late
+        /// must read the same answer as the one that spawned instantly.
+        /// </summary>
+        public MutatorEffects EffectsForWave(int waveNumber)
+        {
+            MutatorEffects e = MutatorEffects.Identity;
+            foreach (WaveMutatorDefinition d in MutatorAssetsForWave(waveNumber))
+                e.Fold(d.Effects);
+            return e;
         }
 
         /// <summary>True while any wave still has enemies alive or unspawned in the queue.</summary>
@@ -281,6 +413,7 @@ namespace Corehold.Core
         private void Update()
         {
             TickStallWatchdog();
+            TickPacing();
 
             // Pending units enter as track entrances clear over time (not only on
             // deaths): the front unit walks away and frees the entrance. Retry a few
@@ -297,6 +430,142 @@ namespace Corehold.Core
         }
 
         private float _drainTimer;
+
+        // ================================================================
+        //  Wave pacing (e1-e3): difficulty auto-start, assault, AI director
+        // ================================================================
+        //
+        // BALANCE NOTE: none of this touches wave content — the model certifies
+        // composition, and pacing only compresses the player's BUILD TIME,
+        // which the model never simulated (it assumes final build states).
+        // Normal difficulty stays untimed, i.e. exactly the certified baseline;
+        // the director can only SHORTEN an authored countdown, never lengthen.
+
+        [Header("Wave pacing — auto-start, assault, director (e1-e3)")]
+        [Tooltip("[TUNE] VETERAN: seconds of build phase before the next wave auto-starts. 0 = manual (the Normal behaviour). Starting early by button still works and still pays chain bonuses when chaining.")]
+        [SerializeField] private float autoStartVeteranSeconds = 20f;
+
+        [Tooltip("[TUNE] NIGHTMARE: seconds of build phase before the next wave auto-starts. 0 = manual.")]
+        [SerializeField] private float autoStartNightmareSeconds = 8f;
+
+        [Tooltip("[TUNE] The FIRST build phase multiplies its countdown by this — the player is still reading the map.")]
+        [SerializeField] private float firstWaveGraceMultiplier = 1.5f;
+
+        [Tooltip("[TUNE] ASSAULT (LevelDefinition.assaultPacing): while a wave is live, the next wave auto-chains this many seconds after the field drains below the chain lock.")]
+        [SerializeField] private float assaultChainDelaySeconds = 2f;
+
+        [Tooltip("[TUNE] AI DIRECTOR (e3): when the player is cruising (high integrity, drained field, banked salvage) the auto-start countdown ticks up to 1/this fraction faster — pressure adapts to performance. 1 disables. It can only ACCELERATE an existing countdown; on Normal (no countdown) it does nothing.")]
+        [Range(0.25f, 1f)]
+        [SerializeField] private float directorMinCountdownFraction = 0.45f;
+
+        private float _autoStartRemaining = -1f; // <0 = no countdown armed
+        private float _assaultArmTime;
+
+        /// <summary>Seconds until the next wave auto-starts, or ≤0 when no
+        /// countdown is armed (Normal difficulty / no wave left). The HUD shows it
+        /// on the Start button.</summary>
+        public float AutoStartRemaining => _autoStartRemaining;
+
+        /// <summary>Assault pacing in force for this level (e2).</summary>
+        public bool AssaultPacing => level != null && level.assaultPacing;
+
+        private float AutoStartSeconds()
+        {
+            var gm = GameManager.Instance;
+            if (gm == null) return 0f;
+            switch (gm.Difficulty)
+            {
+                case Difficulty.Veteran: return Mathf.Max(0f, autoStartVeteranSeconds);
+                case Difficulty.Nightmare: return Mathf.Max(0f, autoStartNightmareSeconds);
+                default: return 0f; // Normal: untimed build, the certified baseline
+            }
+        }
+
+        /// <summary>
+        /// e3 — the bounded director: 1 (authored pace) when struggling, up to
+        /// 1/directorMinCountdownFraction (faster ticking) when cruising. Signals:
+        /// integrity fraction, how drained the field is, banked salvage. All
+        /// clamped; composition is never touched.
+        /// </summary>
+        private float DirectorTickRate()
+        {
+            if (directorMinCountdownFraction >= 0.999f)
+                return 1f;
+            var gm = GameManager.Instance;
+            if (gm == null)
+                return 1f;
+
+            int maxIntegrity = level != null && level.coreIntegrity > 0 ? level.coreIntegrity : 20;
+            float integrity = Mathf.Clamp01((float)gm.Integrity / maxIntegrity);
+            float field = ChainLockAt > 0 ? 1f - Mathf.Clamp01((float)CommittedCount / ChainLockAt) : 1f;
+            float bank = Mathf.Clamp01(gm.Salvage / 300f);
+            float cruise = integrity * 0.5f + field * 0.3f + bank * 0.2f;
+
+            float fraction = Mathf.Lerp(1f, directorMinCountdownFraction, cruise);
+            return 1f / Mathf.Max(0.25f, fraction);
+        }
+
+        private void TickPacing()
+        {
+            var gm = GameManager.Instance;
+            if (gm == null || !HasNextWave)
+            {
+                _autoStartRemaining = -1f;
+                _assaultArmTime = 0f;
+                return;
+            }
+
+            // e1: build-phase countdown (Veteran/Nightmare). Scaled time, so pause
+            // and the 2x clock behave exactly like the enemies do.
+            if (gm.State == GameState.Build && !WaveInProgress)
+            {
+                float authored = AutoStartSeconds();
+                if (authored <= 0f)
+                {
+                    _autoStartRemaining = -1f;
+                }
+                else
+                {
+                    if (_autoStartRemaining < 0f)
+                    {
+                        bool firstWave = _nextWaveIndex == 0;
+                        _autoStartRemaining = authored *
+                            (firstWave ? Mathf.Max(1f, firstWaveGraceMultiplier) : 1f);
+                    }
+                    _autoStartRemaining -= Time.deltaTime * DirectorTickRate();
+                    if (_autoStartRemaining <= 0f)
+                    {
+                        _autoStartRemaining = -1f;
+                        StartNextWave();
+                    }
+                }
+                _assaultArmTime = 0f;
+                return;
+            }
+
+            // e2: assault chaining while a wave is live.
+            if (AssaultPacing && gm.State == GameState.Wave && WaveInProgress)
+            {
+                _autoStartRemaining = -1f;
+                if (CanStartNextWave)
+                {
+                    _assaultArmTime += Time.deltaTime;
+                    if (_assaultArmTime >= Mathf.Max(0f, assaultChainDelaySeconds))
+                    {
+                        _assaultArmTime = 0f;
+                        StartNextWave(); // pays the chain bonus like a button chain
+                    }
+                }
+                else
+                {
+                    _assaultArmTime = 0f;
+                }
+                return;
+            }
+
+            _autoStartRemaining = -1f;
+            _assaultArmTime = 0f;
+        }
 
         /// <summary>
         /// Navigation liveness net (GDD redesign §Gap 4). If any live enemy makes no
@@ -457,6 +726,11 @@ namespace Corehold.Core
             if (ignoreFlightCap ? !HasNextWave : !CanStartNextWave)
                 return false;
 
+            // Any pending auto-start/assault timers are consumed by this start,
+            // whoever triggered it (button, countdown, assault chain).
+            _autoStartRemaining = -1f;
+            _assaultArmTime = 0f;
+
             // Chain bonus: 8 salvage per live enemy at the moment of the call,
             // capped at 80 (GDD §8.4). Only when a wave is already on the field.
             if (WaveInProgress && GameManager.Instance != null)
@@ -488,14 +762,61 @@ namespace Corehold.Core
             return true;
         }
 
+        // ---- Persistent spawn portals (VFX): one HELD effect per RESOLVED
+        // spawner, opened as the wave starts and faded once the spawner's last
+        // unit has ACTUALLY appeared (pending-queue admissions included).
+        // Counts accumulate across chained waves that overlap, so a shared
+        // portal stays open until every emitting wave is through it. Sized to
+        // the widest unit emerging there and pulsing while held.
+        [Header("Spawn portals (VFX)")]
+        [Tooltip("[TUNE] Master toggle for spawn portals, per level. Turn OFF where gates clutter the read (e.g. siege approaches with many spawners) — the per-unit SpawnFlash still marks each materialisation.")]
+        [SerializeField] private bool portalsEnabled = true;
+        [Tooltip("[TUNE] World diameter (m) the authored SpawnPortal prefab covers at scale 1 — measure it once in the testbed. Sizing scales instances RELATIVE to this so the portal fits the unit stepping out of it.")]
+        [SerializeField] private float portalAuthoredDiameter = 2f;
+        [Tooltip("[TUNE] Portal diameter as a multiple of the widest emerging unit's body diameter. 1 = snug; ~1.7 reads as a gate the unit comes through. Never scales below the authored size.")]
+        [SerializeField] private float portalHeadroom = 1.7f;
+        [Tooltip("[TUNE] Pulse depth as a fraction of the portal's scale (0 = steady). The held portal breathes at this amplitude.")]
+        [Range(0f, 0.5f)] [SerializeField] private float portalPulseAmplitude = 0.08f;
+        [Tooltip("[TUNE] Pulse rate in cycles per second.")]
+        [Range(0f, 5f)] [SerializeField] private float portalPulseHz = 0.9f;
+        [Tooltip("[TUNE] Extra uniform multiplier on top of the computed unit-fit size — the fastest 'make it bigger' knob while the authored-diameter measurement is unset.")]
+        [SerializeField] private float portalScale = 1f;
+        [Tooltip("[TUNE] Euler offset applied AFTER the computed facing. Prefab authoring differs: a gate authored facing +Z needs (0,0,0); a GROUND-RING effect lying flat needs X=90 (or -90 if it faces away) to stand upright.")]
+        [SerializeField] private Vector3 portalEulerOffset = Vector3.zero;
+        [Tooltip("[TUNE] Fraction of the portal's world diameter to lift it so the LOWER RIM meets the ground: 0.5 for an upright gate, 0 for a flat ground circle. The pulse is compensated so the rim never sinks. Air-corridor portals ignore this and float centred where the flyers emerge.")]
+        [Range(0f, 0.6f)] [SerializeField] private float portalGroundAnchor = 0.5f;
+
+        private readonly Dictionary<int, Corehold.Systems.PooledEffect> _openPortals =
+            new Dictionary<int, Corehold.Systems.PooledEffect>();
+        private readonly Dictionary<int, int> _portalPending = new Dictionary<int, int>();
+        private readonly Dictionary<int, float> _portalMult = new Dictionary<int, float>();
+
+        /// <summary>
+        /// The mutators in force RIGHT NOW — raised once at each wave start with
+        /// that wave's mutators, and empty when the field clears. Exists so
+        /// presentation systems (WeatherApplier layers storm weather over the
+        /// scene during a storm wave) can follow the fight without the
+        /// WaveManager knowing they exist. Purely observational: nothing about
+        /// spawning, speed or the certified balance path reads it.
+        ///
+        /// Each mutator carries its own weather layer, so a new mutator brings
+        /// its look with it and needs no wiring in any scene.
+        /// </summary>
+        public static event Action<IReadOnlyList<WaveMutatorDefinition>> ActiveMutatorAssetsChanged;
+
+        private static readonly WaveMutatorDefinition[] NoMutatorAssets =
+            System.Array.Empty<WaveMutatorDefinition>();
+
         private void StartWaveGroups(WaveDefinition wave, int waveNumber)
         {
             if (wave == null || wave.groups == null)
                 return;
 
-            // Convoy (R20): every ground group of the wave funnels into ONE
+            ActiveMutatorAssetsChanged?.Invoke(MutatorAssetsForWave(waveNumber));
+
+            // singleApproach: every ground group of the wave funnels into ONE
             // approach — the first ground group's resolved spawner wins for all.
-            bool convoy = (MutatorsForWave(waveNumber) & WaveMutator.Convoy) != 0;
+            bool convoy = EffectsForWave(waveNumber).singleApproach;
             int convoySpawner = -1;
 
             int groundOrdinal = 0;
@@ -527,11 +848,140 @@ namespace Corehold.Core
                         spawnerIndex = convoySpawner;
                 }
 
+                // Spawn portal (VFX): opened on the RESOLVED spawner — the raw
+                // table index can be re-dealt (siege spread) or funnelled
+                // (Convoy), and a portal nothing emerges from reads as a bug.
+                // The portal is HELD open and fades in SpawnEnemy once this
+                // count drains to zero.
+                OpenPortal(spawnerIndex, group.count, group.enemy);
+
                 _activeSpawnGroups++;
                 _emittingWaves.Add(waveNumber);
                 Coroutine c = StartCoroutine(SpawnGroupRoutine(group, waveNumber, spawnerIndex));
                 _spawnRoutines.Add(c);
             }
+        }
+
+        /// <summary>Open (or extend) the held portal at a spawner; the count is
+        /// how many more units must appear there before it may fade. The portal
+        /// is sized so the given group's units fit through it — an already-open
+        /// portal GROWS live when a wider late group joins, never shrinks.</summary>
+        private void OpenPortal(int spawnerIndex, int unitCount, EnemyDefinition enemy)
+        {
+            // Disabled: skip the ACCOUNTING too, not just the effect — with no
+            // pending entries, the DrainPortal calls in SpawnEnemy are no-ops.
+            if (!portalsEnabled)
+                return;
+
+            _portalPending.TryGetValue(spawnerIndex, out int pending);
+            _portalPending[spawnerIndex] = pending + unitCount;
+
+            Spawner sp = FindSpawner(spawnerIndex);
+            if (sp == null)
+                return;
+
+            // Authored diameter × mult must cover the unit's body diameter with
+            // headroom; the authored size is the floor so small units still get
+            // a readable gate. portalScale rides on top as the direct knob.
+            float mult = Mathf.Max(1f,
+                ResolvePrefabRadius(enemy) * 2f * portalHeadroom /
+                Mathf.Max(0.1f, portalAuthoredDiameter)) * Mathf.Max(0.01f, portalScale);
+
+            if (_openPortals.TryGetValue(spawnerIndex, out var open) && open != null && open.IsHeld)
+            {
+                _portalMult.TryGetValue(spawnerIndex, out float current);
+                if (mult > current)
+                {
+                    _portalMult[spawnerIndex] = mult;
+                    open.SetSizeMultiplier(mult);
+                    // Re-anchor: a grown gate's rim must stay ON the ground, not sink.
+                    open.transform.position = PortalAnchor(sp, mult);
+                }
+                return;   // already open (overlapping chained wave) — counts stack
+            }
+
+            if (Corehold.Systems.VFXDirector.Instance == null)
+                return;
+            var fx = Corehold.Systems.VFXDirector.Instance.PlaySpawnPortalOpen(
+                PortalAnchor(sp, mult), PortalFacing(sp), mult, portalPulseAmplitude, portalPulseHz);
+            if (fx != null)
+            {
+                _openPortals[spawnerIndex] = fx;
+                _portalMult[spawnerIndex] = mult;
+            }
+        }
+
+        /// <summary>Portal position: lifted so the LOWER RIM meets the ground —
+        /// with pulse headroom so breathing never sinks it. The air corridor's
+        /// portal floats centred where the flyers actually emerge.</summary>
+        private Vector3 PortalAnchor(Spawner sp, float mult)
+        {
+            if (sp.Route == null)   // air spawner
+                return sp.Position;
+            float worldDiameter = Mathf.Max(0.1f, portalAuthoredDiameter) * mult;
+            return sp.Position + Vector3.up *
+                (worldDiameter * portalGroundAnchor * (1f + portalPulseAmplitude));
+        }
+
+        /// <summary>Portal orientation: the gate is DIEGETIC — it stands upright
+        /// across the unit's INITIAL direction of travel (the route's starting
+        /// tangent; the run at the Core for air), so units step through it and
+        /// the fixed camera foreshortens it naturally: edge-on (an ellipse) at
+        /// the screen's sides, a full circle when travel runs straight away
+        /// from the view. The [TUNE] euler offset corrects the prefab's
+        /// authoring on top (ground ring vs +Z gate).</summary>
+        private Quaternion PortalFacing(Spawner sp)
+        {
+            Vector3 travel = Vector3.zero;
+            if (sp.Route != null)
+                sp.Route.SamplePosition(0f, out travel);
+            else if (sp.CoreTarget != null)
+                travel = sp.CoreTarget.position - sp.Position;
+            if (travel.sqrMagnitude < 0.0001f)
+                travel = sp.transform.forward;
+            travel.y = 0f;
+            if (travel.sqrMagnitude < 0.0001f)
+                travel = Vector3.forward;
+            return Quaternion.LookRotation(travel.normalized, Vector3.up) *
+                   Quaternion.Euler(portalEulerOffset);
+        }
+
+        /// <summary>One unit accounted for at a spawner (appeared, or provably
+        /// never will) — fade the portal when its count reaches zero.</summary>
+        private void DrainPortal(int spawnerIndex)
+        {
+            if (!_portalPending.TryGetValue(spawnerIndex, out int pending))
+                return;
+            pending--;
+            if (pending > 0)
+            {
+                _portalPending[spawnerIndex] = pending;
+                return;
+            }
+            _portalPending.Remove(spawnerIndex);
+            _portalMult.Remove(spawnerIndex);
+            if (_openPortals.TryGetValue(spawnerIndex, out var fx))
+            {
+                _openPortals.Remove(spawnerIndex);
+                if (fx != null && fx.IsHeld)
+                    fx.EndHold();
+            }
+        }
+
+        private void CloseAllPortals()
+        {
+            foreach (var kv in _openPortals)
+                if (kv.Value != null && kv.Value.IsHeld)
+                    kv.Value.EndHold();
+            _openPortals.Clear();
+            _portalPending.Clear();
+            _portalMult.Clear();
+        }
+
+        private void OnDisable()
+        {
+            // Level teardown/defeat while holds are live: fade rather than leak.
+            CloseAllPortals();
         }
 
         /// <summary>
@@ -541,6 +991,14 @@ namespace Corehold.Core
         /// </summary>
         private IEnumerator SpawnGroupRoutine(SpawnGroup group, int waveNumber, int spawnerIndex)
         {
+            // A mutator may compress or stretch the wave's spawn cadence. The
+            // GAP moves and the OFFSET does not: offsets are composition (the
+            // air group arrives eight seconds after the ground push), and
+            // scaling them would reorder a wave the designer arranged, not just
+            // pace it. This is read once here rather than per unit so a wave
+            // cannot change tempo halfway through.
+            float gapScale = EffectsForWave(waveNumber).spawnGap;
+
             if (group.startOffset > 0f)
                 yield return new WaitForSeconds(group.startOffset);
 
@@ -548,8 +1006,9 @@ namespace Corehold.Core
             {
                 RequestSpawn(group.enemy, spawnerIndex, waveNumber);
 
-                if (i < group.count - 1 && group.spawnGap > 0f)
-                    yield return new WaitForSeconds(group.spawnGap);
+                float gap = group.spawnGap * gapScale;
+                if (i < group.count - 1 && gap > 0f)
+                    yield return new WaitForSeconds(gap);
             }
 
             _activeSpawnGroups = Mathf.Max(0, _activeSpawnGroups - 1);
@@ -623,6 +1082,7 @@ namespace Corehold.Core
             if (def == null || def.prefab == null)
             {
                 Debug.LogWarning($"[WaveManager] Spawn group has a null enemy/prefab; skipping.");
+                DrainPortal(spawnerIndex);   // this unit will never appear — do not hold the portal for it
                 return;
             }
 
@@ -645,6 +1105,7 @@ namespace Corehold.Core
                 {
                     Debug.LogWarning($"[WaveManager] Prefab '{def.prefab.name}' has no Enemy component.");
                     Destroy(go);
+                    DrainPortal(spawnerIndex);   // never appears — see above
                     return;
                 }
             }
@@ -652,6 +1113,23 @@ namespace Corehold.Core
             enemy.transform.position = spawnPos;
             if (spawner != null)
                 enemy.transform.rotation = spawner.transform.rotation;
+
+            // Materialisation flash (VFX Tier 1) — per unit, at the unit's OWN
+            // aim anchor (HitPoint: the authored anchor, else the computed
+            // geometric centre — the exact point towers aim at). The enemy is
+            // already positioned, and an anchor is a transform, valid this
+            // frame — unlike renderer bounds. Lifting by the nav body radius
+            // under-lifted tall walkers (a WIDTH, not a half-height) and put
+            // half the flash underground.
+            if (Corehold.Systems.VFXDirector.Instance != null)
+                Corehold.Systems.VFXDirector.Instance.PlaySpawnFlash(enemy.HitPoint);
+
+            // First sighting unlocks this unit's field-guide card (R-UI-7).
+            Corehold.Systems.SaveData.MarkSeen("enemy", def.id);
+
+            // The unit has APPEARED — its spawner's portal may now fade if it
+            // was the last one this portal was being held open for.
+            DrainPortal(spawnerIndex);
 
             ConfigureSpawn(enemy, def, spawner, waveNumber);
             TrackEnemy(enemy);
@@ -665,9 +1143,12 @@ namespace Corehold.Core
         {
             enemy.Configure(def);
 
-            // Mutators in force for this unit's wave (R20). Derived here, at the
-            // moment of the actual spawn, so pending-queue admissions match.
-            WaveMutator mutators = MutatorsForWave(waveNumber);
+            // Mutators in force for this unit's wave (R20/R33), composed into a
+            // single effect vector. Derived here, at the moment of the actual
+            // spawn, so pending-queue admissions match — and composed rather
+            // than branched, so two mutators that touch the same term compound
+            // instead of one silently winning.
+            MutatorEffects fx = EffectsForWave(waveNumber);
 
             // Route the mover: ground units walk the spawner's route; air units
             // fly straight from the spawner to the Core (EnemyMover reads isAir).
@@ -678,13 +1159,43 @@ namespace Corehold.Core
             {
                 PathRoute route = spawner != null ? spawner.Route : null;
                 Transform core = spawner != null ? spawner.CoreTarget : null;
-                bool convoy = (mutators & WaveMutator.Convoy) != 0 && !def.isAir;
+
+                // A GROUND unit with no route can never move: RouteTraffic refuses
+                // to register a route-less ground mover, so the unit would stand at
+                // the spawn point forever, walking in place — and never die or
+                // arrive, soft-locking the wave. This happens when a wave group's
+                // spawnerIndex points at the AIR spawner (Route == null) or at no
+                // spawner at all. Fall back to the first routed spawner and say so
+                // loudly: the run stays playable while the data gets fixed.
+                if (!def.isAir && route == null)
+                {
+                    Spawner fallback = FirstRoutedSpawner();
+                    Debug.LogWarning(
+                        $"[WaveManager] GROUND unit '{def.id}' (wave {waveNumber}) resolved NO route — its " +
+                        $"group's spawnerIndex points at {(spawner == null ? "no spawner" : "the AIR spawner")}. " +
+                        (fallback != null
+                            ? $"Falling back to ground spawner {fallback.Index}. Fix the wave asset's spawnerIndex."
+                            : "No ground spawner exists on this map — the unit will stand at the spawn point."));
+                    if (fallback != null)
+                    {
+                        spawner = fallback;
+                        route = fallback.Route;
+                        if (core == null) core = fallback.CoreTarget;
+                        enemy.transform.position = fallback.Position;
+                    }
+                }
+
+                bool convoy = fx.singleApproach && !def.isAir;
                 mover.Configure(def, route, core, convoy);
 
-                // Storm (R20): air units of the wave fly faster, through the wave
-                // multiplier slot so enrage/status effects still compose.
-                if ((mutators & WaveMutator.Storm) != 0 && def.isAir)
-                    mover.WaveSpeedMultiplier = stormAirSpeedMultiplier;
+                // Speed (R20 Storm, and any authored mutator that moves it):
+                // through the wave multiplier slot so enrage and status effects
+                // still compose over it. Air and ground carry separate terms —
+                // a headwind that slows the walkers should not also slow the
+                // fliers riding it.
+                float speed = def.isAir ? fx.airSpeed : fx.groundSpeed;
+                if (!Mathf.Approximately(speed, 1f))
+                    mover.WaveSpeedMultiplier = speed;
             }
 
             var bridge = enemy.GetComponent<EnemyAnimatorBridge>();
@@ -693,10 +1204,13 @@ namespace Corehold.Core
 
             enemy.SetWaveNumber(waveNumber);
 
-            // Blackout (R20): unlit units count distance double at acquisition.
-            bool overcharge = (mutators & WaveMutator.Overcharge) != 0;
+            // Turret range (R20 Blackout, and anything authored that shortens
+            // sight). The unit carries the INVERSE as a distance scale — a
+            // range multiplier of 0.5 means every distance to it counts double
+            // — which is the form the acquisition test and the Floodlight
+            // exemption (R24) already speak.
             enemy.SetAcquisitionDistanceScale(
-                (mutators & WaveMutator.Blackout) != 0 ? blackoutAcquisitionDistanceScale : 1f);
+                fx.turretRange > 0.01f ? 1f / fx.turretRange : 1f);
 
             // Wave HP scalar (GDD §8.2): 1 + growth·(wave − 1).
             float waveScalar = 1f + _hpGrowthPerWave * (waveNumber - 1);
@@ -707,15 +1221,11 @@ namespace Corehold.Core
             float ecoMul = DifficultyEconomyMultiplier(diff);
 
             // Overcharge (R20): more HP in, more bounty out.
-            float finalHp = def.baseHealth * waveScalar * hpMul;
-            if (overcharge)
-                finalHp *= overchargeHpMultiplier;
+            float finalHp = def.baseHealth * waveScalar * hpMul * fx.health;
             enemy.SetMaxHealth(finalHp);
 
             // Bounty scales with the economy multiplier; leak damage does not (GDD §8.2).
-            float bounty = def.bounty * ecoMul;
-            if (overcharge)
-                bounty *= overchargeBountyMultiplier;
+            float bounty = def.bounty * ecoMul * fx.bounty;
             enemy.SetBounty(Mathf.RoundToInt(bounty));
             enemy.SetLeakDamage(def.leakDamage);
         }
@@ -804,6 +1314,20 @@ namespace Corehold.Core
             PayClearBonus(lastWaveNumber);
             OnWaveComplete?.Invoke(lastWaveNumber);
 
+            // The field's LOOK is HELD across the wave boundary. Clearing here
+            // snapped the storm off the instant the last frame died, while the
+            // player was still standing in the aftermath choosing what to build
+            // — which read as a bug, not as weather passing. The next wave
+            // publishes its own mutators the moment it starts (StartWaveGroups),
+            // so a plain wave clears the look then, at a moment that means
+            // something. Only the END of the run has no next wave to do it.
+            //
+            // Presentation only: gameplay reads MutatorAssetsForWave(waveNumber),
+            // never this event, so a held look cannot leak a held EFFECT into
+            // the build phase or into the certified balance path.
+            if (!HasNextWave)
+                ActiveMutatorAssetsChanged?.Invoke(NoMutatorAssets);
+
             if (GameManager.Instance != null && GameManager.Instance.State == GameState.Wave)
             {
                 if (HasNextWave)
@@ -869,6 +1393,19 @@ namespace Corehold.Core
                     return s;
             }
             return null;
+        }
+
+        /// <summary>Lowest-index spawner that owns a route — the ground-unit
+        /// fallback when a wave group's spawnerIndex resolves to no route.</summary>
+        private Spawner FirstRoutedSpawner()
+        {
+            if (spawners == null)
+                return null;
+            Spawner best = null;
+            foreach (var s in spawners)
+                if (s != null && s.Route != null && (best == null || s.Index < best.Index))
+                    best = s;
+            return best;
         }
 
         // ----- Difficulty multipliers (GDD §8.2) -----

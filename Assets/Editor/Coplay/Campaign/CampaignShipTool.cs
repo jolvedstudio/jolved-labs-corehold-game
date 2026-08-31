@@ -20,7 +20,7 @@ namespace CoreholdEditor.Campaign
     ///     build-menu turret with no prefab (a dead button), art that only exists
     ///     on this machine. Every one of these ships silently and breaks later.
     ///   • <b>Build</b> — BuildPipeline with EXACTLY the campaign's scenes in
-    ///     campaign order, Welcome first. Refuses to run while preflight has
+    ///     campaign order, boot scene first. Refuses to run while preflight has
     ///     errors, because a build that boots into the wrong scene is worse than
     ///     no build.
     ///
@@ -231,12 +231,52 @@ namespace CoreholdEditor.Campaign
                     : "no CampaignManifest — press 'Emit manifest' in the Campaign Builder (or 'Create Test Manifest').");
                 return checks; // everything else reads the manifest
             }
+            // ---- WebGL render compatibility ----
+            // Ran HERE rather than left to a menu nobody is obliged to press: the
+            // soft-particle failure that emptied the screen of effects was invisible
+            // in the editor (PC quality tier, depth texture on) and only showed up
+            // in a shipped WebGL build (Mobile tier, no depth texture). A check that
+            // depends on remembering it protects only the person who remembers.
+            string audit = WebGLShaderAudit.Report(out int auditErrors, out int auditWarns);
+            if (auditErrors > 0)
+            {
+                Error($"WebGL Shader Audit: {auditErrors} error(s) — effects that will be MISSING or magenta " +
+                      "in the build while looking correct in the editor. Run Tools → COREHOLD → VFX → " +
+                      "WebGL Shader Audit for the per-material list.");
+                Debug.LogError(audit);
+            }
+            else if (auditWarns > 0)
+            {
+                Warn($"WebGL Shader Audit: {auditWarns} warning(s) — see the console for the list.");
+                Debug.Log(audit);
+            }
+
+            // ---- render settings (shadows) ----
+            // Same reasoning as the shader audit: main light shadows were once OFF
+            // in every RP asset with a 50 m shadow distance behind a camera sitting
+            // 130-150 m back — two independent reasons for a scene with no cast
+            // shadows at all, each a single number nobody opens twice a year.
+            string look = RenderSettingsAudit.Report(out int lookErrors, out int lookWarns);
+            if (lookErrors > 0)
+            {
+                Error($"Render Settings Audit: {lookErrors} error(s) — shadows disabled or shorter than " +
+                      $"{RenderSettingsAudit.MinShadowDistance:0} m, which ships a flat-looking scene. " +
+                      "Run Tools → COREHOLD → Look → Render Settings Audit for the per-asset list.");
+                Debug.LogError(look);
+            }
+            else if (lookWarns > 0)
+            {
+                Warn($"Render Settings Audit: {lookWarns} warning(s) — see the console for the list.");
+                Debug.Log(look);
+            }
+
             if (manifest.LevelCount == 0)
                 Error("the manifest has no Level stages — generate at least one level.");
-            if (manifest.StageOfKind(CampaignStageKind.Welcome) == null)
-                Error("no Welcome stage in the manifest — the build would boot into a level.");
-            if (manifest.StageOfKind(CampaignStageKind.Closing) == null)
-                Warn("no Closing stage — finishing the last level will fall back to the Welcome screen.");
+            // Menu scenes are optional: without a Welcome stage the build boots
+            // into level one, whose title overlay IS the entry screen, and the
+            // result screen is the debrief. What preflight has to prove is that
+            // whichever door the build has actually opens — checked below
+            // against Build Settings index 0.
 
             // ---- scenes exist, are registered, and boot in the right order ----
             var enabled = EditorBuildSettings.scenes.Where(s => s.enabled).ToList();
@@ -266,10 +306,33 @@ namespace CoreholdEditor.Campaign
                           ". (A test-manifest campaign always trips this: it exists to prove the FLOW, not to ship.)");
             }
 
+            // The door the build opens: the Welcome scene when the campaign has
+            // one, otherwise its first level. Either way index 0 must BE it.
             var welcome = manifest.StageOfKind(CampaignStageKind.Welcome);
-            if (welcome != null && enabled.Count > 0 && enabled[0].path != welcome.scenePath)
-                Error($"build index 0 is '{enabled[0].path}', not the Welcome scene — the player would " +
-                      "boot into the wrong scene. Press 'Register Campaign'.");
+            int firstLevel = manifest.FirstLevelIndex();
+            string boot = welcome != null ? welcome.scenePath
+                        : firstLevel >= 0 ? manifest.stages[firstLevel].scenePath
+                        : null;
+            string bootName = welcome != null ? "the Welcome scene" : "level one";
+
+            if (boot != null && enabled.Count > 0 && enabled[0].path != boot)
+                Error($"build index 0 is '{enabled[0].path}', not {bootName} ('{boot}') — the player " +
+                      "would boot into the wrong scene. Press 'Register Campaign'.");
+
+            // A campaign entered through level one is entered through that
+            // level's TitleScreen, and an unwired one is a difficulty gate that
+            // starts a SINGLE MAP: the player picks Normal and plays level one
+            // forever, never knowing there were nine more.
+            // (A boot scene missing from disk is already an error from the stage
+            // loop above; skip rather than throw on the read.)
+            if (welcome == null && boot != null && System.IO.File.Exists(boot))
+            {
+                string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(manifest));
+                if (string.IsNullOrEmpty(guid) || !System.IO.File.ReadAllText(boot).Contains(guid))
+                    Error($"level one ('{boot}') does not reference this manifest — its title overlay " +
+                          "would start a single-map run instead of the campaign. Press 'Emit manifest " +
+                          "+ wire entry' in the Campaign Builder.");
+            }
 
             // ---- per-stage data: definition wired, wave tables stage-LOCAL ----
             if (authoring == null)
@@ -333,19 +396,26 @@ namespace CoreholdEditor.Campaign
                      string.Join(", ", noIcon) + " — run Tools/COREHOLD/Art/Render Icons.");
 
             // ---- art that only exists on this machine ----
-            var vendorHits = new List<string>();
+            // A stage whose closure (scene + LevelDefinition) reaches into a
+            // git-ignored vendor pack builds fine HERE and ships dangling GUIDs
+            // from any other machine or CI — missing dressing at best, missing
+            // effects at worst. The fix is one click, so this BLOCKS: press
+            // 'Localize vendor assets (all stages)' in the Ship step (or
+            // regenerate the stage — generation now localizes itself), then
+            // commit Assets/_COREHOLD/Vendored alongside the remapped files.
             foreach (var stage in manifest.stages)
             {
                 if (string.IsNullOrEmpty(stage.scenePath) || !System.IO.File.Exists(stage.scenePath)) continue;
-                var deps = AssetDatabase.GetDependencies(stage.scenePath, true)
-                    .Where(d => d.StartsWith("Assets/Vendor/")).ToList();
-                if (deps.Count > 0)
-                    vendorHits.Add($"{System.IO.Path.GetFileName(stage.scenePath)} ({deps.Count})");
+                string defPath = authoring?.stages
+                    ?.FirstOrDefault(s => s.scenePath == stage.scenePath)?.levelDefPath;
+                var vendor = VendorLocalizer.FindExternalDependencies(new[] { stage.scenePath, defPath });
+                if (vendor.Count == 0) continue;
+                var sample = vendor.Take(3).Select(System.IO.Path.GetFileName);
+                Error($"stage '{stage.title}': {vendor.Count} referenced asset(s) live in git-ignored " +
+                      $"vendor packs (e.g. {string.Join(", ", sample)}) — the build only works on this " +
+                      "machine. Press 'Localize vendor assets (all stages)' in the Ship step, or " +
+                      "regenerate the stage, then commit Assets/_COREHOLD/Vendored.");
             }
-            if (vendorHits.Count > 0)
-                Warn($"scenes depending on git-ignored Assets/Vendor art: {string.Join(", ", vendorHits)}. " +
-                     "The build works HERE because the pack is on this machine; a fresh clone or CI " +
-                     "cannot reproduce it.");
 
             // ---- platform ----
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL)
@@ -414,6 +484,15 @@ namespace CoreholdEditor.Campaign
                 targetGroup = BuildTargetGroup.WebGL,
                 options = BuildOptions.None,           // release: no debug console, no profiler
             };
+
+            // Bring Build Settings in line with what is being shipped. This
+            // build does not read that list — the scene array above is the
+            // build — but Unity's own File → Build does, and a stale list there
+            // is how a three-scene campaign turned into a forty-scene, twenty-
+            // megabyte payload with a Brotli pass to match. Syncing on the way
+            // past costs nothing and means both doors lead to the same game.
+            if (authoring != null)
+                CampaignBuilderWindow.RegisterCampaign(authoring);
 
             Debug.Log($"[Ship] Building {scenes.Length} scene(s) → {dir}\n  " + string.Join("\n  ", scenes));
             BuildReport result = BuildPipeline.BuildPlayer(options);

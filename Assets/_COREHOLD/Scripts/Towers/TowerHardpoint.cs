@@ -114,6 +114,14 @@ namespace Corehold.Towers
         private static readonly int ColorId = Shader.PropertyToID("_Color");
         private static readonly int TintColorId = Shader.PropertyToID("_TintColor");
 
+        /// <summary>
+        /// Global attention flag (R-UI-2): while a roster-rail chip is armed,
+        /// every empty pad pulses HARDER so "where can I put this?" answers
+        /// itself. Static because the answer is the same for every pad — any
+        /// empty, unreserved pad can host any turret.
+        /// </summary>
+        public static bool BuildAttention;
+
         /// <summary>The turret currently on this pad, or null when empty.</summary>
         public Tower Occupant => _occupant;
 
@@ -160,9 +168,13 @@ namespace Corehold.Towers
             // 0..1 breathing curve shared by the rim and the aura so they pulse in sync.
             float t = 0.5f * (1f + Mathf.Sin(Time.unscaledTime * pulseSpeed * Mathf.PI * 2f));
 
+            // An armed roster-rail chip (R-UI-2) turns the standing call-to-action
+            // up: hosts read brighter, faster to find, without any new visuals.
+            float boost = BuildAttention && !IsReserved ? 1.5f : 1f;
+
             if (rimRenderer != null && _rimBlock != null)
             {
-                float intensity = Mathf.Lerp(pulseMin, pulseMax, t);
+                float intensity = Mathf.Lerp(pulseMin, pulseMax, t) * boost;
                 SetRimEmission(rimColor * intensity);
             }
 
@@ -170,7 +182,7 @@ namespace Corehold.Towers
             {
                 // Alpha breathes between min and max; the halo also breathes in scale
                 // so the glow reads as a living aura rather than a static decal.
-                float alpha = Mathf.Lerp(auraAlphaMin, auraAlphaMax, t);
+                float alpha = Mathf.Clamp01(Mathf.Lerp(auraAlphaMin, auraAlphaMax, t) * boost);
                 SetAuraColor(alpha);
                 float s = 1f + auraScalePulse * (t - 0.5f) * 2f; // 1 +/- auraScalePulse
                 auraRenderer.transform.localScale = _auraBaseScale * s;

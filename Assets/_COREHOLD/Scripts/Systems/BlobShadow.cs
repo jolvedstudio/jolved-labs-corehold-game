@@ -20,6 +20,19 @@ namespace Corehold.Systems
     [DisallowMultipleComponent]
     public class BlobShadow : MonoBehaviour
     {
+        /// <summary>
+        /// Global switch, OFF since real sun shadows replaced these fakes (the RP
+        /// assets had the shadow pass disabled and a 50 m shadow distance behind a
+        /// camera 130-150 m back, so blobs were the ONLY ground contact there was).
+        /// Flipping it back at runtime restores every quad — the check is live, not
+        /// a one-shot at spawn.
+        ///
+        /// Only acts in PLAY: toggling a renderer in edit mode would serialise
+        /// "hidden" into prefabs and scenes, which is a mess to undo.
+        /// </summary>
+        public static bool Enabled = false;
+
+        private Renderer _renderer;
         [Tooltip("World-space ground height the shadow sits at.")]
         [SerializeField] private float groundY = 0.05f;
 
@@ -45,6 +58,15 @@ namespace Corehold.Systems
         {
             if (_t == null) _t = transform;
             if (_owner == null) _owner = _t.parent;
+
+            if (Application.isPlaying)
+            {
+                if (_renderer == null) _renderer = GetComponent<Renderer>();
+                if (_renderer != null && _renderer.enabled != Enabled)
+                    _renderer.enabled = Enabled;
+                if (!Enabled)
+                    return;   // hidden: no need to keep pinning it to the ground
+            }
 
             Vector3 basePos = _owner != null ? _owner.position : _t.position;
             _t.position = new Vector3(basePos.x, groundY, basePos.z);

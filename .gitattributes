@@ -1,0 +1,50 @@
+# Git LFS — binary art goes over the LFS API, not the git pack.
+#
+# WHY: 1,103 MB of this repo's 1,175 MB is binary art, almost all of it the
+# vendored Asset Store kits under Assets/_COREHOLD/Vendored/. Those kits are
+# load-bearing — 49 committed assets (every Enemy_*.asset, every Tower_*.asset,
+# every animator controller, VFXDirectorConfig, Blueprint_SandyDesert) reference
+# 525 vendor GUIDs, so they cannot simply be untracked without gutting a fresh
+# clone. They have to live somewhere, and the git pack is the wrong place:
+# a push becomes one multi-hundred-megabyte HTTPS POST that times out long
+# before the bytes finish moving. LFS uploads each object separately and
+# resumably, which is what makes the push survive.
+#
+# EVERY CONTRIBUTOR MUST RUN `git lfs install` ONCE. Cloning without it yields
+# small text pointer files where the textures should be, and Unity opens a
+# project full of missing references — a failure that looks exactly like the one
+# this file exists to prevent. See docs/git_lfs_migration.md.
+#
+# Unity's YAML (.unity, .prefab, .asset, .mat, .controller, .meta) is
+# deliberately NOT here. Those must stay diffable and mergeable; they are also
+# only ~64 MB combined, so there is nothing to gain and a merge story to lose.
+
+# ---- textures (516 MB .tga + 425 MB .png + 33 MB .tif today) ----
+*.tga  filter=lfs diff=lfs merge=lfs -text
+*.png  filter=lfs diff=lfs merge=lfs -text
+*.jpg  filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.tif  filter=lfs diff=lfs merge=lfs -text
+*.tiff filter=lfs diff=lfs merge=lfs -text
+*.psd  filter=lfs diff=lfs merge=lfs -text
+*.exr  filter=lfs diff=lfs merge=lfs -text
+*.hdr  filter=lfs diff=lfs merge=lfs -text
+
+# ---- audio (101 MB today, one 56 MB .wav) ----
+*.wav  filter=lfs diff=lfs merge=lfs -text
+*.mp3  filter=lfs diff=lfs merge=lfs -text
+*.ogg  filter=lfs diff=lfs merge=lfs -text
+*.aif  filter=lfs diff=lfs merge=lfs -text
+*.aiff filter=lfs diff=lfs merge=lfs -text
+
+# ---- models (16 MB today, but they only grow) ----
+*.fbx  filter=lfs diff=lfs merge=lfs -text
+*.obj  filter=lfs diff=lfs merge=lfs -text
+*.blend filter=lfs diff=lfs merge=lfs -text
+
+# ---- video ----
+*.mov  filter=lfs diff=lfs merge=lfs -text
+*.mp4  filter=lfs diff=lfs merge=lfs -text
+
+# ---- packaged assets ----
+*.unitypackage filter=lfs diff=lfs merge=lfs -text

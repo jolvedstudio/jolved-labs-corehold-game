@@ -66,6 +66,17 @@ public static class GenerationPipeline
         public bool sceneSaved;
         public List<string> dressingStillBlocked;   // pads the occlusion self-repair could not save
         public BalanceModelRunner.Result model;     // the emission stage's model run; gate 3 judges it
+
+        // ---- scene-adapt intake (mode b) ----
+        /// <summary>True when this run certifies an AUTHORED scene in place.
+        /// Changes the repair policy (nudge/remove instead of reseed) and the
+        /// discard policy (never close or delete the author's scene).</summary>
+        public bool adaptMode;
+        /// <summary>The authored props the adapt loop may move or remove —
+        /// inventoried and stamped by the intake stage.</summary>
+        public List<Corehold.Systems.PlacedProp> adaptProps;
+        /// <summary>Interventions performed (moves + removals), for the report.</summary>
+        public int adaptInterventions;
     }
 
     public struct Stage
@@ -109,6 +120,36 @@ public static class GenerationPipeline
         new Stage { title = "Emit LevelDefinition",      ticket = "R30",     run = StEmitLevel },
         new Stage { title = "GATE 3 — model margins",    ticket = "R29/R30", run = StModelGate, gate = true },
         new Stage { title = "Save scene",                ticket = "R29",     run = StSave },
+        new Stage { title = "Localize vendor assets",    ticket = "SHIP",    run = StLocalize },
+    };
+
+    /// <summary>
+    /// Mode b's stage list (docs/generator_intake_modes.md): the intake and the
+    /// dressing policy differ; every GATE and the whole back half are the very
+    /// same functions the procedural list runs — one certifier, several front
+    /// doors. No NewScene (the authored scene IS the scene), no theme ground,
+    /// no weather/terrain/look (an authored scene owns its look), and the
+    /// dressing stage adapts what stands instead of placing from a pack.
+    /// </summary>
+    public static readonly Stage[] AdaptStages =
+    {
+        new Stage { title = "Validate blueprint",        ticket = "R25/R29", run = StValidate },
+        new Stage { title = "Draw theme & weather",      ticket = "P6",      run = StDraw },
+        new Stage { title = "Adapt intake",              ticket = "MODE-B",  run = SceneAdapt.StIntake },
+        new Stage { title = "Scene skeleton",            ticket = "R26",     run = StSkeleton },
+        new Stage { title = "Layout from authored core", ticket = "MODE-B",  run = SceneAdapt.StLayout },
+        new Stage { title = "Routes + spawners",         ticket = "R26/R27", run = StRoutes },
+        new Stage { title = "GATE 1 — clearance",        ticket = "R29",     run = StGate1, gate = true },
+        new Stage { title = "Adopt authored pads",       ticket = "MODE-B",  run = SceneAdapt.StPadsAdopt },
+        new Stage { title = "GATE 2 — coverage",         ticket = "R28/R29", run = StGate2, gate = true },
+        new Stage { title = "Camera framing",            ticket = "R26",     run = StCamera },
+        new Stage { title = "Adapt dressing",            ticket = "MODE-B",  run = SceneAdapt.StDress },
+        new Stage { title = "GATE 2b — occlusion re-run", ticket = "R28",    run = StOcclusion, gate = true },
+        new Stage { title = "Group & verify hierarchy",  ticket = "R26",     run = StHierarchy },
+        new Stage { title = "Emit LevelDefinition",      ticket = "R30",     run = StEmitLevel },
+        new Stage { title = "GATE 3 — model margins",    ticket = "R29/R30", run = StModelGate, gate = true },
+        new Stage { title = "Save scene in place",       ticket = "MODE-B",  run = SceneAdapt.StSaveInPlace },
+        new Stage { title = "Localize vendor assets",    ticket = "SHIP",    run = StLocalize },
     };
 
     /// <summary>
@@ -125,11 +166,29 @@ public static class GenerationPipeline
     public static List<StageRun> RunAll(
         LevelBlueprint blueprint, Action<Stage, StageResult> onStage = null)
     {
-        var ctx = new Context { blueprint = blueprint };
+        return Run(Stages, new Context { blueprint = blueprint }, onStage);
+    }
+
+    /// <summary>
+    /// Mode b — certify an AUTHORED scene in place (docs/generator_intake_modes.md).
+    /// Same gates, same back half, different intake and different repair
+    /// policy: authored dressing is nudged or removed under named constraints
+    /// with every intervention logged, never reseeded; the author's scene is
+    /// never closed or deleted on failure.
+    /// </summary>
+    public static List<StageRun> RunAdapt(
+        LevelBlueprint blueprint, Action<Stage, StageResult> onStage = null)
+    {
+        return Run(AdaptStages, new Context { blueprint = blueprint, adaptMode = true }, onStage);
+    }
+
+    private static List<StageRun> Run(
+        Stage[] stages, Context ctx, Action<Stage, StageResult> onStage)
+    {
         var results = new List<StageRun>();
         var watch = new System.Diagnostics.Stopwatch();
 
-        GenerationProgress.Begin(Stages.Length);
+        GenerationProgress.Begin(stages.Length);
 
         // Tell the scene-setup tools they are pipeline steps, not menu actions:
         // they must not open Game.unity over the scene being generated, and must
@@ -138,7 +197,7 @@ public static class GenerationPipeline
         {
             try
             {
-                RunStages(ctx, results, watch, onStage);
+                RunStages(stages, ctx, results, watch, onStage);
             }
             finally
             {
@@ -150,13 +209,13 @@ public static class GenerationPipeline
 
     /// <summary>The stage loop itself — extracted so the driven-scope and the
     /// progress-bar teardown read as the plain nesting they are.</summary>
-    private static void RunStages(Context ctx, List<StageRun> results,
+    private static void RunStages(Stage[] stages, Context ctx, List<StageRun> results,
                                   System.Diagnostics.Stopwatch watch,
                                   Action<Stage, StageResult> onStage)
     {
-        for (int i = 0; i < Stages.Length; i++)
+        for (int i = 0; i < stages.Length; i++)
         {
-            Stage stage = Stages[i];
+            Stage stage = stages[i];
             bool keepGoing = GenerationProgress.Stage(i, $"{stage.title}  ({stage.ticket})");
 
             StageResult r;
@@ -225,7 +284,14 @@ public static class GenerationPipeline
             notes.Add("half-built scene closed unsaved");
         }
 
-        notes.Add("re-seed rather than repair (R29) — try Seed +1");
+        notes.Add(ctx.adaptMode
+            // Mode b never discards the author's work: the scene stays open
+            // with its in-memory changes (each intervention is one Undo step),
+            // and nothing on disk was touched — StSaveInPlace only runs after
+            // every gate passed.
+            ? "authored scene left OPEN and untouched on disk — review the report, fix the " +
+              "named conflict (or Undo the interventions), and re-run Adapt"
+            : "re-seed rather than repair (R29) — try Seed +1");
         return StageResult.Ok(string.Join("; ", notes));
     }
 
@@ -305,12 +371,24 @@ public static class GenerationPipeline
         ctx.theme = DrawTheme(ctx.blueprint);
         ctx.weather = DrawWeather(ctx.blueprint, ctx.theme);
 
+        // The theme's route-occlusion tolerance, pushed to the one place every
+        // consumer reads it. RESET FIRST, unconditionally: a themeless run must
+        // not inherit the last theme's tolerance, and neither must the next run
+        // if this one is discarded.
+        RouteVisibility.ToleranceMultiplier =
+            ctx.theme != null ? Mathf.Max(1f, ctx.theme.occlusionTolerance) : 1f;
+
         if (ctx.theme == null)
             return StageResult.Skip("envPackPool empty — generating undressed, authored look");
 
         string themeLabel = string.IsNullOrEmpty(ctx.theme.themeName) ? ctx.theme.name : ctx.theme.themeName;
         return StageResult.Ok($"theme '{themeLabel}', weather " +
-                              (ctx.weather != null ? $"'{ctx.weather.name}'" : "null preset (authored look)"));
+                              (ctx.weather != null ? $"'{ctx.weather.name}'" : "null preset (authored look)") +
+                              (RouteVisibility.ToleranceMultiplier > 1.001f
+                                  ? $", route-occlusion tolerance ×{RouteVisibility.ToleranceMultiplier:0.##} " +
+                                    $"({RouteVisibility.HiddenBudgetFraction * RouteVisibility.ToleranceMultiplier:P0} " +
+                                    "of route may hide; pad sight lines unaffected)"
+                                  : ""));
     }
 
     private static StageResult StNewScene(Context ctx)
@@ -525,7 +603,8 @@ public static class GenerationPipeline
 
     private static StageResult StCamera(Context ctx)
     {
-        string log = CameraFramingSetup.Run();
+        float pitch = ctx.blueprint != null ? ctx.blueprint.cameraPitchDegrees : 38f;
+        string log = CameraFramingSetup.Run(pitch);
         return StageResult.Ok(Summarise(log, "camera framed against generated content"));
     }
 
@@ -786,6 +865,29 @@ public static class GenerationPipeline
         if (presetProp == null)
             return StageResult.Fail("WeatherApplier has no 'preset' field — R13 contract changed?");
         presetProp.objectReferenceValue = ctx.weather;
+
+        // Per-wave weather rolls from the THEME'S OWN pool — the same list the
+        // base preset was drawn from. That is what keeps a rolled sky coherent
+        // for free: an ice map cannot roll desert dust, because the pool that
+        // could not offer it as a base cannot offer it as a roll either. One
+        // authored list, two uses, no second thing to keep in sync.
+        SerializedProperty poolProp = so.FindProperty("waveWeatherPool");
+        if (poolProp != null && poolProp.isArray)
+        {
+            WeatherPreset[] pool = ctx.theme != null && ctx.theme.weatherPool != null
+                ? ctx.theme.weatherPool.Where(w => w != null).ToArray()
+                : System.Array.Empty<WeatherPreset>();
+
+            // A one-entry pool would roll the same sky it already has, so it is
+            // left empty: the level simply keeps its base weather throughout.
+            if (pool.Length < 2)
+                pool = System.Array.Empty<WeatherPreset>();
+
+            poolProp.arraySize = pool.Length;
+            for (int i = 0; i < pool.Length; i++)
+                poolProp.GetArrayElementAtIndex(i).objectReferenceValue = pool[i];
+        }
+
         so.ApplyModifiedPropertiesWithoutUndo();
 
         // Night scaffold (R23, extended to every generated map on request): the
@@ -793,9 +895,13 @@ public static class GenerationPipeline
         // stage. StHierarchy then sweeps the "NightVariant" root into _Rendering.
         SetupNightVariant.Setup();
 
+        int rollable = poolProp != null && poolProp.isArray ? poolProp.arraySize : 0;
+        string roll = rollable > 0
+            ? $"; {rollable}-entry per-wave roll from the theme pool"
+            : "; no per-wave roll (theme pool has fewer than 2 presets)";
         return StageResult.Ok(ctx.weather != null
-            ? $"applier wired to '{ctx.weather.name}' (applies at map load); night scaffold placed"
-            : "applier wired to the null preset — authored look, pixel-identical (R13); night scaffold placed");
+            ? $"applier wired to '{ctx.weather.name}' (applies at map load){roll}; night scaffold placed"
+            : $"applier wired to the null preset — authored look, pixel-identical (R13){roll}; night scaffold placed");
     }
 
     private static StageResult StHierarchy(Context ctx)
@@ -1140,6 +1246,41 @@ public static class GenerationPipeline
 
         string build = RegisterInBuildSettings(ctx.scenePath);
         return StageResult.Ok($"{ctx.scenePath} — press Play to run it{build}");
+    }
+
+    /// <summary>
+    /// Self-containment (SHIP): copy every git-ignored vendor asset the saved
+    /// scene + emitted definition reference into the committed Vendored folder
+    /// and remap the references — so the level a fresh clone or CI builds is
+    /// the level the author saw, not one with dangling dressing. Runs AFTER
+    /// the save (the scene file is the thing being rewritten) and reloads the
+    /// open scene so the editor never holds stale pre-remap references.
+    /// </summary>
+    private static StageResult StLocalize(Context ctx)
+    {
+        // Never fails the run: the level is already certified and SAVED — a
+        // localization hiccup must warn, not discard a good scene (preflight
+        // re-detects anything left external before ship).
+        var log = new StringBuilder();
+        try
+        {
+            int copied = VendorLocalizer.Localize(
+                new[] { ctx.scenePath, ctx.levelAssetPath }, log);
+
+            if (copied > 0 && !string.IsNullOrEmpty(ctx.scenePath))
+            {
+                // The remap rewrote the scene FILE; reload so what is open in
+                // the editor matches disk (a later manual save must not revert it).
+                EditorSceneManager.OpenScene(ctx.scenePath, OpenSceneMode.Single);
+            }
+        }
+        catch (Exception ex)
+        {
+            return StageResult.Ok($"localize WARNED — {ex.GetType().Name}: {ex.Message} " +
+                                  "(scene kept; preflight will re-detect external refs)\n" +
+                                  log.ToString().Trim());
+        }
+        return StageResult.Ok(log.ToString().Trim());
     }
 
     /// <summary>

@@ -120,7 +120,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 8b80dc1528f0e484caffd647f123bdd6, type: 2}
+  - {fileID: 2100000, guid: d37d1517e0fb0a347a7a45cfe1b79ff0, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -512,7 +512,7 @@ Animator:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1724637743901847039}
   m_Enabled: 1
-  m_Avatar: {fileID: 9000000, guid: 3c0b8de62637d574c924cac3350db78b, type: 3}
+  m_Avatar: {fileID: 9000000, guid: 2d39ad93c35f12e4aa1a7a3544621b77, type: 3}
   m_Controller: {fileID: 9100000, guid: 1bb43bb9f57aaba498d270e495016f0a, type: 2}
   m_CullingMode: 2
   m_UpdateMode: 0
@@ -544,7 +544,7 @@ MonoBehaviour:
   deathAnimDuration: 0.37500003
   isAir: 0
   armourType: 0
-  definition: {fileID: 0}
+  definition: {fileID: 11400000, guid: 1e572c188599b73478267a6f4bf09f84, type: 2}
   enrageRenderers: []
   enrageEmissiveFrom: {r: 2, g: 0.7, b: 0, a: 2}
   enrageEmissiveTo: {r: 3, g: 3, b: 3, a: 3}

@@ -73,6 +73,7 @@ public static class RouteSynthesizer
     /// </summary>
     public static LevelLayout Synthesize(LevelBlueprint b, out string report)
     {
+        if (b.IsLanes) return SynthesizeLanes(b, out report);
         return b.IsSiege ? SynthesizeSiege(b, out report) : SynthesizeCorridor(b, out report);
     }
 
@@ -255,6 +256,226 @@ public static class RouteSynthesizer
 
         log.AppendLine($"[ok] {foldCount} folds of {F:0.#} m, top run z {zTop:0.##}, drop {drop:0.##} m, " +
                        $"west spline {measured:0.##} m (target {L:0.#} ±5%)");
+        report = log.ToString();
+        return layout;
+    }
+
+    // ------------------------------------------------------- lanes topology (PvZ)
+
+    /// <summary>Lanes begin their convergence dive this far before the Core.</summary>
+    private const float LaneConvergeStandoff = 14f;
+
+    /// <summary>Half-width of one lane's traffic envelope. A fold's amplitude must
+    /// keep its excursion inside the lane's OWN channel, so neighbouring lanes
+    /// never pinch — which is also why lanes cannot fold their way to corridor
+    /// lengths: a fold big enough to add serious length would leave its lane.</summary>
+    private const float LaneEnvelopeHalf = 2.25f;
+
+    /// <summary>
+    /// Lanes synthesis: four parallel routes enter from ONE edge and converge on
+    /// the Core just before its face — the PvZ read (per-lane threat, per-lane
+    /// defence, pads on the ridges between lanes). Every lane is the SAME
+    /// centreline translated in z, so lane separation equals the pitch by
+    /// construction everywhere outside the exempted convergence zone: the
+    /// argument the siege spiral makes with rotation, made with translation.
+    ///
+    /// Length: a Lanes blueprint authors a SHORTER routeLengthTarget than the
+    /// corridor's 154 m (≈0.7 × field width; the error text reports the exact
+    /// reachable band). Gentle in-lane WAVES close small gaps toward the target;
+    /// the balance model then re-solves hpGrowth against the actual measured
+    /// geometry exactly as it does for every generated map.
+    /// </summary>
+    private static LevelLayout SynthesizeLanes(LevelBlueprint b, out string report)
+    {
+        var log = new StringBuilder();
+        float W = b.playfieldSize.x, D = b.playfieldSize.y;
+        float L = b.routeLengthTarget;
+        float F = Mathf.Clamp(b.foldWidth, 7.5f, 20f);
+        int n = Mathf.Max(2, b.LaneCount);
+        Vector3 core = LevelLayout.FromNormalized(b.protectedNormalizedPos, b.playfieldSize);
+
+        // Enter from the long-side edge the Core sits furthest from — longest run.
+        float dirX = core.x >= 0f ? 1f : -1f;
+        float entryX = -dirX * (W * 0.5f - FieldMargin);
+        float xConv = core.x - dirX * LaneConvergeStandoff;
+        float run = Mathf.Abs(xConv - entryX);
+
+        // The classic trap (hit in the field): a CENTRED Core — right for the
+        // siege shapes — HALVES a lane's run, and every length ask then fails.
+        // Name it in every refusal instead of letting the band numbers puzzle.
+        string coreHint = Mathf.Abs(core.x) < W * 0.15f
+            ? " NOTE: the Core sits near the field's x-centre, which HALVES the lanes' run — lanes want " +
+              "the Core toward the far side (protectedNormalizedPos.x ≈ 0.75 or 0.25; centred Cores " +
+              "are the SIEGE shapes' configuration)."
+            : "";
+
+        if (run < 40f)
+        {
+            report = $"lanes: only {run:0.#} m of run between the entry edge and the Core standoff — " +
+                     "move protectedNormalizedPos toward the far side or enlarge playfieldSize.x." + coreHint;
+            return null;
+        }
+
+        // Pitch: fit the bundle in the field depth, centred on the Core's z (the
+        // centre is clamped so the outer lanes keep the field margin).
+        float usable = D - 2f * FieldMargin;
+        float pitch = Mathf.Min(12f, usable / Mathf.Max(1, n - 1));
+        if (pitch < 9f)
+        {
+            report = $"lanes: {n} lanes need ≥9 m of pitch and this field affords {pitch:0.#} m — " +
+                     "a deeper playfield is required.";
+            return null;
+        }
+        float halfSpan = pitch * (n - 1) * 0.5f;
+        float zc = Mathf.Clamp(core.z, -D * 0.5f + FieldMargin + halfSpan,
+                                        D * 0.5f - FieldMargin - halfSpan);
+
+        // ---- draws up front, fixed order --------------------------------
+        var rng = new Rng(GenerationPipeline.Fnv1a(b.randomSeed, "lanes"));
+        float sign0 = (rng.NextU() & 1u) == 0u ? 1f : -1f;   // first wave's side
+        float[] anchors =
+        {
+            0.16f + rng.Range(-0.02f, 0.02f),
+            0.32f + rng.Range(-0.02f, 0.02f),
+            0.48f + rng.Range(-0.02f, 0.02f),
+            0.64f + rng.Range(-0.02f, 0.02f),
+            0.80f + rng.Range(-0.02f, 0.02f),
+        };
+
+        // Wave shape (user feedback: "make the lanes straighter"). The first
+        // version reused the corridor's HAIRPIN knots — perpendicular jogs the
+        // spline renders as stair-steps. Lanes now bend as smooth TRIANGLE
+        // waves (out-peak-back, no lateral jog), spread over up to FIVE gentle
+        // folds instead of three sharp ones: the length a lane needs arrives
+        // as a low ripple, not a zigzag. A wave gains less length per fold
+        // than a hairpin, which is fine — the equalizer only ever needs a few
+        // metres per lane.
+        float spacing = 0.16f * run;
+        float foldW = Mathf.Min(F, spacing * 0.9f);
+        float aMax = pitch * 0.5f - LaneEnvelopeHalf - 0.25f;
+
+        Vector3[] Lane(int K, float a, float dz)
+        {
+            var pts = new List<Vector3> { new Vector3(entryX, 0f, zc + dz) };
+            for (int k = 0; k < K; k++)
+            {
+                float xk = Mathf.Lerp(entryX, xConv, Mathf.Clamp01(anchors[k]));
+                float s = sign0 * (k % 2 == 0 ? 1f : -1f);
+                pts.Add(new Vector3(xk - dirX * foldW * 0.5f, 0f, zc + dz));
+                pts.Add(new Vector3(xk, 0f, zc + dz + s * a));
+                pts.Add(new Vector3(xk + dirX * foldW * 0.5f, 0f, zc + dz));
+            }
+            pts.Add(new Vector3(xConv, 0f, zc + dz));
+            // Convergence dive: taper toward the Core's z, meet at the Core.
+            pts.Add(new Vector3(core.x - dirX * 5f, 0f, core.z + dz * 0.35f));
+            pts.Add(new Vector3(core.x, 0f, core.z));
+            return pts.ToArray();
+        }
+
+        float LenAt(int K, float a, float dz) => MeasureSplineLength(Lane(K, a, dz));
+
+        // PER-LANE geometry: the convergence diagonal makes the OUTER lanes
+        // measurably longer than the inner ones (gate 1 rightly refused the
+        // first version, which fit only the centreline — the outer lanes came
+        // out +9%). Equalize by AMPLITUDE: every lane gets its own fold
+        // amplitude sized so THAT lane measures the target; lanes already long
+        // enough ride flat (amplitude 0, the fold knots collapse collinear).
+        var laneDz = new float[n];
+        for (int j = 0; j < n; j++)
+            laneDz[j] = halfSpan - j * pitch;        // lane 1 = north-most
+
+        float sMin = float.MaxValue, sMax = 0f;
+        for (int j = 0; j < n; j++)
+        {
+            float s0 = LenAt(0, 0f, laneDz[j]);
+            sMin = Mathf.Min(sMin, s0);
+            sMax = Mathf.Max(sMax, s0);
+        }
+
+        // Five gentle folds always: with wave knots, more-and-smaller reads
+        // straighter than fewer-and-taller, and a flat lane's amplitude 0
+        // collapses its wave knots collinear — invisible.
+        const int WaveFolds = 5;
+
+        // Feasible band: the longest FLAT lane must sit under target+5% (folds
+        // can only lengthen), and the shortest must reach target-5% with folds
+        // inside its own channel.
+        float foldGain = LenAt(WaveFolds, aMax, 0f) - LenAt(0, 0f, 0f);
+        float reachTop = sMin + foldGain;
+        if (L < sMax / 1.05f || L > reachTop * 1.05f)
+        {
+            report = $"lanes: this field's lanes measure {sMin:0.#}–{sMax:0.#} m flat; with in-lane folds the " +
+                     $"workable routeLengthTarget band is ≈{Mathf.Ceil(sMax / 1.05f)}–{Mathf.Floor(reachTop * 1.05f)} m " +
+                     $"and the ask is {L:0.#} m ±5%. Set the target inside the band (lanes are naturally " +
+                     "shorter than the corridor — a fold big enough to close a large gap would leave its lane)." +
+                     coreHint;
+            return null;
+        }
+
+        float FitAmp(int K, float dz)
+        {
+            if (LenAt(0, 0f, dz) >= L)
+                return 0f;                            // long enough flat
+            if (K == 0 || LenAt(K, aMax, dz) < L * 0.95f)
+                return -1f;                           // this K cannot reach
+            float lo = 0f, hi = aMax;
+            for (int it = 0; it < 24; it++)
+            {
+                float mid = 0.5f * (lo + hi);
+                if (LenAt(K, mid, dz) < L) lo = mid; else hi = mid;
+            }
+            return 0.5f * (lo + hi);
+        }
+
+        int foldCount = WaveFolds;
+        var amps = new float[n];
+        for (int j = 0; j < n; j++)
+        {
+            float a = FitAmp(WaveFolds, laneDz[j]);
+            if (a < 0f || Mathf.Abs(LenAt(WaveFolds, a, laneDz[j]) - L) > L * 0.05f)
+            {
+                report = $"lanes: lane {j + 1} cannot reach {L:0.#} m ±5% with waves inside its own channel " +
+                         $"(flat lanes measure {sMin:0.#}–{sMax:0.#} m) — move routeLengthTarget toward that band." +
+                         coreHint;
+                return null;
+            }
+            amps[j] = a;
+        }
+
+        var routes = new Vector3[n][];
+        var names = new string[n];
+        for (int j = 0; j < n; j++)
+        {
+            routes[j] = Lane(foldCount, amps[j], laneDz[j]);
+            names[j] = $"Route_Lane{j + 1}";
+        }
+
+        // Backstop, same as siege: parallel construction holds the pitch, this
+        // measured check catches the day that stops being true.
+        float sep = MinPairSeparation(routes, core, LaneConvergeStandoff);
+        if (sep < MinSeparation)
+        {
+            report = $"lanes: lanes hold only {sep:0.##} m apart (≥{MinSeparation:0.##} m) outside the " +
+                     "convergence zone — this should be impossible for a translated centreline; check foldWidth.";
+            return null;
+        }
+
+        var layout = new LevelLayout
+        {
+            corePos = core,
+            groundRoutes = routes,
+            routeNames = names,
+            // Air enters from the same edge and flies straight down the bundle.
+            airSpawn = new Vector3(entryX + dirX * 2f, 4f, zc),
+            sharedTail = false,                      // lanes converge, they do not merge
+        };
+        var perLane = new StringBuilder();
+        for (int j = 0; j < n; j++)
+            perLane.Append($"{(j > 0 ? ", " : "")}L{j + 1} {LenAt(foldCount, amps[j], laneDz[j]):0.#} m (amp {amps[j]:0.#})");
+        log.AppendLine($"[ok] {n} parallel lane(s): pitch {pitch:0.#} m, run {run:0.#} m " +
+                       $"({(dirX > 0f ? "west→east" : "east→west")}), {foldCount} in-lane fold(s) of " +
+                       $"width {foldW:0.#} m, per-lane amplitudes equalize the convergence diagonal — " +
+                       $"{perLane} (target {L:0.#} ±5%).");
         report = log.ToString();
         return layout;
     }

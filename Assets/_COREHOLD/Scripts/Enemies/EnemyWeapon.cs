@@ -36,6 +36,11 @@ namespace Corehold.Enemies
         [HideInInspector] [SerializeField] private Transform muzzle;
         [HideInInspector] [SerializeField] private Color tracerColor = new Color(4f, 1.2f, 0.3f, 1f);
 
+        // Hostile tracer identity (colour / glow / width) now lives on the VFXDirector
+        // under its "Hostile tracer (enemy fire)" group, so it is authored per-scene
+        // and independent of friendly (tower) fire. This weapon only decides WHEN to
+        // fire and passes the per-mount alpha through (0 = no tracer for that mount).
+
         private Enemy _enemy;
 
         // Per-mount runtime state, parallel to the weapons array.
@@ -191,7 +196,13 @@ namespace Corehold.Enemies
 
             if (Corehold.Systems.VFXDirector.Instance != null)
             {
-                Corehold.Systems.VFXDirector.Instance.DrawTracer(origin, targetPoint, w.tracerColor);
+                // Faction tracer identity (VFX colour-language): ALL hostile enemy fire
+                // uses the director's HOSTILE tracer settings (its own colour, glow and
+                // width), so enemy fire reads distinctly from tower fire. The per-mount
+                // authored alpha is passed through so a mount with alpha 0 draws no
+                // tracer.
+                Corehold.Systems.VFXDirector.Instance.DrawTracer(
+                    origin, targetPoint, Corehold.Systems.VFXDirector.TracerFaction.Hostile, w.tracerColor.a);
                 Corehold.Systems.VFXDirector.Instance.PlayImpact(targetPoint);
             }
 
