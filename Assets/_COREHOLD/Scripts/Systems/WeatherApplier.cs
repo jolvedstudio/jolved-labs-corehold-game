@@ -101,21 +101,14 @@ namespace Corehold.Systems
         /// <summary>The preset currently applied, or null when the scene is on its baseline.</summary>
         public WeatherPreset Active { get; private set; }
 
-        // ------------------------------------------------ mutator → weather links
-
-        /// <summary>A weather LAYER stacked over the base preset while a wave with
-        /// the given mutator is in flight — a Storm wave that looks like a storm.</summary>
-        [Serializable]
-        public class MutatorWeatherLink
-        {
-            public WaveMutator mutator;
-            public WeatherPreset layer;
-        }
-
-        [Tooltip("Weather layers stacked over the active preset while a wave with the linked mutator " +
-                 "runs, removed when the field clears. Composition rules are the preset's layer rules. " +
-                 "Presentation only — nothing gameplay reads weather.")]
-        public MutatorWeatherLink[] mutatorLinks;
+        // A mutator's weather is NOT wired here. It lives on the mutator asset
+        // (WaveMutatorDefinition.weatherLayer), which is the one place a mutator
+        // is defined — so a new mutator arrives with its look already attached
+        // and no scene has to be opened to grant it one. This component used to
+        // carry a per-scene mutator→layer table as well; two places to answer
+        // "what does a storm wave look like?" meant every scene could disagree
+        // with every other, and a mutator added without a scene visit looked
+        // like nothing at all.
 
         // ------------------------------------------------- per-wave weather roll
 
@@ -143,8 +136,6 @@ namespace Corehold.Systems
         private WeatherPreset _waveLayer;
         private uint _runSeed;
         private WaveManager _waves;
-
-        private WaveMutator _activeMutators;
 
         // ------------------------------------------------------ composed runtime
         // All of this idles at ZERO cost: Update early-outs on one time compare,
@@ -384,18 +375,16 @@ namespace Corehold.Systems
             // The run is over: the rolled sky goes with it, so a result screen
             // is not still standing in wave 9's storm.
             _waveLayer = null;
-            OnMutatorsChanged(WaveMutator.None);
+            OnMutatorAssetsChanged(null);
         }
 
         private void OnEnable()
         {
-            WaveManager.ActiveMutatorsChanged += OnMutatorsChanged;
             WaveManager.ActiveMutatorAssetsChanged += OnMutatorAssetsChanged;
         }
 
         private void OnDisable()
         {
-            WaveManager.ActiveMutatorsChanged -= OnMutatorsChanged;
             WaveManager.ActiveMutatorAssetsChanged -= OnMutatorAssetsChanged;
             if (_waves != null)
                 _waves.OnWaveStarted -= OnWaveStarted;
@@ -406,22 +395,12 @@ namespace Corehold.Systems
             }
         }
 
-        private void OnMutatorsChanged(WaveMutator now)
-        {
-            if (_activeMutators == now)
-                return;
-            _activeMutators = now;
-            if (Application.isPlaying && _baselineCaptured)
-                ApplyStack();
-        }
-
         /// <summary>
-        /// Weather layers carried by the wave's AUTHORED mutators (R33).
+        /// Weather layers carried by the wave's mutators.
         ///
         /// This is what makes a new mutator arrive complete: the asset names
         /// its own layer, so a designer adding one gets its look without
-        /// opening a single scene. <see cref="mutatorLinks"/> stays for the
-        /// four legacy flags, whose layers are wired per scene.
+        /// opening a single scene.
         /// </summary>
         private readonly List<WeatherPreset> _mutatorAssetLayers = new List<WeatherPreset>(4);
 
@@ -620,15 +599,8 @@ namespace Corehold.Systems
             if (_waveLayer != null)
                 Flatten(_waveLayer, stack, 0);
 
-            if (mutatorLinks != null && _activeMutators != WaveMutator.None)
-                foreach (MutatorWeatherLink link in mutatorLinks)
-                    if (link != null && link.layer != null && (_activeMutators & link.mutator) != 0)
-                        Flatten(link.layer, stack, 0);
-
-            // Authored mutators bring their own layer, stacked AFTER the scene's
-            // links so an asset's look wins a tie with a flag's — the asset is
-            // the newer, more specific statement of intent. Guarded against a
-            // layer arriving twice when an asset is bound to a linked flag.
+            // The wave's mutators bring their own layers, stacked last so an
+            // announced rule always reads over the climate underneath it.
             foreach (WeatherPreset layer in _mutatorAssetLayers)
                 if (layer != null && !stack.Contains(layer))
                     Flatten(layer, stack, 0);

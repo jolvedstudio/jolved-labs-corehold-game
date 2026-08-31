@@ -1,12 +1,16 @@
-# Wave mutators — authoring guide and scope (R33)
+# Wave mutators — authoring guide and scope
 
 A **mutator** is a rule that applies to one wave: air units fly faster, turrets
-see half as far, everything funnels down one approach. Before R33 there were
-exactly four of them and each was an enum bit, so adding one meant editing five
-C# files and the balance model. Now a mutator is an **asset**.
+see half as far, everything funnels down one approach. A mutator is an **asset**
+— there were once four of them hardcoded as enum bits, and adding one meant
+editing five C# files and the balance model.
 
 This document is both the how-to and the boundary: what you can author, what
 still needs code, and why the line sits where it does.
+
+**New here?** [`wave_setup_guide.md`](wave_setup_guide.md) is the one-page tour
+of the whole chain — level → wave → mutator. This doc is the deep reference for
+the mutator layer itself.
 
 ---
 
@@ -41,15 +45,16 @@ have a free-form script field, and it is the whole safety argument:
    follows the mutator into any scene with no per-scene wiring.
 5. **Register it** — `Tools → COREHOLD → Scene Setup → Wave Mutators` adds every
    mutator asset to the open scene's WaveManager library, then **save the scene**.
-6. **Use it** — add it to a `WaveDefinition`'s `mutatorAssets`.
+6. **Use it** — add it to a `WaveDefinition`, either to `fixedMutators` (always
+   on) or to `poolMutators` (drawn sometimes; see §3b).
 7. **Check it** — `Tools → COREHOLD → Validate → Wave Mutators Audit`.
 
 ### Testing without authoring a wave
 
-**⇧T** in play mode cycles the scene's mutator library, adding one to every wave
-started from the press. (Plain **T** still cycles the four legacy flags.) The
-mutator has to be in the WaveManager's library to be offered — if ⇧T does not
-list yours, step 5 has not been run or the scene was not saved.
+**T** in play mode cycles the level's mutator library, adding one to every wave
+started from the press. The mutator has to be in the WaveManager's library to be
+offered — if T does not list yours, step 5 has not been run or the scene was not
+saved.
 
 ---
 
@@ -85,20 +90,25 @@ a new model term, so each is a code change plus a gate run — see §6.
 
 ---
 
-## 3b. Draw pools — the same wave, a different fight (R36)
+## 3b. Draw pools — the same wave, a different fight
 
-A wave can carry a **pool** it draws one member from at runtime:
+A wave carries two mutator lists:
 
-- `mutatorPool` — the candidates.
-- `mutatorPoolNoneWeight` — how many "nothing drawn" slots sit in the hat. 1
+- `fixedMutators` — always on. Every run of the wave carries all of them.
+- `poolMutators` — the wave draws **one** of these each run.
+- `poolNothingWeight` — how many "nothing drawn" slots sit in the hat. 1
   alongside a 3-member pool makes a plain wave a 1-in-4 outcome; 0 means the
   wave always carries one.
 
-The draw is derived from `(run seed, wave number)`, never stored — the same
-reason `MutatorsForWave` is derived. A unit admitted from the pending queue
-thirty seconds late reads the same answer as one that spawned instantly, and
-the HUD banner agrees with both. The run seed is fresh per run, so a replay
-**and a retry** draw a different shape of fight.
+A mutator in both lists is one mutator, not two.
+
+The draw is derived from `(run seed, wave number)` and never stored. A unit
+admitted from the pending queue thirty seconds late reads the same answer as one
+that spawned instantly, and the HUD banner agrees with both. The run seed is
+fresh per run, so a replay **and a retry** draw a different shape of fight.
+
+The wave inspector lists every outcome with its odds and its composed effect,
+and marks the one the gate will certify against.
 
 ### The guarantee that makes this safe to ship
 
@@ -107,15 +117,15 @@ the HUD banner agrees with both. The run seed is fresh per run, so a replay
 So a run can never be harder than what certification signed off. Measured on a
 contested wave with a pool of {overcharge, blackout, nothing}:
 
-| Wave authored as | margin | flags |
+| Wave authored as | margin | gate flags |
 |---|---|---|
 | plain | 1.50 | — |
-| fixed `overcharge` | 1.21 | — |
-| fixed `blackout` | 0.97 | **LOW** |
+| always-on `overcharge` | 1.21 | — |
+| always-on `blackout` | 0.97 | **LOW** |
 | **pool of all three** | **0.97** | **DRAW[blackout/3 ±0.53], LOW** |
 
 The pooled wave certifies at its hardest member's margin and flags exactly as
-the fixed-hardest wave does. Randomising cannot be used to slip past the gate.
+the always-on-hardest wave does. Randomising cannot be used to slip past the gate.
 
 ### Reading the band
 
@@ -145,40 +155,47 @@ sequence lands at the next wave start.
 
 ---
 
-## 4. How the two authoring routes compose
+## 4. How mutators compose on one wave
 
-A wave can carry legacy **flags** and authored **assets** at once. They fold into
-one `MutatorEffects` vector: multipliers multiply, switches OR. Order does not
-matter, and two mutators that both slow the ground compound rather than one
-silently winning.
+A wave can carry several at once — everything in `fixedMutators`, plus whatever
+it drew. They fold into one `MutatorEffects` vector: **multipliers multiply,
+switches OR**. Order does not matter, identity is 1, and two mutators that both
+slow the ground compound rather than one silently winning.
 
-The one rule to know: **an asset bound to a legacy flag via `legacyFlag` does not
-double-apply.** When the flag is set, the flag's numbers (the WaveManager's
-`[TUNE]` fields) win and the asset contributes only its words and weather. That
-is deliberate — scenes have had those values tuned on the WaveManager for a long
-time, and an asset must not silently overrule a number a designer set.
+That rule is not a convenience. It is the only rule under which "any two
+mutators can share a wave" is true without a table of special cases, and it is
+exactly what the balance model does with the same numbers — which is what keeps
+the two implementations from drifting.
 
-So: the four originals keep behaving exactly as they always have, and
-`Mutator_Storm.asset` exists to give Storm a banner and a weather layer, not to
-re-specify it.
+One list drives everything. `WaveManager.MutatorAssetsForWave` answers "which
+mutators are on this wave?", and the HUD banner, the weather stack and
+`EffectsForWave` all read it. A mutator the player is told about is by
+construction a mutator that is applied and lit; they cannot disagree, because
+there is nothing to disagree about.
+
+> **Historical note.** There used to be a second authoring route — four enum
+> flags on the wave, whose numbers lived on the WaveManager, whose weather lived
+> on the WeatherApplier and whose banner words lived in a switch in the HUD. Every
+> consumer then carried de-duplication logic to decide whether an asset was
+> standing in for a flag. That is gone: one route, two lists, no cross-checks.
 
 ---
 
 ## 5. How a mutator reaches the balance model
 
-The exporter writes mutators into the wave table in one of two shapes:
+The exporter writes each mutator as an **object carrying its own numbers**:
 
 ```jsonc
-"mutators": ["storm"]                                   // a legacy flag: name only
-"mutators": [{"id":"hailfall","ground_speed":0.75,      // an asset: its own numbers
-              "hp":1.15,"bounty":1.2,"gap":0.6}]
+"mutators":     [{"id":"hailfall","ground_speed":0.75,   // always on
+                  "hp":1.15,"bounty":1.2,"gap":0.6}]
+"mutator_pool": [{"id":"blackout","range":0.5}],         // may be drawn
+"mutator_pool_none": 1                                    // …or nothing, 1 slot
 ```
 
-A **name** resolves through `BUILTIN_MUTATORS` in `balance_model.py` — the four
-originals and their constants, unchanged, which is what keeps every table
-exported before R33 producing the numbers it always did. An **object** carries
-its own terms, because the model cannot hold a constant for a mutator that did
-not exist when it was written.
+The numbers travel with the wave because the model cannot hold a constant for a
+mutator that did not exist when it was written. (`balance_model.py` still
+resolves a **bare name** through `BUILTIN_MUTATORS` for hand-written tables; the
+exporter no longer emits that shape.)
 
 Unknown terms are **rejected**, not ignored:
 
@@ -232,10 +249,13 @@ same rule that governs the tower-loss term and every other R22 extension.
 | File | Role |
 |---|---|
 | `Scripts/Data/WaveMutatorDefinition.cs` | the asset + `MutatorEffects` |
-| `Scripts/Data/WaveDefinition.cs` | `mutatorAssets[]` beside the legacy flags |
-| `Scripts/Core/WaveManager.cs` | `EffectsForWave`, `MutatorAssetsForWave`, application |
+| `Scripts/Data/WaveDefinition.cs` | `fixedMutators[]`, `poolMutators[]`, `poolNothingWeight` |
+| `Scripts/Core/WaveManager.cs` | `MutatorAssetsForWave`, `EffectsForWave`, `DrawnMutatorForWave` |
 | `Scripts/UI/HUDController.cs` | the wave-start banner |
 | `Scripts/Systems/WeatherApplier.cs` | stacks each asset's weather layer |
 | `Editor/Coplay/SetupWaveMutators.cs` | authoring tool + audit |
+| `Editor/Coplay/WaveDefinitionInspector.cs` | the per-wave outcome table |
+| `Editor/Coplay/WaveMutatorInspector.cs` | banner + effect preview, usage |
+| `Editor/Coplay/Campaign/WaveRecipe.cs` | a level's pool, stamped onto generated waves |
 | `Editor/Coplay/Generation/WaveTableExporter.cs` | writes mutators into the table |
 | `docs/balance_model.py` | `BUILTIN_MUTATORS`, `MUTATOR_TERMS`, `r22_effects`, `wave_variants` |

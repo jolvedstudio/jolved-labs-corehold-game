@@ -28,7 +28,7 @@ namespace Corehold.Systems
     ///   RUN        V  force VICTORY  X  force DEFEAT                 1/2/3 difficulty
     ///   CAMPAIGN   C  status dump    ⇧C wipe this campaign's saves
     ///   TIME       P  pause/resume   ,  slower                       .  faster
-    ///   LOOK       T  cycle mutators ⇧T authored mutators           ⇧R re-roll wave draws
+    ///   LOOK       T  cycle this level's mutators                   ⇧R re-roll wave draws
     ///              N  night toggle
     ///              W  re-apply weather                              ⇧W re-roll wave weather
     ///   OUTPUT     F1 stats overlay  F2 key map                      F3 screenshot
@@ -110,10 +110,7 @@ namespace Corehold.Systems
             if (kb.periodKey.wasPressedThisFrame)
                 StepSpeed(+1);
             if (kb.tKey.wasPressedThisFrame)
-            {
-                if (shift) CycleForcedMutatorAsset();
-                else CycleForcedMutators();
-            }
+                CycleForcedMutatorAsset();
             if (kb.nKey.wasPressedThisFrame)
                 ToggleNight();
             if (shift && kb.rKey.wasPressedThisFrame)
@@ -485,45 +482,14 @@ namespace Corehold.Systems
         // ----- Look -----
 
         /// <summary>
-        /// R20 test: cycle a forced mutator set, OR-ed into every wave started
-        /// after the press (already-spawned units keep their stamps).
-        /// </summary>
-        private void CycleForcedMutators()
-        {
-            var wm = FindFirstObjectByType<WaveManager>();
-            if (wm == null)
-            {
-                Debug.LogWarning("[DebugConsole] No WaveManager to force mutators on.");
-                return;
-            }
-
-            var cycle = new[]
-            {
-                Corehold.Data.WaveMutator.None,
-                Corehold.Data.WaveMutator.Storm,
-                Corehold.Data.WaveMutator.Convoy,
-                Corehold.Data.WaveMutator.Overcharge,
-                Corehold.Data.WaveMutator.Blackout,
-                Corehold.Data.WaveMutator.Storm | Corehold.Data.WaveMutator.Convoy |
-                Corehold.Data.WaveMutator.Overcharge | Corehold.Data.WaveMutator.Blackout,
-            };
-
-            int at = System.Array.IndexOf(cycle, wm.DebugForceMutators);
-            wm.DebugForceMutators = cycle[(at + 1) % cycle.Length];
-            Debug.Log($"[DebugConsole] Forced wave mutators: {wm.DebugForceMutators} " +
-                      "(applies to waves started from now; T again to cycle).");
-        }
-
-        /// <summary>
-        /// R33 test: cycle through this scene's AUTHORED mutators, adding one
-        /// to every wave started after the press.
+        /// Cycle through this level's mutators, adding one to every wave
+        /// started after the press.
         ///
-        /// The asset-shaped twin of T, and the reason a new mutator is worth
-        /// authoring at all: without it, seeing what one does means editing a
-        /// wave asset, re-entering play and walking to that wave. The library
-        /// comes off the WaveManager, so a mutator that is not in the scene's
-        /// list is not offered — which is also how a designer finds out they
-        /// forgot to register one.
+        /// The reason a new mutator is worth authoring at all: without this,
+        /// seeing what one does means editing a wave asset, re-entering play
+        /// and walking to that wave. The library comes off the WaveManager, so
+        /// a mutator that is not in the level's list is not offered — which is
+        /// also how a designer finds out they forgot to register one.
         /// </summary>
         private void CycleForcedMutatorAsset()
         {
@@ -553,7 +519,7 @@ namespace Corehold.Systems
 
             var forced = wm.DebugForceMutatorAsset;
             Debug.Log(forced == null
-                ? "[DebugConsole] Forced authored mutator: none (⇧T again to cycle)."
+                ? "[DebugConsole] Forced mutator: none (T again to cycle)."
                 : $"[DebugConsole] Forced authored mutator: {forced.ResolvedId} — " +
                   $"{forced.title}: {forced.clause} (applies to waves started from now).");
         }
@@ -723,8 +689,8 @@ namespace Corehold.Systems
 #endif
 
             string speed = _paused ? "PAUSED" : $"×{SpeedLadder[_speedIndex]}";
-            string mutators = wm != null && wm.DebugForceMutators != Corehold.Data.WaveMutator.None
-                ? $"   forced: {wm.DebugForceMutators}" : "";
+            string mutators = wm != null && wm.DebugForceMutatorAsset != null
+                ? $"   forced: {wm.DebugForceMutatorAsset.ResolvedId}" : "";
             var night = NightVariant.Instance;
 
             string text =
@@ -771,7 +737,7 @@ namespace Corehold.Systems
                 "RUN       V  force WIN     X  force LOSS     1/2/3 difficulty\n" +
                 "CAMPAIGN  C  status dump   shift+C  wipe this campaign's saves\n" +
                 "TIME      P  pause         ,  slower         .  faster\n" +
-                "LOOK      T  mutators      \u21e7T authored     \u21e7R reroll draws\n" +
+                "LOOK      T  force mutator                \u21e7R reroll draws\n" +
                 "          N  night\n" +
                 "          W  reapply weather              \u21e7W reroll wave weather\n" +
                 "OUTPUT    F1 stats         F2 this list      F3 screenshot\n\n" +

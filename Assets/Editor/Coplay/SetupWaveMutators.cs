@@ -8,16 +8,12 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 
 /// <summary>
-/// Authors the four original mutators as assets (R33) and registers this
-/// scene's mutator library, plus the audit that keeps authored mutators
-/// honest.
+/// Authors the four starter mutators as assets and registers this level's
+/// mutator library, plus the audit that keeps authored mutators honest.
 ///
-/// Why the originals get assets at all, when the enum flags still drive them:
-/// so that ONE list answers "what mutators does this game have?". The assets
-/// carry the words the HUD shows and the weather each mutator brings; the
-/// flags remain the authority on the four legacy EFFECTS, because scenes have
-/// tuned those values on their WaveManager for a long time and an asset must
-/// not silently overrule a number a designer set.
+/// These four are just the ones that ship. There is nothing special about
+/// them: each is an ordinary asset carrying its own words, weather and
+/// numbers, and a fifth is a fifth asset, not a code change.
 ///
 /// Unlike the weather setup, this NEVER changes scene: it works on whatever is
 /// open, because the thing it wires — the WaveManager's library — is per scene.
@@ -31,7 +27,7 @@ public static class SetupWaveMutators
     public static void Setup()
     {
         var log = new StringBuilder();
-        log.AppendLine("=== R33 wave mutator setup ===");
+        log.AppendLine("=== wave mutator setup ===");
 
         if (!AssetDatabase.IsValidFolder(MutatorDir))
         {
@@ -39,10 +35,7 @@ public static class SetupWaveMutators
             log.AppendLine($"[ok] created {MutatorDir}");
         }
 
-        // The four originals. Numbers mirror the WaveManager's shipped [TUNE]
-        // defaults so both authoring routes agree; the flag still wins when a
-        // wave sets it, so a scene with tuned values keeps them.
-        // Ordering note: the Storm and Blackout assets want weather layers the
+        // The four that ship. Ordering note: Storm and Blackout want weather layers the
         // WEATHER setup authors. Running that first is the happy path; running
         // this first is caught by the backfill in Author().
         if (Load($"{WeatherDir}/WeatherLayer_Storm.asset") == null)
@@ -51,20 +44,20 @@ public static class SetupWaveMutators
 
         WaveMutatorDefinition storm = Author(
             "Mutator_Storm", "storm", "STORM", "Air units move faster",
-            WaveMutator.Storm, log, airSpeed: 1.3f,
+            log, airSpeed: 1.3f,
             weather: Load($"{WeatherDir}/WeatherLayer_Storm.asset"));
 
         WaveMutatorDefinition convoy = Author(
             "Mutator_Convoy", "convoy", "CONVOY", "Everything comes down one approach",
-            WaveMutator.Convoy, log, singleApproach: true);
+            log, singleApproach: true);
 
         WaveMutatorDefinition overcharge = Author(
             "Mutator_Overcharge", "overcharge", "OVERCHARGE", "Tougher units, richer salvage",
-            WaveMutator.Overcharge, log, health: 1.3f, bounty: 1.5f);
+            log, health: 1.3f, bounty: 1.5f);
 
         WaveMutatorDefinition blackout = Author(
             "Mutator_Blackout", "blackout", "BLACKOUT", "Turrets see half as far — light them up",
-            WaveMutator.Blackout, log, turretRange: 0.5f,
+            log, turretRange: 0.5f,
             weather: Load($"{WeatherDir}/WeatherLayer_Blackout.asset"));
 
         AssetDatabase.SaveAssets();
@@ -81,7 +74,7 @@ public static class SetupWaveMutators
     /// which is the failure mode that makes people stop running setup tools.</summary>
     private static WaveMutatorDefinition Author(
         string fileName, string id, string title, string clause,
-        WaveMutator legacyFlag, StringBuilder log,
+        StringBuilder log,
         float airSpeed = 1f, float groundSpeed = 1f, float health = 1f, float bounty = 1f,
         float turretRange = 1f, float spawnGap = 1f, bool singleApproach = false,
         WeatherPreset weather = null)
@@ -114,7 +107,6 @@ public static class SetupWaveMutators
         d.id = id;
         d.title = title;
         d.clause = clause;
-        d.legacyFlag = legacyFlag;
         d.airSpeedMultiplier = airSpeed;
         d.groundSpeedMultiplier = groundSpeed;
         d.healthMultiplier = health;
@@ -239,7 +231,7 @@ public static class SetupWaveMutators
             }
 
             MutatorEffects e = d.Effects;
-            if (e.IsIdentity && d.legacyFlag == WaveMutator.None)
+            if (e.IsIdentity)
             {
                 sb.AppendLine("  [WARN] changes nothing mechanically. Legitimate for a look-only " +
                               "mutator (weather + banner), but say so deliberately");
@@ -262,7 +254,7 @@ public static class SetupWaveMutators
                 warns++;
             }
 
-            if (d.weatherLayer == null && d.legacyFlag == WaveMutator.None)
+            if (d.weatherLayer == null)
                 sb.AppendLine("  [note] no weather layer — the wave will look like any other");
 
             sb.AppendLine($"  effects: air x{e.airSpeed:0.##}  ground x{e.groundSpeed:0.##}  " +
@@ -281,17 +273,28 @@ public static class SetupWaveMutators
         foreach (string guid in AssetDatabase.FindAssets("t:WaveDefinition"))
         {
             var w = AssetDatabase.LoadAssetAtPath<WaveDefinition>(AssetDatabase.GUIDToAssetPath(guid));
-            if (w == null || w.mutatorAssets == null)
+            if (w == null)
                 continue;
-            foreach (WaveMutatorDefinition d in w.mutatorAssets)
+
+            // Both lists: an empty slot in either is an authoring slip, and an
+            // empty POOL slot is the quieter one — it silently reweights the
+            // draw away from what the gate priced.
+            CollectFrom(w, w.fixedMutators, "always-on");
+            CollectFrom(w, w.poolMutators, "pool");
+
+            void CollectFrom(WaveDefinition wave, WaveMutatorDefinition[] list, string which)
             {
-                if (d == null)
+                if (list == null) return;
+                foreach (WaveMutatorDefinition d in list)
                 {
-                    sb.AppendLine($"\n[WARN] '{w.name}' has an EMPTY mutator slot");
-                    warns++;
-                    continue;
+                    if (d == null)
+                    {
+                        sb.AppendLine($"\n[WARN] '{wave.name}' has an EMPTY {which} mutator slot");
+                        warns++;
+                        continue;
+                    }
+                    used.Add(d);
                 }
-                used.Add(d);
             }
         }
 

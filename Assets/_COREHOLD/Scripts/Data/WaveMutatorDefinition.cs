@@ -55,14 +55,18 @@ namespace Corehold.Data
     }
 
     /// <summary>
-    /// One authored wave mutator (R20 → R33): a named rule a wave can carry,
-    /// with its player-facing words, its weather, and its effect on play.
+    /// One authored wave mutator: a named rule a wave can carry, with its
+    /// player-facing words, its weather, and its effect on play.
     ///
-    /// WHY AN ASSET AND NOT JUST MORE ENUM BITS. The original four mutators are
-    /// <see cref="WaveMutator"/> flags — an enum, so every new one cost a code
-    /// change in five files and a balance-model edit. This asset moves the
-    /// AUTHORING to data while leaving the certification story intact, which is
-    /// the whole trick:
+    /// THE ONE PLACE A MUTATOR IS DEFINED. A wave names which mutators it can
+    /// carry; everything about what one IS lives here. That was not always
+    /// true — the original four were enum flags whose numbers sat on the
+    /// WaveManager, whose weather sat on the WeatherApplier, and whose banner
+    /// words sat in a switch in the HUD, so "what does Storm do?" had four
+    /// answers in four files and adding a fifth mutator meant editing all of
+    /// them. Now it is one asset, and a new mutator is a new asset.
+    ///
+    /// WHY AN ASSET AND NOT MORE CODE:
     ///
     ///   • The effect list below is CLOSED. Each field maps 1:1 onto a term the
     ///     balance model already computes, so a mutator built here is a mutator
@@ -74,10 +78,6 @@ namespace Corehold.Data
     ///     numbers into the wave table and the model composes them generically,
     ///     so a mutator tuned here is priced with the value you typed, not with
     ///     a constant compiled into the model.
-    ///
-    /// The four originals keep working untouched: an asset may bind itself to
-    /// one of the legacy flags via <see cref="legacyFlag"/>, and a wave may
-    /// carry flags, assets, or both.
     /// </summary>
     [CreateAssetMenu(menuName = "COREHOLD/Wave Mutator", fileName = "Mutator_")]
     public class WaveMutatorDefinition : ScriptableObject
@@ -96,11 +96,6 @@ namespace Corehold.Data
         [Tooltip("One line under the title saying what it DOES, in the words a player would use. " +
                  "'Air units move faster', not 'airSpeed x1.3'.")]
         public string clause = "Something is different about this wave";
-
-        [Tooltip("Optional: binds this asset to one of the four original enum flags, so a wave " +
-                 "authored with the flag and a wave authored with this asset behave identically and " +
-                 "never double-apply. Leave None for a new mutator.")]
-        public WaveMutator legacyFlag = WaveMutator.None;
 
         [Header("Presentation")]
         [Tooltip("Weather layer stacked over the level's preset while a wave carrying this mutator " +

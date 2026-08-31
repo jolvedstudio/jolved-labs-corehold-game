@@ -516,13 +516,12 @@ namespace Corehold.UI
             }
 
             WaveDefinition started = waveManager.PeekWave(-1);
-            WaveMutator mutators = waveManager.MutatorsForWave(waveNumber);
-            var assets = waveManager.MutatorAssetsForWave(waveNumber);
+            var mutators = waveManager.MutatorAssetsForWave(waveNumber);
             bool boss = WaveHasBoss(started);
 
-            if (mutators != WaveMutator.None || assets.Count > 0)
+            if (mutators.Count > 0)
             {
-                (string title, string clause) = BannerText(mutators, assets);
+                (string title, string clause) = BannerText(mutators);
                 Color c = boss && theme != null ? theme.danger
                         : theme != null ? theme.amber : new Color(1f, 0.6f, 0.1f);
                 ShowBanner($"{title}\n<size=55%>{clause}</size>", c, mutatorBannerSeconds);
@@ -554,66 +553,27 @@ namespace Corehold.UI
         /// The wave-start stamp for a mutated wave: what it IS on top, what it
         /// DOES underneath, both in plain words.
         ///
-        /// The title is the mutator's own name — the same word the wave table,
-        /// the debug console and this HUD all use — so a player who reads
+        /// Every word comes off the mutator asset, so a designer who authors a
+        /// new one gets a banner without touching this file — that is the point
+        /// of the asset. The title is the mutator's own name, the same word the
+        /// wave table and the debug console use, so a player who reads
         /// "BLACKOUT" here and hears "blackout" anywhere else is looking at one
-        /// thing, not two. The narrative bible keeps its in-fiction names for
-        /// briefing prose; player-facing HUD stays plain.
-        /// </summary>
-        /// <summary>
-        /// The wave's stamp, from whichever authoring route produced it.
+        /// thing rather than two. The narrative bible keeps its in-fiction
+        /// names for briefing prose; player-facing HUD stays plain.
         ///
-        /// An AUTHORED mutator carries its own words, so a designer who adds
-        /// one gets a banner without touching this file — the point of the
-        /// asset. One mutator speaks for itself; several share the mixed-wave
-        /// stamp, because four stacked clauses is a wall of text at the exact
-        /// moment the player needs to look at the field.
+        /// One mutator speaks for itself; several share the mixed-wave stamp,
+        /// because four stacked clauses is a wall of text at the exact moment
+        /// the player needs to be looking at the field.
         /// </summary>
         private static (string, string) BannerText(
-            WaveMutator flags, System.Collections.Generic.List<WaveMutatorDefinition> assets)
+            System.Collections.Generic.List<WaveMutatorDefinition> mutators)
         {
-            int flagCount = CountFlags(flags);
-            // Assets bound to a set flag are the same mutator counted twice.
-            int assetOnly = 0;
-            foreach (WaveMutatorDefinition d in assets)
-                if (d != null && (d.legacyFlag == WaveMutator.None || (flags & d.legacyFlag) == 0))
-                    assetOnly++;
-
-            if (flagCount + assetOnly > 1)
+            if (mutators.Count > 1)
                 return ("MIXED WAVE", "More than one rule is in force this wave");
 
-            if (assetOnly == 1)
-                foreach (WaveMutatorDefinition d in assets)
-                    if (d != null && (d.legacyFlag == WaveMutator.None || (flags & d.legacyFlag) == 0))
-                        return (string.IsNullOrWhiteSpace(d.title) ? "SPECIAL WAVE" : d.title,
-                                d.clause ?? string.Empty);
-
-            return MutatorText(flags);
-        }
-
-        private static int CountFlags(WaveMutator m)
-        {
-            int n = 0;
-            if ((m & WaveMutator.Storm) != 0) n++;
-            if ((m & WaveMutator.Convoy) != 0) n++;
-            if ((m & WaveMutator.Overcharge) != 0) n++;
-            if ((m & WaveMutator.Blackout) != 0) n++;
-            return n;
-        }
-
-        private static (string, string) MutatorText(WaveMutator m)
-        {
-            bool storm = (m & WaveMutator.Storm) != 0;
-            bool convoy = (m & WaveMutator.Convoy) != 0;
-            bool over = (m & WaveMutator.Overcharge) != 0;
-            bool black = (m & WaveMutator.Blackout) != 0;
-            int flags = (storm ? 1 : 0) + (convoy ? 1 : 0) + (over ? 1 : 0) + (black ? 1 : 0);
-            if (flags > 1)
-                return ("MIXED WAVE", "More than one rule is in force this wave");
-            if (storm) return ("STORM", "Air units move faster");
-            if (convoy) return ("CONVOY", "Everything comes down one approach");
-            if (over) return ("OVERCHARGE", "Tougher units, richer salvage");
-            return ("BLACKOUT", "Turrets see half as far — light them up");
+            WaveMutatorDefinition d = mutators[0];
+            return (string.IsNullOrWhiteSpace(d.title) ? "SPECIAL WAVE" : d.title,
+                    d.clause ?? string.Empty);
         }
 
         private void EnsureCloseCallBanner()

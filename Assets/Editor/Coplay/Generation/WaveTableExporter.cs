@@ -195,7 +195,7 @@ public static class WaveTableExporter
             if (muts.Length > 0)
                 sb.Append($",\"mutators\":[{muts}]");
 
-            // The POOL a wave may draw one of at runtime (R36). Exported so the
+            // The POOL a wave may draw one of at runtime. Exported so the
             // model can evaluate the wave once per member and gate on the
             // WORST — the guarantee that keeps a random draw honest: a run can
             // never be harder than what certification signed off.
@@ -203,8 +203,8 @@ public static class WaveTableExporter
             if (pool.Length > 0)
             {
                 sb.Append($",\"mutator_pool\":[{pool}]");
-                if (wave.mutatorPoolNoneWeight > 0)
-                    sb.Append($",\"mutator_pool_none\":{wave.mutatorPoolNoneWeight}");
+                if (wave.poolNothingWeight > 0)
+                    sb.Append($",\"mutator_pool_none\":{wave.poolNothingWeight}");
             }
             sb.Append(",\"groups\":[");
             for (int g = 0; g < wave.groups.Length; g++)
@@ -315,46 +315,27 @@ public static class WaveTableExporter
     }
 
     /// <summary>
-    /// The wave's mutators, as the balance model reads them.
+    /// The wave's always-on mutators, as the balance model reads them.
     ///
-    /// TWO SHAPES, on purpose. A legacy flag emits its BARE NAME exactly as it
-    /// always has — the model knows those four and their constants, and keeping
-    /// the form identical is what lets every table exported before R33 still
-    /// parse and still produce the same numbers. An authored mutator emits an
-    /// OBJECT carrying its own values, because the model cannot have a constant
-    /// for an asset that did not exist when it was written; the numbers travel
-    /// with the wave instead.
-    ///
-    /// Only non-default terms are written. A mutator that changes one thing
-    /// should read as one line in the table, not as seven, or nobody will read
-    /// the table.
+    /// Each emits an OBJECT carrying its own values: the model cannot have a
+    /// constant for an asset that did not exist when it was written, so the
+    /// numbers travel with the wave. Only non-default terms are written — a
+    /// mutator that changes one thing should read as one line in the table,
+    /// not as seven, or nobody will read the table.
     /// </summary>
     private static string MutatorNames(WaveDefinition wave)
     {
-        var parts = new List<string>(6);
+        if (wave.fixedMutators == null)
+            return "";
 
-        WaveMutator flags = wave.mutators;
-        if ((flags & WaveMutator.Storm) != 0) parts.Add("\"storm\"");
-        if ((flags & WaveMutator.Convoy) != 0) parts.Add("\"convoy\"");
-        if ((flags & WaveMutator.Overcharge) != 0) parts.Add("\"overcharge\"");
-        if ((flags & WaveMutator.Blackout) != 0) parts.Add("\"blackout\"");
-
-        if (wave.mutatorAssets != null)
+        var parts = new List<string>(4);
+        var seen = new HashSet<string>();
+        foreach (WaveMutatorDefinition d in wave.fixedMutators)
         {
-            var seen = new HashSet<string>();
-            foreach (WaveMutatorDefinition d in wave.mutatorAssets)
-            {
-                // A bound asset whose flag is already ticked is the same
-                // mutator said twice; the flag has already spoken for it.
-                if (d == null || (d.legacyFlag != WaveMutator.None && (flags & d.legacyFlag) != 0))
-                    continue;
-                if (!seen.Add(d.ResolvedId))
-                    continue;
-
-                parts.Add(MutatorObject(d));
-            }
+            if (d == null || !seen.Add(d.ResolvedId))
+                continue;
+            parts.Add(MutatorObject(d));
         }
-
         return string.Join(",", parts);
     }
 
@@ -364,30 +345,28 @@ public static class WaveTableExporter
     private static string FS(float v) => v.ToString("0.####", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// The wave's draw pool, in the same object form single mutators use.
+    /// The wave's draw pool, in the same object form the always-on list uses.
     ///
-    /// Members already carried OUTRIGHT by the wave are dropped: drawing a
-    /// mutator the wave always has is not a variant, and exporting it as one
-    /// would make the model evaluate a duplicate scenario and report a band
-    /// narrower than the truth.
+    /// Members the wave ALREADY carries are dropped: drawing a mutator the wave
+    /// always has is not a variant, and exporting it as one would make the
+    /// model evaluate a duplicate scenario and report a band narrower than the
+    /// truth.
     /// </summary>
     private static string MutatorPool(WaveDefinition wave)
     {
-        if (wave.mutatorPool == null || wave.mutatorPool.Length == 0)
+        if (wave.poolMutators == null || wave.poolMutators.Length == 0)
             return "";
 
         var fixedIds = new HashSet<string>();
-        if (wave.mutatorAssets != null)
-            foreach (WaveMutatorDefinition d in wave.mutatorAssets)
+        if (wave.fixedMutators != null)
+            foreach (WaveMutatorDefinition d in wave.fixedMutators)
                 if (d != null) fixedIds.Add(d.ResolvedId);
 
-        var parts = new List<string>(wave.mutatorPool.Length);
+        var parts = new List<string>(wave.poolMutators.Length);
         var seen = new HashSet<string>();
-        foreach (WaveMutatorDefinition d in wave.mutatorPool)
+        foreach (WaveMutatorDefinition d in wave.poolMutators)
         {
             if (d == null)
-                continue;
-            if (d.legacyFlag != WaveMutator.None && (wave.mutators & d.legacyFlag) != 0)
                 continue;
             string id = d.ResolvedId;
             if (fixedIds.Contains(id) || !seen.Add(id))

@@ -55,12 +55,23 @@ namespace CoreholdEditor.Campaign
         [Tooltip("Enemies at or below this HP count as LIGHT — wave 1-2 material, escorts, swarms.")]
         public float lightHpMax = 120f;
 
-        [Header("Spice")]
-        [Tooltip("From this wave on, each wave may roll a mutator.")]
+        [Header("Mutators")]
+        [Tooltip("The mutator pool every eligible wave of this level gets. Leave empty for a level " +
+                 "with no mutators at all.\n\n" +
+                 "This is stamped onto the synthesized waves as their DRAW pool, not resolved here: " +
+                 "the wave rolls at runtime, so the same level plays differently each run while the " +
+                 "gate certifies the worst member. A pool member that could not matter on a given " +
+                 "wave is dropped from that wave — an air-speed mutator on a wave with no air is a " +
+                 "banner promising something that will not happen.")]
+        public WaveMutatorDefinition[] mutatorPool;
+
+        [Tooltip("From this wave on, waves carry the pool. Earlier waves are always plain — the " +
+                 "opening waves are where a player learns the map, and a rule they cannot yet read " +
+                 "is noise.")]
         [Range(2, 12)] public int mutatorsFromWave = 5;
 
-        [Tooltip("Chance per eligible wave of carrying one mutator (Storm/Convoy/Overcharge/Blackout, " +
-                 "seeded draw). 0 = never.")]
-        [Range(0f, 1f)] public float mutatorChance = 0.3f;
+        [Tooltip("How many 'nothing drawn' slots sit in each wave's hat. 2 alongside a 2-member pool " +
+                 "makes a plain wave the even-money outcome. 0 means every eligible wave carries one.")]
+        [Min(0)] public int poolNothingWeight = 2;
     }
 }

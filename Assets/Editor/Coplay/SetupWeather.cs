@@ -69,7 +69,7 @@ public static class SetupWeather
         AuthorSandstorm(gust, log);
         AuthorHeavySnowStorm(gust, log);
         WireApplier(rain, log);
-        WireMutatorLinks(storm, blackout, log);
+        BackfillMutatorWeather(storm, blackout, log);
         EnsurePropShaderIncluded(log);
 
         AssetDatabase.SaveAssets();
@@ -494,34 +494,46 @@ public static class SetupWeather
                        "(runtime-built materials would otherwise be stripped from the build)");
     }
 
-    /// <summary>Wire the mutator→weather links: Storm waves look like storms,
-    /// Blackout waves go dark. Idempotent; existing links are replaced.</summary>
-    private static void WireMutatorLinks(WeatherPreset storm, WeatherPreset blackout, StringBuilder log)
+    /// <summary>
+    /// Give the storm and blackout MUTATORS the looks just authored.
+    ///
+    /// A mutator's weather lives on the mutator asset — the one place a mutator
+    /// is defined — not on this scene's WeatherApplier, so this writes to the
+    /// assets and every scene that uses them gets the look. That is also why
+    /// this runs from the weather setup at all: the layers do not exist until
+    /// this tool authors them, and whichever setup a designer happens to run
+    /// second is the one that can complete the pair.
+    ///
+    /// Only a NULL slot is filled. A layer someone chose is never overruled —
+    /// silently undoing a designer's pick is how people learn not to re-run
+    /// setup tools.
+    /// </summary>
+    private static void BackfillMutatorWeather(WeatherPreset storm, WeatherPreset blackout, StringBuilder log)
     {
-        var applier = Object.FindFirstObjectByType<WeatherApplier>();
-        if (applier == null)
-        {
-            log.AppendLine("[warn] no WeatherApplier to wire mutator links onto");
-            return;
-        }
+        Fill("Mutator_Storm", storm);
+        Fill("Mutator_Blackout", blackout);
 
-        var so = new SerializedObject(applier);
-        SerializedProperty links = so.FindProperty("mutatorLinks");
-        if (links == null)
+        void Fill(string assetName, WeatherPreset layer)
         {
-            log.AppendLine("[warn] WeatherApplier has no mutatorLinks field — is the code compiled?");
-            return;
+            if (layer == null)
+                return;
+            string path = $"Assets/_COREHOLD/Data/Mutators/{assetName}.asset";
+            var d = AssetDatabase.LoadAssetAtPath<WaveMutatorDefinition>(path);
+            if (d == null)
+            {
+                log.AppendLine($"[note] {assetName} does not exist yet — run Scene Setup → Wave " +
+                               "Mutators, which reads these layers directly.");
+                return;
+            }
+            if (d.weatherLayer != null)
+            {
+                log.AppendLine($"[ok] {assetName} already has a weather layer ({d.weatherLayer.name}) — left alone");
+                return;
+            }
+            d.weatherLayer = layer;
+            EditorUtility.SetDirty(d);
+            log.AppendLine($"[ok] {assetName} given its look ({layer.name})");
         }
-        links.arraySize = 2;
-        SerializedProperty l0 = links.GetArrayElementAtIndex(0);
-        l0.FindPropertyRelative("mutator").intValue = (int)WaveMutator.Storm;
-        l0.FindPropertyRelative("layer").objectReferenceValue = storm;
-        SerializedProperty l1 = links.GetArrayElementAtIndex(1);
-        l1.FindPropertyRelative("mutator").intValue = (int)WaveMutator.Blackout;
-        l1.FindPropertyRelative("layer").objectReferenceValue = blackout;
-        so.ApplyModifiedPropertiesWithoutUndo();
-        EditorUtility.SetDirty(applier);
-        log.AppendLine("[ok] mutator links wired: Storm → storm layer, Blackout → blackout layer");
     }
 
     /// <summary>
