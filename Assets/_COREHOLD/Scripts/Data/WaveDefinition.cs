@@ -66,5 +66,19 @@ namespace Corehold.Data
                  "what you actually authored. An asset bound to a legacy flag is applied ONCE even if " +
                  "the flag is also ticked above.")]
         public WaveMutatorDefinition[] mutatorAssets;
+
+        [Tooltip("Mutators this wave may DRAW ONE OF at runtime, on top of anything fixed above " +
+                 "(R36). This is the variability lever: the same wave plays differently across runs " +
+                 "and across retries, while staying inside a band the gate has certified.\n\n" +
+                 "The balance model evaluates the wave once per pool member and gates on the WORST, " +
+                 "so a run can never be harder than what was certified — which is what keeps a level " +
+                 "learnable while its shape changes. Keep pools NARROW: pool width is the variance, " +
+                 "and a wide pool means a level tuned for a worst case it rarely draws.")]
+        public WaveMutatorDefinition[] mutatorPool;
+
+        [Tooltip("How many 'nothing drawn' slots sit in the pool's hat. 1 alongside a 3-member pool " +
+                 "makes a plain wave a 1-in-4 outcome. 0 means the wave ALWAYS carries one of the " +
+                 "pool's mutators.")]
+        [Min(0)] public int mutatorPoolNoneWeight = 1;
     }
 }

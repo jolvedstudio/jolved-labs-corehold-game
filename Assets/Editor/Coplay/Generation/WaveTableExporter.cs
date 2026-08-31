@@ -194,6 +194,18 @@ public static class WaveTableExporter
             string muts = MutatorNames(wave);
             if (muts.Length > 0)
                 sb.Append($",\"mutators\":[{muts}]");
+
+            // The POOL a wave may draw one of at runtime (R36). Exported so the
+            // model can evaluate the wave once per member and gate on the
+            // WORST — the guarantee that keeps a random draw honest: a run can
+            // never be harder than what certification signed off.
+            string pool = MutatorPool(wave);
+            if (pool.Length > 0)
+            {
+                sb.Append($",\"mutator_pool\":[{pool}]");
+                if (wave.mutatorPoolNoneWeight > 0)
+                    sb.Append($",\"mutator_pool_none\":{wave.mutatorPoolNoneWeight}");
+            }
             sb.Append(",\"groups\":[");
             for (int g = 0; g < wave.groups.Length; g++)
             {
@@ -339,16 +351,7 @@ public static class WaveTableExporter
                 if (!seen.Add(d.ResolvedId))
                     continue;
 
-                var fields = new List<string>(8) { $"\"id\":\"{Escape(d.ResolvedId)}\"" };
-                AddTerm(fields, "air_speed", d.airSpeedMultiplier);
-                AddTerm(fields, "ground_speed", d.groundSpeedMultiplier);
-                AddTerm(fields, "hp", d.healthMultiplier);
-                AddTerm(fields, "bounty", d.bountyMultiplier);
-                AddTerm(fields, "range", d.turretRangeMultiplier);
-                AddTerm(fields, "gap", d.spawnGapMultiplier);
-                if (d.singleApproach)
-                    fields.Add("\"convoy\":true");
-                parts.Add("{" + string.Join(",", fields) + "}");
+                parts.Add(MutatorObject(d));
             }
         }
 
@@ -359,6 +362,55 @@ public static class WaveTableExporter
     /// decimals, so a mutator term reads identically to every other number in
     /// the table and cannot arrive comma-separated on a European machine.</summary>
     private static string FS(float v) => v.ToString("0.####", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The wave's draw pool, in the same object form single mutators use.
+    ///
+    /// Members already carried OUTRIGHT by the wave are dropped: drawing a
+    /// mutator the wave always has is not a variant, and exporting it as one
+    /// would make the model evaluate a duplicate scenario and report a band
+    /// narrower than the truth.
+    /// </summary>
+    private static string MutatorPool(WaveDefinition wave)
+    {
+        if (wave.mutatorPool == null || wave.mutatorPool.Length == 0)
+            return "";
+
+        var fixedIds = new HashSet<string>();
+        if (wave.mutatorAssets != null)
+            foreach (WaveMutatorDefinition d in wave.mutatorAssets)
+                if (d != null) fixedIds.Add(d.ResolvedId);
+
+        var parts = new List<string>(wave.mutatorPool.Length);
+        var seen = new HashSet<string>();
+        foreach (WaveMutatorDefinition d in wave.mutatorPool)
+        {
+            if (d == null)
+                continue;
+            if (d.legacyFlag != WaveMutator.None && (wave.mutators & d.legacyFlag) != 0)
+                continue;
+            string id = d.ResolvedId;
+            if (fixedIds.Contains(id) || !seen.Add(id))
+                continue;
+            parts.Add(MutatorObject(d));
+        }
+        return string.Join(",", parts);
+    }
+
+    /// <summary>One authored mutator as the model's object form.</summary>
+    private static string MutatorObject(WaveMutatorDefinition d)
+    {
+        var fields = new List<string>(8) { $"\"id\":\"{Escape(d.ResolvedId)}\"" };
+        AddTerm(fields, "air_speed", d.airSpeedMultiplier);
+        AddTerm(fields, "ground_speed", d.groundSpeedMultiplier);
+        AddTerm(fields, "hp", d.healthMultiplier);
+        AddTerm(fields, "bounty", d.bountyMultiplier);
+        AddTerm(fields, "range", d.turretRangeMultiplier);
+        AddTerm(fields, "gap", d.spawnGapMultiplier);
+        if (d.singleApproach)
+            fields.Add("\"convoy\":true");
+        return "{" + string.Join(",", fields) + "}";
+    }
 
     private static void AddTerm(List<string> fields, string key, float value)
     {

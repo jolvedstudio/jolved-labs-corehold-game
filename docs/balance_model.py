@@ -298,6 +298,38 @@ def r22_mutators(wave: dict, wave_number: int) -> frozenset:
     return frozenset(names)
 
 
+def wave_variants(wave: dict) -> list:
+    """Every mutator draw a wave can produce at runtime, as concrete waves.
+
+    A wave with a `mutator_pool` does not run one fight, it runs one of
+    several. Each is returned as a full wave dict with the drawn member
+    appended to whatever the wave carries outright, so every downstream
+    reader — r22_effects, r22_mutators, wave_income — sees an ordinary wave
+    and needs no idea a pool exists.
+
+    The caller evaluates all of them and gates on the WORST, which is the
+    guarantee that makes a random draw safe to ship: a run can never be
+    harder than what certification signed off.
+    """
+    pool = wave.get("mutator_pool") or ()
+    if not pool:
+        return [(wave, "")]
+
+    base = list(wave.get("mutators", ()))
+    out = []
+    # "Nothing drawn" is a real outcome and usually the EASIEST, so it is
+    # evaluated too — the band's upper end is as much a design signal as its
+    # lower one, and a wave that is trivial on a blank draw is worth seeing.
+    if int(wave.get("mutator_pool_none", 0)) > 0:
+        out.append((wave, "-"))
+    for cand in pool:
+        variant = dict(wave)
+        variant["mutators"] = base + [cand]
+        variant.pop("mutator_pool", None)
+        out.append((variant, cand["id"] if isinstance(cand, dict) else str(cand)))
+    return out
+
+
 def r22_effects(wave: dict, wave_number: int) -> dict:
     """The COMPOSED effect of every mutator on a wave.
 
@@ -1394,8 +1426,23 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
                    for p in after if before.get(p) != after[p]]
         build_log.append(changes)
 
-        result = compute_wave(geom, built, wave_number, wave, difficulty)
-        income = wave_income(wave, wave_number, difficulty)
+        # A wave with a draw pool is evaluated ONCE PER OUTCOME and gated on
+        # the worst of them. compute_wave is pure with respect to the carried
+        # tower state — it RETURNS the damage rather than applying it — which
+        # is what makes trying several futures on one board safe; only the
+        # surviving (worst) one's damage is then banked below.
+        #
+        # This is per-wave worst case, not worst-case-run: each wave is
+        # certified against the hardest draw IT can produce, carrying that same
+        # draw's economy. Searching every sequence of draws would be
+        # exponential, and the per-wave bound is the one that matters — it is
+        # the promise that no single wave can exceed what was certified.
+        variants = wave_variants(wave)
+        evaluated = [(compute_wave(geom, built, wave_number, v, difficulty), v, label)
+                     for v, label in variants]
+        result, wave_eff, worst_label = min(evaluated, key=lambda e: e[0]["margin"])
+        band_hi = max(e[0]["margin"] for e in evaluated)
+        income = wave_income(wave_eff, wave_number, difficulty)
         # Strike Wing cost (R22): a use is salvage the build phase never sees.
         income -= STRIKE_COST * result["strike_uses"]
 
@@ -1422,6 +1469,15 @@ def run_model(difficulty: str, measured_lengths: dict = None, polyline: bool = F
             flags.append(f"GROUP-STARVED({result['worst_group']})")
 
         result["advice"] = advise_wave(wave_number, flags, result, geom, built)
+
+        # What the DRAW can swing, when the wave has a pool. The gate reads the
+        # worst; a designer reads the spread, because that is the number that
+        # says whether the wave is still learnable. A wide band means the same
+        # wave is a different problem each run.
+        if len(evaluated) > 1:
+            result["draw_worst"] = worst_label
+            result["draw_band"] = round(band_hi - result["margin"], 3)
+            result["draw_outcomes"] = len(evaluated)
 
         rows.append(dict(wave=wave_number, salvage_before=salvage,
                          income=income, flags=flags, **result))
@@ -1701,6 +1757,13 @@ def format_report(difficulty: str, geom: Geometry, rows, build_log) -> str:
             flags = f"LOST({','.join(r['towers_lost'])})" + ("," + flags if flags != "-" else "")
         if r.get("strike_uses"):
             flags = f"SW×{r['strike_uses']}" + ("," + flags if flags != "-" else "")
+        # The margin shown is the WORST draw. Naming which one, and how much
+        # easier the best draw is, keeps the number honest: without it a
+        # designer reads a pooled wave's margin as the margin, when it is the
+        # floor of a range.
+        if r.get("draw_outcomes"):
+            flags = (f"DRAW[{r['draw_worst']}/{r['draw_outcomes']} ±{r['draw_band']:.2f}]"
+                     + ("," + flags if flags != "-" else ""))
         builds = (" | " + ", ".join(changes)) if changes else ""
         w(f"{r['wave']:>2} {r['required']:>10.0f} {r['deliverable']:>11.0f} "
           f"{r['margin']:>6.2f} {worst:>16} {r['peak_live']:>4} "
@@ -2005,8 +2068,7 @@ def main(argv=None) -> int:
                 # list rather than against a list of known mutators — the whole
                 # point is that the model does not need to know the mutator,
                 # only that every term it moves is one this file prices.
-                muts = []
-                for m in w.get("mutators", []):
+                def parse_mutator(m):
                     if isinstance(m, dict):
                         mid = str(m.get("id", "")).strip().lower()
                         if not mid:
@@ -2023,19 +2085,39 @@ def main(argv=None) -> int:
                         for k in MUTATOR_SWITCHES:
                             if k in m:
                                 vec[k] = bool(m[k])
-                        muts.append(vec)
-                        continue
+                        return vec
                     name = str(m).strip().lower()
                     if not name:
-                        continue
+                        return None
                     if name not in BUILTIN_MUTATORS:
                         raise ValueError(
                             f"unknown mutator '{name}'. Bare names must be one of "
                             f"{', '.join(sorted(BUILTIN_MUTATORS))}; an authored mutator must be "
                             f"exported as an object carrying its own terms")
-                    muts.append(name)
+                    return name
+
+                muts = []
+                for m in w.get("mutators", []):
+                    parsed_m = parse_mutator(m)
+                    if parsed_m is not None:
+                        muts.append(parsed_m)
                 if muts:
                     d["mutators"] = muts
+
+                # The DRAW POOL, parsed through the same closed-term check as
+                # a fixed mutator. A pool member the model cannot price is the
+                # same lie as a fixed one it cannot price — more so, since it
+                # only appears on some runs.
+                pool = []
+                for m in w.get("mutator_pool", []):
+                    pool.append(parse_mutator(m))
+                if pool:
+                    d["mutator_pool"] = pool
+                    none_w = int(w.get("mutator_pool_none", 0))
+                    if none_w < 0:
+                        raise ValueError("mutator_pool_none cannot be negative")
+                    if none_w:
+                        d["mutator_pool_none"] = none_w
                 parsed.append(d)
         except (OSError, ValueError, KeyError, TypeError) as e:
             print(f"--waves '{args.waves}': {e}", file=sys.stderr)

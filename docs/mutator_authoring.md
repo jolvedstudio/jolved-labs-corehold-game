@@ -85,6 +85,66 @@ a new model term, so each is a code change plus a gate run — see §6.
 
 ---
 
+## 3b. Draw pools — the same wave, a different fight (R36)
+
+A wave can carry a **pool** it draws one member from at runtime:
+
+- `mutatorPool` — the candidates.
+- `mutatorPoolNoneWeight` — how many "nothing drawn" slots sit in the hat. 1
+  alongside a 3-member pool makes a plain wave a 1-in-4 outcome; 0 means the
+  wave always carries one.
+
+The draw is derived from `(run seed, wave number)`, never stored — the same
+reason `MutatorsForWave` is derived. A unit admitted from the pending queue
+thirty seconds late reads the same answer as one that spawned instantly, and
+the HUD banner agrees with both. The run seed is fresh per run, so a replay
+**and a retry** draw a different shape of fight.
+
+### The guarantee that makes this safe to ship
+
+> The model evaluates the wave **once per outcome** and gates on the **worst**.
+
+So a run can never be harder than what certification signed off. Measured on a
+contested wave with a pool of {overcharge, blackout, nothing}:
+
+| Wave authored as | margin | flags |
+|---|---|---|
+| plain | 1.50 | — |
+| fixed `overcharge` | 1.21 | — |
+| fixed `blackout` | 0.97 | **LOW** |
+| **pool of all three** | **0.97** | **DRAW[blackout/3 ±0.53], LOW** |
+
+The pooled wave certifies at its hardest member's margin and flags exactly as
+the fixed-hardest wave does. Randomising cannot be used to slip past the gate.
+
+### Reading the band
+
+`DRAW[blackout/3 ±0.53]` means: three possible outcomes, the worst is
+`blackout`, and the best draw is 0.53 margin easier. **That spread is the
+learnability number.** A narrow band is a wave that varies in shape while
+staying the same problem; a wide band is a wave that is a different problem
+each run, and the level ends up tuned for a worst case it rarely draws.
+
+Keep pools narrow — two or three members, close in severity. Pool width *is*
+the variance.
+
+### What worst-case certification does and does not promise
+
+It bounds the **ceiling**, not the load. A retry can be easier or harder within
+the pool; it simply can never exceed what was certified. Note also that this is
+per-wave worst case, not worst-case-*run*: each wave is certified against the
+hardest draw it can produce, carrying that same draw's economy. Searching every
+sequence of draws would be exponential, and the per-wave bound is the one that
+matters.
+
+### Testing
+
+**⇧R** re-rolls the run's mutator sequence in play mode (the counterpart of
+**⇧W** for weather). Waves already started keep what they drew; the new
+sequence lands at the next wave start.
+
+---
+
 ## 4. How the two authoring routes compose
 
 A wave can carry legacy **flags** and authored **assets** at once. They fold into
@@ -178,4 +238,4 @@ same rule that governs the tower-loss term and every other R22 extension.
 | `Scripts/Systems/WeatherApplier.cs` | stacks each asset's weather layer |
 | `Editor/Coplay/SetupWaveMutators.cs` | authoring tool + audit |
 | `Editor/Coplay/Generation/WaveTableExporter.cs` | writes mutators into the table |
-| `docs/balance_model.py` | `BUILTIN_MUTATORS`, `MUTATOR_TERMS`, `r22_effects` |
+| `docs/balance_model.py` | `BUILTIN_MUTATORS`, `MUTATOR_TERMS`, `r22_effects`, `wave_variants` |

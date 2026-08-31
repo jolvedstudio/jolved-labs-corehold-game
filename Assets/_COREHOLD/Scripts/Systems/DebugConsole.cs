@@ -28,7 +28,8 @@ namespace Corehold.Systems
     ///   RUN        V  force VICTORY  X  force DEFEAT                 1/2/3 difficulty
     ///   CAMPAIGN   C  status dump    ⇧C wipe this campaign's saves
     ///   TIME       P  pause/resume   ,  slower                       .  faster
-    ///   LOOK       T  cycle mutators ⇧T authored mutators           N  night toggle
+    ///   LOOK       T  cycle mutators ⇧T authored mutators           ⇧R re-roll wave draws
+    ///              N  night toggle
     ///              W  re-apply weather                              ⇧W re-roll wave weather
     ///   OUTPUT     F1 stats overlay  F2 key map                      F3 screenshot
     ///
@@ -115,6 +116,8 @@ namespace Corehold.Systems
             }
             if (kb.nKey.wasPressedThisFrame)
                 ToggleNight();
+            if (shift && kb.rKey.wasPressedThisFrame)
+                RerollMutatorDraw();
             if (kb.wKey.wasPressedThisFrame)
             {
                 if (shift) RerollWaveWeather();
@@ -556,6 +559,27 @@ namespace Corehold.Systems
         }
 
         /// <summary>
+        /// Draw a new MUTATOR sequence for this run (R36).
+        ///
+        /// The counterpart of ⇧W for the gameplay half. Waves already started
+        /// keep what they drew — re-rolling under a live wave would change the
+        /// fight mid-fight — so the new sequence lands at the next wave start.
+        /// </summary>
+        private void RerollMutatorDraw()
+        {
+            var wm = FindFirstObjectByType<WaveManager>();
+            if (wm == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WaveManager to re-roll.");
+                return;
+            }
+            uint seed = wm.RerollRunSeed();
+            var next = wm.DrawnMutatorForWave(wm.NextWaveIndex + 1);
+            Debug.Log($"[DebugConsole] Mutator draws re-rolled (seed {seed}). " +
+                      $"Next wave draws: {(next != null ? next.ResolvedId : "nothing")}.");
+        }
+
+        /// <summary>
         /// Draw a NEW weather sequence for this run without leaving play mode.
         ///
         /// The roll is seeded per run, which is the point of it — and which
@@ -747,7 +771,8 @@ namespace Corehold.Systems
                 "RUN       V  force WIN     X  force LOSS     1/2/3 difficulty\n" +
                 "CAMPAIGN  C  status dump   shift+C  wipe this campaign's saves\n" +
                 "TIME      P  pause         ,  slower         .  faster\n" +
-                "LOOK      T  mutators      \u21e7T authored     N  night\n" +
+                "LOOK      T  mutators      \u21e7T authored     \u21e7R reroll draws\n" +
+                "          N  night\n" +
                 "          W  reapply weather              \u21e7W reroll wave weather\n" +
                 "OUTPUT    F1 stats         F2 this list      F3 screenshot\n\n" +
                 "V is the campaign accelerator: force a win, press CONTINUE,\n" +

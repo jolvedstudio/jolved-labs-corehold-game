@@ -270,6 +270,81 @@ namespace Corehold.Core
         /// </summary>
         public WaveMutatorDefinition DebugForceMutatorAsset { get; set; }
 
+        // ------------------------------------------------- the per-run draw
+
+        /// <summary>
+        /// This run's mutator sequence. Fresh per run, which is the point: the
+        /// same level replayed — or retried after a loss — draws a different
+        /// shape of fight.
+        ///
+        /// Not serialized, and deliberately not saved: a retry is a new run.
+        /// </summary>
+        private uint _runSeed;
+        private bool _runSeedSet;
+
+        private uint RunSeed
+        {
+            get
+            {
+                if (!_runSeedSet)
+                {
+                    _runSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue);
+                    _runSeedSet = true;
+                }
+                return _runSeed;
+            }
+        }
+
+        /// <summary>Draw a new mutator sequence (DebugConsole ⇧R). Waves already
+        /// started keep what they drew; the next one reads the new sequence.</summary>
+        public uint RerollRunSeed()
+        {
+            _runSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue);
+            _runSeedSet = true;
+            return _runSeed;
+        }
+
+        /// <summary>
+        /// The mutator this wave DREW from its pool, or null.
+        ///
+        /// Derived from (run seed, wave number) and never stored, for the same
+        /// reason <see cref="MutatorsForWave"/> is derived: a unit admitted
+        /// from the pending queue thirty seconds after the wave began has to
+        /// read the same answer as the one that spawned instantly, and the HUD
+        /// banner has to agree with both.
+        /// </summary>
+        public WaveMutatorDefinition DrawnMutatorForWave(int waveNumber)
+        {
+            WaveDefinition w = GetWave(waveNumber - 1);
+            if (w == null || w.mutatorPool == null || w.mutatorPool.Length == 0)
+                return null;
+
+            int none = Mathf.Max(0, w.mutatorPoolNoneWeight);
+            int slots = w.mutatorPool.Length + none;
+            if (slots <= 0)
+                return null;
+
+            int pick = (int)(Hash(RunSeed, (uint)waveNumber) % (uint)slots);
+            return pick < w.mutatorPool.Length ? w.mutatorPool[pick] : null;
+        }
+
+        /// <summary>FNV-1a plus murmur3's finalizer. The mix is not decoration:
+        /// consecutive waves differ only in the low salt byte, and without it
+        /// adjacent waves draw the same member far more often than 1-in-N.</summary>
+        private static uint Hash(uint seed, uint salt)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                for (int i = 0; i < 4; i++) { h ^= (seed >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                for (int i = 0; i < 4; i++) { h ^= (salt >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                h ^= h >> 16; h *= 0x85EBCA6Bu;
+                h ^= h >> 13; h *= 0xC2B2AE35u;
+                h ^= h >> 16;
+                return h;
+            }
+        }
+
         /// <summary>
         /// The authored mutator ASSETS in force for a 1-based wave number:
         /// whatever the wave carries, plus the debug override, plus the assets
@@ -291,6 +366,10 @@ namespace Corehold.Core
                 foreach (WaveMutatorDefinition d in w.mutatorAssets)
                     if (d != null && !result.Contains(d))
                         result.Add(d);
+
+            WaveMutatorDefinition drawn = DrawnMutatorForWave(waveNumber);
+            if (drawn != null && !result.Contains(drawn))
+                result.Add(drawn);
 
             if (DebugForceMutatorAsset != null && !result.Contains(DebugForceMutatorAsset))
                 result.Add(DebugForceMutatorAsset);
@@ -351,7 +430,18 @@ namespace Corehold.Core
                     if (d != null && (d.legacyFlag == WaveMutator.None || (flags & d.legacyFlag) == 0))
                         e.Fold(d.Effects);
 
+            // The pool draw folds in like any authored asset, and is skipped
+            // when the wave already carries it outright — a mutator listed both
+            // as fixed and in the pool is one mutator, not two.
+            WaveMutatorDefinition drawn = DrawnMutatorForWave(waveNumber);
+            if (drawn != null &&
+                (drawn.legacyFlag == WaveMutator.None || (flags & drawn.legacyFlag) == 0) &&
+                (w == null || w.mutatorAssets == null ||
+                 System.Array.IndexOf(w.mutatorAssets, drawn) < 0))
+                e.Fold(drawn.Effects);
+
             if (DebugForceMutatorAsset != null &&
+                DebugForceMutatorAsset != drawn &&
                 (DebugForceMutatorAsset.legacyFlag == WaveMutator.None ||
                  (flags & DebugForceMutatorAsset.legacyFlag) == 0) &&
                 (w == null || w.mutatorAssets == null ||
