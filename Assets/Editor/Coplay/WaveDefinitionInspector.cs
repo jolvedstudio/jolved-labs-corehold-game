@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Corehold.Core;
 using Corehold.Data;
 using UnityEditor;
 using UnityEngine;
@@ -33,13 +34,135 @@ namespace CoreholdEditor
             DrawDefaultInspector();
 
             if (targets.Length > 1)
+            {
+                DrawMultiEdit();
                 return;
+            }
 
             var wave = (WaveDefinition)target;
+            EditorGUILayout.Space(8);
+            DrawPoolTools(new[] { wave });
             EditorGUILayout.Space(8);
             DrawSummary(wave);
             EditorGUILayout.Space(4);
             DrawOutcomes(wave);
+        }
+
+        /// <summary>
+        /// Ten waves selected, one click. Authoring a level's pools one asset at
+        /// a time is how one wave ends up quietly different from the other nine,
+        /// so the multi-selection gets the same tools rather than an empty panel.
+        /// </summary>
+        private void DrawMultiEdit()
+        {
+            var waves = targets.OfType<WaveDefinition>().ToArray();
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField($"{waves.Length} waves selected", EditorStyles.boldLabel);
+            DrawPoolTools(waves);
+
+            int withPool = waves.Count(w => w.DrawablePool().Count > 0);
+            EditorGUILayout.LabelField(
+                $"{withPool} of {waves.Length} currently carry a pool.", EditorStyles.miniLabel);
+        }
+
+        // ------------------------------------------------------- pool authoring
+
+        /// <summary>
+        /// Fill a pool from the level's roster rather than by hand.
+        ///
+        /// The cascade is project → level → wave: the project holds every
+        /// mutator, the WaveManager's library is the set this LEVEL is willing
+        /// to use, and a wave draws from that. Filling a wave pool straight from
+        /// the project list is how a desert level ends up rolling a blizzard, so
+        /// the button offered here inherits the LEVEL's list, and says so when
+        /// there is no level open to inherit from.
+        /// </summary>
+        private static void DrawPoolTools(WaveDefinition[] waves)
+        {
+            WaveManager wm = FindLevelManager();
+            var library = wm != null
+                ? wm.MutatorLibrary.Where(d => d != null).Distinct().ToList()
+                : new List<WaveMutatorDefinition>();
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(library.Count == 0))
+                {
+                    string label = wm == null
+                        ? "Inherit from level library (no level scene open)"
+                        : library.Count == 0
+                            ? $"Inherit from level library ({wm.gameObject.scene.name}: empty)"
+                            : $"Inherit {library.Count} from level library";
+                    if (GUILayout.Button(label, GUILayout.Height(22)))
+                        ApplyPool(waves, library.ToArray());
+                }
+
+                using (new EditorGUI.DisabledScope(waves.All(w => w.poolMutators == null || w.poolMutators.Length == 0)))
+                {
+                    if (GUILayout.Button("Clear", GUILayout.Width(60), GUILayout.Height(22)))
+                        ApplyPool(waves, System.Array.Empty<WaveMutatorDefinition>());
+                }
+            }
+
+            if (wm == null)
+                EditorGUILayout.LabelField(
+                    "Open the level's scene to inherit its roster; otherwise fill the pool by hand above.",
+                    EditorStyles.wordWrappedMiniLabel);
+
+            DrawWeightPresets(waves);
+        }
+
+        /// <summary>
+        /// The nothing-weight expressed as the thing a designer actually means:
+        /// how often this wave is plain. The raw integer is a hat-slot count and
+        /// reads as nothing until you divide it by the pool size in your head.
+        /// </summary>
+        private static void DrawWeightPresets(WaveDefinition[] waves)
+        {
+            int poolSize = waves.Max(w => w.DrawablePool().Count);
+            if (poolSize == 0)
+                return;
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("Plain how often?", GUILayout.Width(105));
+                if (GUILayout.Button("never")) SetWeight(waves, 0);
+                if (GUILayout.Button("1 in 4")) SetWeight(waves, Mathf.Max(1, Mathf.RoundToInt(poolSize / 3f)));
+                if (GUILayout.Button("half")) SetWeight(waves, poolSize);
+                if (GUILayout.Button("2 in 3")) SetWeight(waves, poolSize * 2);
+            }
+        }
+
+        /// <summary>The WaveManager in whatever scene is open — the level whose
+        /// roster these waves belong to. Null when a wave asset is selected with
+        /// no level scene loaded, which is a normal thing to do.</summary>
+        private static WaveManager FindLevelManager()
+        {
+            var all = Object.FindObjectsByType<WaveManager>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None);
+            return all.Length > 0 ? all[0] : null;
+        }
+
+        private static void ApplyPool(WaveDefinition[] waves, WaveMutatorDefinition[] pool)
+        {
+            foreach (WaveDefinition w in waves)
+            {
+                Undo.RecordObject(w, "Set mutator pool");
+                w.poolMutators = (WaveMutatorDefinition[])pool.Clone();
+                EditorUtility.SetDirty(w);
+            }
+            AssetDatabase.SaveAssets();
+        }
+
+        private static void SetWeight(WaveDefinition[] waves, int weight)
+        {
+            foreach (WaveDefinition w in waves)
+            {
+                Undo.RecordObject(w, "Set nothing weight");
+                w.poolNothingWeight = Mathf.Max(0, weight);
+                EditorUtility.SetDirty(w);
+            }
+            AssetDatabase.SaveAssets();
         }
 
         // ---------------------------------------------------------- the attack

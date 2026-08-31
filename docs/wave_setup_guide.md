@@ -54,6 +54,30 @@ the scene. The library is what the debug key cycles and what the audit checks
 against — a mutator missing from it still works on a wave, but you cannot test
 it with a keypress.
 
+### The cascade: project → level → wave
+
+Three rungs, each narrowing the one above it:
+
+| Rung | Where | What it means |
+|---|---|---|
+| **Project** | every `WaveMutatorDefinition` asset | every rule that exists |
+| **Level** | `WaveManager.mutatorLibrary` | the ones **this level** is willing to use |
+| **Wave** | `WaveDefinition.poolMutators` | the ones **this wave** can draw |
+
+The level rung is why the WaveManager has a mutator list at all — nothing in
+gameplay reads it. It exists so the debug key has something to cycle, so the
+audit can flag a wave using an unregistered mutator, and so a wave pool is
+filled from the set that belongs in this world. Filling a wave pool straight
+from the project list is how a desert level ends up rolling a blizzard.
+
+Each rung inherits from the one above with a button:
+
+- **WaveManager inspector → "Inherit all project mutators"** — fills the level
+  roster from every mutator asset in the project. Trim it afterwards.
+- **Wave inspector → "Inherit N from level library"** — fills the wave's pool
+  from the open level's roster. Greyed out with the reason when no level scene
+  is open or the roster is empty.
+
 → Deep reference, including what still needs code: [`mutator_authoring.md`](mutator_authoring.md)
 
 ## 2. The wave — who attacks
