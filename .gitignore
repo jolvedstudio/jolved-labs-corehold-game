@@ -13,11 +13,20 @@
 /[Aa]ssets/AssetStoreTools*
 /[Aa]ssets/Plugins/Editor/JetBrains*
 
-# ---- Vendored assets (excluded from version control) ----
-# Purchased/imported art packs stay machine-local; anything a shipped scene or
-# skin needs is COPIED into committed _COREHOLD folders (the Skin From Kit tool
-# does this for UI sprites). Committing whole kits bloats the repo and invites
-# the dangling-GUID trap on other machines.
+# ---- Vendored assets: kits imported at these paths stay machine-local ----
+#
+# NOTE, because the rules below no longer tell the whole story: the project DOES
+# commit its Asset Store kits, at Assets/_COREHOLD/Vendored/Vendor/ — a path
+# none of these patterns match. That was deliberate (builds have to work from a
+# clone) and it is load-bearing: 49 committed assets reference 525 vendor GUIDs,
+# so those kits cannot be dropped without gutting a fresh checkout. They are
+# stored via Git LFS — see .gitattributes and docs/git_lfs_migration.md.
+#
+# What these rules still do is keep a kit imported to the DEFAULT Asset Store
+# location out of the repo, so importing a package to try it does not commit it.
+# Promote a kit deliberately by moving it under _COREHOLD/Vendored/, or copy just
+# what a scene needs into a committed _COREHOLD folder (the Skin From Kit tool
+# does this for UI sprites) — half-imported kits are the dangling-GUID trap.
 /[Aa]ssets/Vendor/
 /[Aa]ssets/Vendor.meta
 /[Aa]ssets/Yoge/
