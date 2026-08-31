@@ -191,14 +191,16 @@ public static class WaveTableExporter
             WaveDefinition wave = level.waves[w];
             if (w > 0) sb.Append(',');
             sb.Append($"{{\"clear\":{wave.clearBonus}");
-            string muts = MutatorNames(wave);
-            if (muts.Length > 0)
-                sb.Append($",\"mutators\":[{muts}]");
 
-            // The POOL a wave may draw one of at runtime. Exported so the
-            // model can evaluate the wave once per member and gate on the
-            // WORST — the guarantee that keeps a random draw honest: a run can
-            // never be harder than what certification signed off.
+            // The POOL the wave draws one of at runtime. Exported so the model
+            // can evaluate the wave once per member and gate on the WORST — the
+            // guarantee that keeps a random draw honest: a run can never be
+            // harder than what certification signed off.
+            //
+            // A pool with a nothing-weight of 0 is how a wave says it ALWAYS
+            // carries one rule, and the model reads it exactly that way: it
+            // only emits the plain variant when the weight is above zero, so a
+            // single-member pool at 0 prices as the one fight it actually is.
             string pool = MutatorPool(wave);
             if (pool.Length > 0)
             {
@@ -314,62 +316,30 @@ public static class WaveTableExporter
         return 220f;
     }
 
-    /// <summary>
-    /// The wave's always-on mutators, as the balance model reads them.
-    ///
-    /// Each emits an OBJECT carrying its own values: the model cannot have a
-    /// constant for an asset that did not exist when it was written, so the
-    /// numbers travel with the wave. Only non-default terms are written — a
-    /// mutator that changes one thing should read as one line in the table,
-    /// not as seven, or nobody will read the table.
-    /// </summary>
-    private static string MutatorNames(WaveDefinition wave)
-    {
-        if (wave.fixedMutators == null)
-            return "";
-
-        var parts = new List<string>(4);
-        var seen = new HashSet<string>();
-        foreach (WaveMutatorDefinition d in wave.fixedMutators)
-        {
-            if (d == null || !seen.Add(d.ResolvedId))
-                continue;
-            parts.Add(MutatorObject(d));
-        }
-        return string.Join(",", parts);
-    }
-
     /// <summary>Same format as the exporter's local F: invariant culture, four
     /// decimals, so a mutator term reads identically to every other number in
     /// the table and cannot arrive comma-separated on a European machine.</summary>
     private static string FS(float v) => v.ToString("0.####", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// The wave's draw pool, in the same object form the always-on list uses.
+    /// The wave's draw pool: every outcome the model has to price, each as an
+    /// object carrying its own numbers.
     ///
-    /// Members the wave ALREADY carries are dropped: drawing a mutator the wave
-    /// always has is not a variant, and exporting it as one would make the
-    /// model evaluate a duplicate scenario and report a band narrower than the
-    /// truth.
+    /// Duplicates are dropped rather than exported twice. A repeated member
+    /// would make the model evaluate the same scenario twice and report a band
+    /// narrower than the truth — and it silently reweights the runtime draw,
+    /// which is why DrawablePool() drops them on the Unity side too.
     /// </summary>
     private static string MutatorPool(WaveDefinition wave)
     {
         if (wave.poolMutators == null || wave.poolMutators.Length == 0)
             return "";
 
-        var fixedIds = new HashSet<string>();
-        if (wave.fixedMutators != null)
-            foreach (WaveMutatorDefinition d in wave.fixedMutators)
-                if (d != null) fixedIds.Add(d.ResolvedId);
-
         var parts = new List<string>(wave.poolMutators.Length);
         var seen = new HashSet<string>();
         foreach (WaveMutatorDefinition d in wave.poolMutators)
         {
-            if (d == null)
-                continue;
-            string id = d.ResolvedId;
-            if (fixedIds.Contains(id) || !seen.Add(id))
+            if (d == null || !seen.Add(d.ResolvedId))
                 continue;
             parts.Add(MutatorObject(d));
         }

@@ -45,8 +45,9 @@ have a free-form script field, and it is the whole safety argument:
    follows the mutator into any scene with no per-scene wiring.
 5. **Register it** — `Tools → COREHOLD → Scene Setup → Wave Mutators` adds every
    mutator asset to the open scene's WaveManager library, then **save the scene**.
-6. **Use it** — add it to a `WaveDefinition`, either to `fixedMutators` (always
-   on) or to `poolMutators` (drawn sometimes; see §3b).
+6. **Use it** — add it to a `WaveDefinition`'s `poolMutators` (see §3b). For a
+   wave that always carries it, that means a pool of one with
+   `poolNothingWeight` at 0.
 7. **Check it** — `Tools → COREHOLD → Validate → Wave Mutators Audit`.
 
 ### Testing without authoring a wave
@@ -92,15 +93,22 @@ a new model term, so each is a code change plus a gate run — see §6.
 
 ## 3b. Draw pools — the same wave, a different fight
 
-A wave carries two mutator lists:
+A wave carries **one** mutator list:
 
-- `fixedMutators` — always on. Every run of the wave carries all of them.
 - `poolMutators` — the wave draws **one** of these each run.
 - `poolNothingWeight` — how many "nothing drawn" slots sit in the hat. 1
   alongside a 3-member pool makes a plain wave a 1-in-4 outcome; 0 means the
   wave always carries one.
 
-A mutator in both lists is one mutator, not two.
+There is no separate always-on list, because it would be a second way to say
+something the pool already says: **a pool of one with a nothing-weight of 0 is
+an always-on mutator**, at runtime and in the model alike (`wave_variants` only
+emits the plain variant when the weight is above zero, so such a wave prices as
+the single fight it actually is).
+
+The one shape this cannot express is a guaranteed rule stacked under a drawn one
+on the same wave. That is deliberate — author it as one mutator asset that does
+both, since the model prices the composed vector either way.
 
 The draw is derived from `(run seed, wave number)` and never stored. A unit
 admitted from the pending queue thirty seconds late reads the same answer as one
@@ -120,12 +128,13 @@ contested wave with a pool of {overcharge, blackout, nothing}:
 | Wave authored as | margin | gate flags |
 |---|---|---|
 | plain | 1.50 | — |
-| always-on `overcharge` | 1.21 | — |
-| always-on `blackout` | 0.97 | **LOW** |
-| **pool of all three** | **0.97** | **DRAW[blackout/3 ±0.53], LOW** |
+| pool `[overcharge]`, none 0 | 1.21 | — |
+| pool `[blackout]`, none 0 | 0.97 | **LOW** |
+| **pool of both, none 1** | **0.97** | **DRAW[blackout/3 ±0.53], LOW** |
 
 The pooled wave certifies at its hardest member's margin and flags exactly as
-the always-on-hardest wave does. Randomising cannot be used to slip past the gate.
+the single-member wave carrying that member does. Randomising cannot be used to
+slip past the gate.
 
 ### Reading the band
 
@@ -157,10 +166,12 @@ sequence lands at the next wave start.
 
 ## 4. How mutators compose on one wave
 
-A wave can carry several at once — everything in `fixedMutators`, plus whatever
-it drew. They fold into one `MutatorEffects` vector: **multipliers multiply,
-switches OR**. Order does not matter, identity is 1, and two mutators that both
-slow the ground compound rather than one silently winning.
+A wave draws one mutator, but the fold still has to compose several: the debug
+override stacks on top of a drawn one, and a single mutator asset may move
+several terms at once. They fold into one `MutatorEffects` vector:
+**multipliers multiply, switches OR**. Order does not matter, identity is 1, and
+two mutators that both slow the ground compound rather than one silently
+winning.
 
 That rule is not a convenience. It is the only rule under which "any two
 mutators can share a wave" is true without a table of special cases, and it is
@@ -173,11 +184,12 @@ mutators are on this wave?", and the HUD banner, the weather stack and
 construction a mutator that is applied and lit; they cannot disagree, because
 there is nothing to disagree about.
 
-> **Historical note.** There used to be a second authoring route — four enum
-> flags on the wave, whose numbers lived on the WaveManager, whose weather lived
-> on the WeatherApplier and whose banner words lived in a switch in the HUD. Every
-> consumer then carried de-duplication logic to decide whether an asset was
-> standing in for a flag. That is gone: one route, two lists, no cross-checks.
+> **Historical note.** There used to be three authoring routes: four enum flags
+> on the wave, whose numbers lived on the WaveManager, whose weather lived on the
+> WeatherApplier and whose banner words lived in a switch in the HUD; a fixed
+> asset list; and the pool. Every consumer carried de-duplication logic to decide
+> whether an asset was standing in for a flag. That is gone: one list, no
+> cross-checks.
 
 ---
 
@@ -186,10 +198,10 @@ there is nothing to disagree about.
 The exporter writes each mutator as an **object carrying its own numbers**:
 
 ```jsonc
-"mutators":     [{"id":"hailfall","ground_speed":0.75,   // always on
-                  "hp":1.15,"bounty":1.2,"gap":0.6}]
-"mutator_pool": [{"id":"blackout","range":0.5}],         // may be drawn
-"mutator_pool_none": 1                                    // …or nothing, 1 slot
+"mutator_pool": [{"id":"hailfall","ground_speed":0.75,   // one of these is drawn
+                  "hp":1.15,"bounty":1.2,"gap":0.6},
+                 {"id":"blackout","range":0.5}],
+"mutator_pool_none": 1                                   // …or nothing, 1 slot
 ```
 
 The numbers travel with the wave because the model cannot hold a constant for a
@@ -219,7 +231,7 @@ This is still a code change, in this order:
 3. Add it to `MUTATOR_TERMS` (or `MUTATOR_SWITCHES`) in `balance_model.py` **and
    apply it in `compute_wave`**. A term in the dict that nothing applies is
    worse than no term: it parses, so it looks priced, and it is not.
-4. Emit it from `WaveTableExporter.MutatorNames`.
+4. Emit it from `WaveTableExporter.MutatorObject`.
 5. Run the gate and diff the baseline. A term that changes no authored wave must
    reproduce the baseline byte-for-byte.
 
@@ -249,7 +261,7 @@ same rule that governs the tower-loss term and every other R22 extension.
 | File | Role |
 |---|---|
 | `Scripts/Data/WaveMutatorDefinition.cs` | the asset + `MutatorEffects` |
-| `Scripts/Data/WaveDefinition.cs` | `fixedMutators[]`, `poolMutators[]`, `poolNothingWeight` |
+| `Scripts/Data/WaveDefinition.cs` | `poolMutators[]`, `poolNothingWeight`, `DrawablePool()` |
 | `Scripts/Core/WaveManager.cs` | `MutatorAssetsForWave`, `EffectsForWave`, `DrawnMutatorForWave` |
 | `Scripts/UI/HUDController.cs` | the wave-start banner |
 | `Scripts/Systems/WeatherApplier.cs` | stacks each asset's weather layer |

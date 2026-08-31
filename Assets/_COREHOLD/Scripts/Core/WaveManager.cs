@@ -317,9 +317,8 @@ namespace Corehold.Core
         }
 
         /// <summary>
-        /// Every mutator in force for a 1-based wave number: the wave's fixed
-        /// list, plus whatever it drew from its pool, plus the debug override.
-        /// Distinct, and never null.
+        /// Every mutator in force for a 1-based wave number: whatever the wave
+        /// drew from its pool, plus the debug override. Never null.
         ///
         /// This is THE question the rest of the game asks. The HUD banner, the
         /// weather stack and the effect fold all read this one list, so a
@@ -329,18 +328,10 @@ namespace Corehold.Core
         /// </summary>
         public List<WaveMutatorDefinition> MutatorAssetsForWave(int waveNumber)
         {
-            var result = new List<WaveMutatorDefinition>(4);
-            WaveDefinition w = GetWave(waveNumber - 1);
+            var result = new List<WaveMutatorDefinition>(2);
 
-            if (w != null && w.fixedMutators != null)
-                foreach (WaveMutatorDefinition d in w.fixedMutators)
-                    if (d != null && !result.Contains(d))
-                        result.Add(d);
-
-            // A mutator that is both fixed and drawn is ONE mutator: Contains
-            // is the whole of that rule now.
             WaveMutatorDefinition drawn = DrawnMutatorForWave(waveNumber);
-            if (drawn != null && !result.Contains(drawn))
+            if (drawn != null)
                 result.Add(drawn);
 
             if (DebugForceMutatorAsset != null && !result.Contains(DebugForceMutatorAsset))

@@ -83,56 +83,44 @@ namespace CoreholdEditor
 
         private static void DrawOutcomes(WaveDefinition wave)
         {
-            var fixedList = new List<WaveMutatorDefinition>();
-            if (wave.fixedMutators != null)
-                foreach (WaveMutatorDefinition d in wave.fixedMutators)
-                    if (d != null && !fixedList.Contains(d)) fixedList.Add(d);
-
             List<WaveMutatorDefinition> pool = wave.DrawablePool();
-            // A mutator that is always on is not a variant when it is also in
-            // the pool — drawing it changes nothing, so it is not an outcome.
-            pool = pool.Where(d => !fixedList.Contains(d)).ToList();
-
             int none = Mathf.Max(0, wave.poolNothingWeight);
             int slots = pool.Count + none;
 
             EditorGUILayout.LabelField("What it can roll", EditorStyles.boldLabel);
 
-            if (fixedList.Count == 0 && pool.Count == 0)
+            if (pool.Count == 0)
             {
                 EditorGUILayout.LabelField("Plain wave — no mutators, every run identical.",
                                            EditorStyles.miniLabel);
                 return;
             }
 
-            if (pool.Count == 0)
-            {
-                // Fixed only: one outcome, every run.
-                DrawOutcome("always", fixedList, 1, 1, true);
-                return;
-            }
-
-            // Every outcome, worst last-marked. "Worst" is the highest threat
-            // score, the same shape of judgement the balance model makes.
+            // Every outcome, worst marked. "Worst" is the highest threat score,
+            // the same shape of judgement the balance model makes.
             var rows = new List<(string odds, List<WaveMutatorDefinition> set, float threat)>();
             if (none > 0)
-                rows.Add(($"{none}/{slots}", new List<WaveMutatorDefinition>(fixedList),
-                          Threat(Compose(fixedList))));
+                rows.Add(($"{none}/{slots}", new List<WaveMutatorDefinition>(), Threat(MutatorEffects.Identity)));
             foreach (WaveMutatorDefinition d in pool)
             {
-                var set = new List<WaveMutatorDefinition>(fixedList) { d };
+                var set = new List<WaveMutatorDefinition> { d };
                 rows.Add(($"1/{slots}", set, Threat(Compose(set))));
             }
 
             float worst = rows.Max(r => r.threat);
             foreach (var r in rows)
-                DrawOutcome(r.odds, r.set, r.threat, worst, Mathf.Approximately(r.threat, worst));
+                DrawOutcome(r.odds, r.set, Mathf.Approximately(r.threat, worst));
 
             EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField(
-                $"{rows.Count} outcomes. The gate certifies the worst one, so this wave is never harder " +
-                "than the marked row — and is usually easier.",
-                EditorStyles.wordWrappedMiniLabel);
+            if (rows.Count == 1)
+                EditorGUILayout.LabelField(
+                    "One outcome — this wave ALWAYS carries it. That is how a set-piece wave is authored.",
+                    EditorStyles.wordWrappedMiniLabel);
+            else
+                EditorGUILayout.LabelField(
+                    $"{rows.Count} outcomes, drawn fresh every run. The gate certifies the worst one, so " +
+                    "this wave is never harder than the marked row — and is usually easier.",
+                    EditorStyles.wordWrappedMiniLabel);
 
             if (pool.Count >= 4)
                 EditorGUILayout.HelpBox(
@@ -140,14 +128,14 @@ namespace CoreholdEditor
                     "for a worst case it rarely draws, so most runs feel under-tuned. Two or three is the " +
                     "usual shape.", MessageType.Warning);
 
-            if (none == 0)
+            if (none == 0 && pool.Count > 1)
                 EditorGUILayout.HelpBox(
-                    "Nothing-weight is 0, so this wave ALWAYS carries a mutator. Deliberate for a set-piece; " +
-                    "surprising if you wanted 'sometimes'.", MessageType.Info);
+                    "Nothing-weight is 0, so this wave ALWAYS carries one of these — it can never roll " +
+                    "plain. Deliberate for a set-piece; surprising if you wanted 'sometimes'.",
+                    MessageType.Info);
         }
 
-        private static void DrawOutcome(string odds, List<WaveMutatorDefinition> set,
-                                        float threat, float worst, bool isWorst)
+        private static void DrawOutcome(string odds, List<WaveMutatorDefinition> set, bool isWorst)
         {
             using (new EditorGUILayout.HorizontalScope())
             {

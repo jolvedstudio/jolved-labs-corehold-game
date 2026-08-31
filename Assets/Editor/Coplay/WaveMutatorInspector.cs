@@ -85,28 +85,30 @@ namespace CoreholdEditor
         /// </summary>
         private static void DrawUsage(WaveMutatorDefinition d)
         {
-            var fixedIn = new List<string>();
-            var poolIn = new List<string>();
+            var always = new List<string>();
+            var sometimes = new List<string>();
 
             foreach (string guid in AssetDatabase.FindAssets("t:WaveDefinition"))
             {
                 var w = AssetDatabase.LoadAssetAtPath<WaveDefinition>(AssetDatabase.GUIDToAssetPath(guid));
-                if (w == null)
+                if (w == null || w.poolMutators == null || !w.poolMutators.Contains(d))
                     continue;
-                if (w.fixedMutators != null && w.fixedMutators.Contains(d)) fixedIn.Add(w.name);
-                else if (w.poolMutators != null && w.poolMutators.Contains(d)) poolIn.Add(w.name);
+                // A one-member pool that can never draw nothing IS an always-on
+                // rule, and saying so is more use than "in the pool of".
+                bool guaranteed = w.DrawablePool().Count == 1 && w.poolNothingWeight == 0;
+                (guaranteed ? always : sometimes).Add(w.name);
             }
 
             EditorGUILayout.LabelField("Used by", EditorStyles.boldLabel);
-            if (fixedIn.Count == 0 && poolIn.Count == 0)
+            if (always.Count == 0 && sometimes.Count == 0)
             {
                 EditorGUILayout.LabelField("No wave references this yet.", EditorStyles.miniLabel);
                 return;
             }
-            if (fixedIn.Count > 0)
-                EditorGUILayout.LabelField($"always on: {Join(fixedIn)}", EditorStyles.wordWrappedMiniLabel);
-            if (poolIn.Count > 0)
-                EditorGUILayout.LabelField($"in the pool of: {Join(poolIn)}", EditorStyles.wordWrappedMiniLabel);
+            if (always.Count > 0)
+                EditorGUILayout.LabelField($"always: {Join(always)}", EditorStyles.wordWrappedMiniLabel);
+            if (sometimes.Count > 0)
+                EditorGUILayout.LabelField($"in the pool of: {Join(sometimes)}", EditorStyles.wordWrappedMiniLabel);
         }
 
         private static string Join(List<string> names) =>

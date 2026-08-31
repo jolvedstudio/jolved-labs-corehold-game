@@ -5,9 +5,9 @@ Four layers, each owning exactly one thing:
 ```
 LEVEL          LevelDefinition.waves[]        which waves, in order
   └ WAVE       WaveDefinition                 who attacks, what it pays
-      └ MUTATORS   fixedMutators[]            rules ALWAYS on this wave
-                   poolMutators[]             rules it may DRAW one of
-                     └ WaveMutatorDefinition   what a rule IS: words, weather, numbers
+      └ POOL   poolMutators[]                 the rules it may carry — it draws ONE
+               poolNothingWeight              …or nothing, this often
+                 └ WaveMutatorDefinition      what a rule IS: words, weather, numbers
 ```
 
 A **Wave Recipe** is an alternative to authoring waves by hand: it *generates*
@@ -18,11 +18,14 @@ it — the level still ends up holding a plain list of `WaveDefinition`s.
 
 ## The one rule worth memorising
 
-**A wave says WHICH mutators. The mutator asset says what they DO.**
+**A wave says WHICH mutators it can carry. The mutator asset says what they DO.**
 
 Nothing about a mutator — its banner text, its weather, its multipliers — lives
 on the wave, the level, the WaveManager or the WeatherApplier. It lives on the
 mutator asset. One place.
+
+And a wave has **one** mutator list, not two. "Always carries Storm" is not a
+separate concept: it is a pool of one with a nothing-weight of zero.
 
 ---
 
@@ -61,20 +64,24 @@ it with a keypress.
 (`0` west ground, `1` north ground, `2` air). `clearBonus` is the salvage for
 clearing it.
 
-**Mutators — always on:** every run of this wave carries all of these. Use it to
-author a wave that *is* the storm wave.
-
-**Mutators — draw one:** the wave draws **one** of these each run, or nothing.
-`poolNothingWeight` is how many "nothing" slots are in the hat:
+**Mutators:** `poolMutators[]` is what the wave may carry. It draws **one** of
+them each run, or nothing. `poolNothingWeight` is how many "nothing" slots are
+in the hat:
 
 | pool | nothing weight | outcome |
 |---|---|---|
+| empty | — | plain wave, every run identical |
 | 2 members | 2 | plain half the time, each mutator 1-in-4 |
 | 3 members | 1 | plain 1-in-4 |
 | 2 members | 0 | **always** mutated, 50/50 which |
-| empty | — | plain wave, every run identical |
+| **1 member** | **0** | **always that one — the set-piece wave** |
 
-A mutator listed in both lists is one mutator, not two.
+The draw is fresh every run, derived from `(run seed, wave number)`. A replay
+*and a retry* roll again, so a wave you just lost is not the wave you retry.
+
+The last row is how you author "wave 10 is the storm wave". There is no separate
+always-on list — one pool covers both, and the inspector spells out which case
+you have built.
 
 The wave inspector lists **every outcome the wave can roll**, with its odds and
 its composed effect, and marks the worst — the one the balance model gates on.
@@ -129,8 +136,8 @@ wave inspector warns past four.
 | `⇧W` | re-roll the wave weather |
 
 `Tools → COREHOLD → Validate → Wave Mutators Audit` catches the quiet ones: a
-mutator that changes nothing, an empty slot in either list, a wave referencing a
-mutator no level library knows about.
+mutator that changes nothing, an empty pool slot (it silently reweights the
+draw), a wave referencing a mutator no level library knows about.
 
 ## Where it all lives
 

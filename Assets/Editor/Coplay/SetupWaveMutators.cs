@@ -276,25 +276,19 @@ public static class SetupWaveMutators
             if (w == null)
                 continue;
 
-            // Both lists: an empty slot in either is an authoring slip, and an
-            // empty POOL slot is the quieter one — it silently reweights the
-            // draw away from what the gate priced.
-            CollectFrom(w, w.fixedMutators, "always-on");
-            CollectFrom(w, w.poolMutators, "pool");
-
-            void CollectFrom(WaveDefinition wave, WaveMutatorDefinition[] list, string which)
+            // An empty pool slot is the quiet authoring slip: it silently
+            // reweights the draw away from what the gate priced.
+            if (w.poolMutators == null)
+                continue;
+            foreach (WaveMutatorDefinition d in w.poolMutators)
             {
-                if (list == null) return;
-                foreach (WaveMutatorDefinition d in list)
+                if (d == null)
                 {
-                    if (d == null)
-                    {
-                        sb.AppendLine($"\n[WARN] '{wave.name}' has an EMPTY {which} mutator slot");
-                        warns++;
-                        continue;
-                    }
-                    used.Add(d);
+                    sb.AppendLine($"\n[WARN] '{w.name}' has an EMPTY mutator pool slot");
+                    warns++;
+                    continue;
                 }
+                used.Add(d);
             }
         }
 
