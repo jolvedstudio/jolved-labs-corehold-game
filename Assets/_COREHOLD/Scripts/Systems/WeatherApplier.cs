@@ -117,6 +117,33 @@ namespace Corehold.Systems
                  "Presentation only — nothing gameplay reads weather.")]
         public MutatorWeatherLink[] mutatorLinks;
 
+        // ------------------------------------------------- per-wave weather roll
+
+        [Header("Per-wave weather")]
+        [Tooltip("Weather this LEVEL can roll at the start of any wave, stacked over the level's base " +
+                 "preset. The generator fills it from the theme's own pool, so an ice map cannot draw " +
+                 "desert dust. Duplicates weight the draw, the same convention the base pool uses — " +
+                 "[Clear, Clear, Dust] is 2:1 clear. EMPTY = the level's weather never changes, which " +
+                 "is exactly the old behaviour.")]
+        public WeatherPreset[] waveWeatherPool;
+
+        [Tooltip("Chance a wave rolls at all (0 = never, 1 = every wave). Below 1 on purpose: weather " +
+                 "that changes on EVERY wave is its own kind of monotony, and a front that sits over " +
+                 "two or three waves reads as weather while one that flips every time reads as a " +
+                 "slot machine.")]
+        [Range(0f, 1f)] public float waveWeatherChance = 0.55f;
+
+        [Tooltip("Draw a fresh sequence every run. ON is the point of the feature: the same level " +
+                 "played twice — or retried after a loss — gets different skies. Turn it OFF to make a " +
+                 "level's weather reproducible, which is what you want while tuning one.")]
+        public bool rerollEachRun = true;
+
+        /// <summary>The layer this wave rolled, or null. Held across the wave
+        /// boundary like the mutator look, replaced at the next wave's roll.</summary>
+        private WeatherPreset _waveLayer;
+        private uint _runSeed;
+        private WaveManager _waves;
+
         private WaveMutator _activeMutators;
 
         // ------------------------------------------------------ composed runtime
@@ -171,14 +198,119 @@ namespace Corehold.Systems
                 GameManager.Instance.OnStateChanged += OnGameStateChanged;
                 _stateSubscribed = true;
             }
+
+            // The run's weather sequence. A fresh seed per run is the whole
+            // feature: the same level twice, or a retry after a loss, must not
+            // hand back the same sky. Off, the seed comes from the scene name,
+            // so a level being TUNED is reproducible — you cannot judge a look
+            // that changes under you.
+            _runSeed = rerollEachRun
+                ? (uint)UnityEngine.Random.Range(1, int.MaxValue)
+                : Hash((uint)gameObject.scene.name.GetHashCode(), 0);
+
+            _waves = FindFirstObjectByType<WaveManager>();
+            if (_waves != null)
+                _waves.OnWaveStarted += OnWaveStarted;
+        }
+
+        /// <summary>
+        /// Roll this wave's weather.
+        ///
+        /// The roll produces a LAYER, not a preset, so it stacks over the
+        /// level's base look through the machinery that already exists —
+        /// flatten, merge, ramp, restore — rather than swapping the scene's
+        /// weather out from under the player. That is what keeps a rolled
+        /// storm reading as a front moving across the level's own climate
+        /// instead of as a scene change.
+        ///
+        /// Derived from (run seed, wave number) rather than drawn from a live
+        /// RNG, so the same wave re-entered within a run rolls the same sky and
+        /// nothing flickers if this fires twice.
+        /// </summary>
+        private void OnWaveStarted(int waveNumber)
+        {
+            if (!Application.isPlaying)
+                return;
+
+            WeatherPreset rolled = RollWaveWeather(waveNumber);
+            if (rolled == _waveLayer)
+                return;
+            _waveLayer = rolled;
+            if (_baselineCaptured)
+                ApplyStack();
+        }
+
+        /// <summary>
+        /// Draw a new weather sequence for this run (DebugConsole ⇧W), and
+        /// return the seed so a sequence worth keeping can be written down.
+        ///
+        /// The CURRENT wave's sky is left alone: re-rolling under a wave that
+        /// is already in flight would change the weather mid-fight, which is
+        /// the one thing the ramp exists to avoid. The new sequence lands at
+        /// the next wave start, where a roll normally does.
+        /// </summary>
+        public uint RerollRunSeed()
+        {
+            _runSeed = (uint)UnityEngine.Random.Range(1, int.MaxValue);
+            return _runSeed;
+        }
+
+        private WeatherPreset RollWaveWeather(int waveNumber)
+        {
+            if (waveWeatherPool == null || waveWeatherPool.Length == 0)
+                return null;
+
+            // TWO SEPARATE HASHES, not two fields of one. Consecutive waves
+            // differ by a single low salt byte, and slicing one hash into a
+            // "does it roll" half and a "what rolls" half made adjacent waves
+            // draw the SAME weather 56% of the time instead of 1-in-N — which
+            // would have read as "the weather barely changes", the exact
+            // complaint this feature exists to answer. Salting the second draw
+            // with the golden ratio decorrelates them.
+            uint gate = Hash(_runSeed, (uint)waveNumber);
+            if ((gate & 0xFFFFu) / 65535f > waveWeatherChance)
+                return null;
+
+            // Duplicates weight the draw — the same convention the theme's base
+            // pool uses, so one authoring habit covers both.
+            uint draw = Hash(_runSeed, (uint)waveNumber ^ 0x9E3779B9u);
+            int pick = (int)(draw % (uint)waveWeatherPool.Length);
+            return waveWeatherPool[pick];
+        }
+
+        /// <summary>
+        /// FNV-1a over two words, FINISHED with an avalanche mix.
+        ///
+        /// The mix is not optional here. Plain FNV-1a over (seed, waveNumber)
+        /// leaves the high bits barely changed between consecutive waves —
+        /// only the low salt byte differs — so any pick taken from those bits
+        /// repeats. The finalizer is murmur3's fmix32, four instructions that
+        /// spread a one-byte input change across all 32 output bits.
+        /// </summary>
+        private static uint Hash(uint seed, uint salt)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                for (int i = 0; i < 4; i++) { h ^= (seed >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                for (int i = 0; i < 4; i++) { h ^= (salt >> (i * 8)) & 0xFFu; h *= 16777619u; }
+                h ^= h >> 16; h *= 0x85EBCA6Bu;
+                h ^= h >> 13; h *= 0xC2B2AE35u;
+                h ^= h >> 16;
+                return h;
+            }
         }
 
         private bool _stateSubscribed;
 
         private void OnGameStateChanged(GameState state)
         {
-            if (state == GameState.Victory || state == GameState.Defeat)
-                OnMutatorsChanged(WaveMutator.None);
+            if (state != GameState.Victory && state != GameState.Defeat)
+                return;
+            // The run is over: the rolled sky goes with it, so a result screen
+            // is not still standing in wave 9's storm.
+            _waveLayer = null;
+            OnMutatorsChanged(WaveMutator.None);
         }
 
         private void OnEnable()
@@ -191,6 +323,8 @@ namespace Corehold.Systems
         {
             WaveManager.ActiveMutatorsChanged -= OnMutatorsChanged;
             WaveManager.ActiveMutatorAssetsChanged -= OnMutatorAssetsChanged;
+            if (_waves != null)
+                _waves.OnWaveStarted -= OnWaveStarted;
             if (_stateSubscribed && GameManager.Instance != null)
             {
                 GameManager.Instance.OnStateChanged -= OnGameStateChanged;
@@ -404,6 +538,14 @@ namespace Corehold.Systems
 
             var stack = new List<WeatherPreset>(8);
             Flatten(Active, stack, 0);
+            // The wave's rolled weather sits over the level's base look and
+            // UNDER the mutator layers. A mutator is an announced event with a
+            // banner and a gameplay rule behind it; the roll is the climate
+            // being itself. When both land on one wave the announced one has to
+            // win, or the player reads a storm banner over a clear sky.
+            if (_waveLayer != null)
+                Flatten(_waveLayer, stack, 0);
+
             if (mutatorLinks != null && _activeMutators != WaveMutator.None)
                 foreach (MutatorWeatherLink link in mutatorLinks)
                     if (link != null && link.layer != null && (_activeMutators & link.mutator) != 0)

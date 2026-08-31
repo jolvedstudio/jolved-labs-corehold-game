@@ -29,7 +29,7 @@ namespace Corehold.Systems
     ///   CAMPAIGN   C  status dump    ⇧C wipe this campaign's saves
     ///   TIME       P  pause/resume   ,  slower                       .  faster
     ///   LOOK       T  cycle mutators ⇧T authored mutators           N  night toggle
-    ///              W  re-apply weather
+    ///              W  re-apply weather                              ⇧W re-roll wave weather
     ///   OUTPUT     F1 stats overlay  F2 key map                      F3 screenshot
     ///
     /// The campaign keys are the reason this file grew: without V, walking to
@@ -116,7 +116,10 @@ namespace Corehold.Systems
             if (kb.nKey.wasPressedThisFrame)
                 ToggleNight();
             if (kb.wKey.wasPressedThisFrame)
-                ReapplyWeather();
+            {
+                if (shift) RerollWaveWeather();
+                else ReapplyWeather();
+            }
             if (kb.digit1Key.wasPressedThisFrame)
                 SetDifficulty(Difficulty.Normal);
             if (kb.digit2Key.wasPressedThisFrame)
@@ -552,6 +555,27 @@ namespace Corehold.Systems
                   $"{forced.title}: {forced.clause} (applies to waves started from now).");
         }
 
+        /// <summary>
+        /// Draw a NEW weather sequence for this run without leaving play mode.
+        ///
+        /// The roll is seeded per run, which is the point of it — and which
+        /// makes judging the feature painful without this key, since every look
+        /// at a different sequence would otherwise cost a level reload. Takes
+        /// effect at the next wave start, the same moment a roll normally lands.
+        /// </summary>
+        private void RerollWaveWeather()
+        {
+            var weather = FindFirstObjectByType<WeatherApplier>();
+            if (weather == null)
+            {
+                Debug.LogWarning("[DebugConsole] No WeatherApplier in the scene.");
+                return;
+            }
+            uint seed = weather.RerollRunSeed();
+            Debug.Log($"[DebugConsole] Wave-weather sequence re-rolled (seed {seed}). " +
+                      "The next wave to start draws from the new sequence.");
+        }
+
         /// <summary>Re-apply the active weather preset so live [TUNE] edits show now.</summary>
         private void ReapplyWeather()
         {
@@ -724,7 +748,7 @@ namespace Corehold.Systems
                 "CAMPAIGN  C  status dump   shift+C  wipe this campaign's saves\n" +
                 "TIME      P  pause         ,  slower         .  faster\n" +
                 "LOOK      T  mutators      \u21e7T authored     N  night\n" +
-                "          W  reapply weather\n" +
+                "          W  reapply weather              \u21e7W reroll wave weather\n" +
                 "OUTPUT    F1 stats         F2 this list      F3 screenshot\n\n" +
                 "V is the campaign accelerator: force a win, press CONTINUE,\n" +
                 "and the next stage loads with the carry rules applied.";

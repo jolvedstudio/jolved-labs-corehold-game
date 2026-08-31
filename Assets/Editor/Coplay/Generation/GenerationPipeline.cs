@@ -865,6 +865,29 @@ public static class GenerationPipeline
         if (presetProp == null)
             return StageResult.Fail("WeatherApplier has no 'preset' field — R13 contract changed?");
         presetProp.objectReferenceValue = ctx.weather;
+
+        // Per-wave weather rolls from the THEME'S OWN pool — the same list the
+        // base preset was drawn from. That is what keeps a rolled sky coherent
+        // for free: an ice map cannot roll desert dust, because the pool that
+        // could not offer it as a base cannot offer it as a roll either. One
+        // authored list, two uses, no second thing to keep in sync.
+        SerializedProperty poolProp = so.FindProperty("waveWeatherPool");
+        if (poolProp != null && poolProp.isArray)
+        {
+            WeatherPreset[] pool = ctx.theme != null && ctx.theme.weatherPool != null
+                ? ctx.theme.weatherPool.Where(w => w != null).ToArray()
+                : System.Array.Empty<WeatherPreset>();
+
+            // A one-entry pool would roll the same sky it already has, so it is
+            // left empty: the level simply keeps its base weather throughout.
+            if (pool.Length < 2)
+                pool = System.Array.Empty<WeatherPreset>();
+
+            poolProp.arraySize = pool.Length;
+            for (int i = 0; i < pool.Length; i++)
+                poolProp.GetArrayElementAtIndex(i).objectReferenceValue = pool[i];
+        }
+
         so.ApplyModifiedPropertiesWithoutUndo();
 
         // Night scaffold (R23, extended to every generated map on request): the
@@ -872,9 +895,13 @@ public static class GenerationPipeline
         // stage. StHierarchy then sweeps the "NightVariant" root into _Rendering.
         SetupNightVariant.Setup();
 
+        int rollable = poolProp != null && poolProp.isArray ? poolProp.arraySize : 0;
+        string roll = rollable > 0
+            ? $"; {rollable}-entry per-wave roll from the theme pool"
+            : "; no per-wave roll (theme pool has fewer than 2 presets)";
         return StageResult.Ok(ctx.weather != null
-            ? $"applier wired to '{ctx.weather.name}' (applies at map load); night scaffold placed"
-            : "applier wired to the null preset — authored look, pixel-identical (R13); night scaffold placed");
+            ? $"applier wired to '{ctx.weather.name}' (applies at map load){roll}; night scaffold placed"
+            : $"applier wired to the null preset — authored look, pixel-identical (R13){roll}; night scaffold placed");
     }
 
     private static StageResult StHierarchy(Context ctx)
