@@ -32,18 +32,37 @@ is unreferenced and safe to delete outright.
 | **PR #73** | Survives. GitHub updates a PR when its head branch is force-pushed. |
 | **Cost** | 885 MB+ exceeds GitHub's free 1 GB LFS storage **and** its 1 GB/month bandwidth. You need a data pack before this is usable by more than one person. Check current pricing — it has been $5/month per 50 GB storage + 50 GB bandwidth. |
 
-**Back up first.** History rewriting is not reversible from inside the repo:
+**Close Unity and GitHub Desktop.** The migration rewrites every file in the
+working tree, and on Windows an open handle from Unity's asset importer will
+make it fail partway through — which is the worst moment for it to stop.
+
+**Back up first.** History rewriting is not reversible from inside the repo.
+Run this from the repo's PARENT directory — it creates a folder where you
+stand, and a 1 GB backup nested inside the repo is a problem of its own:
 
 ```bash
+cd ..
 git clone --mirror git@github.com:jolvedstudio/jolved-labs-corehold-game.git corehold-backup.git
+cd jolved-labs-corehold-game
 ```
 
 ---
 
 ## The migration
 
-Run in Git Bash from the repo root. Not GitHub Desktop — it has no LFS
-migration UI and hides the errors you need to see.
+Run in **Git Bash** from the repo root — the `\` line continuations below are
+Bash syntax and break in PowerShell and CMD, where each command has to be one
+line. Not GitHub Desktop either: it has no LFS migration UI and hides the errors
+you need to see.
+
+Confirm where you are before starting:
+
+```bash
+git rev-parse --show-toplevel && git branch --show-current
+```
+
+Step 3 takes a while and looks hung — it is rewriting 139 commits and repacking
+about 1.1 GB. Let it run.
 
 ```bash
 # 1. Install the LFS filters into your git config (once per machine)
