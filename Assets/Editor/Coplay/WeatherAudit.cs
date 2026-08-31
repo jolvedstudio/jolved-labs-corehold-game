@@ -107,6 +107,32 @@ public static class WeatherAudit
             }
         }
 
+        // ---- theme pools: the thing that silently switches the feature off ----
+        // A theme whose weatherPool has fewer than two presets cannot vary: the
+        // base draw has one answer and the generator leaves the per-wave roll
+        // empty, so every run of every level on that theme shows one sky from
+        // wave 1 to wave 10. That is invisible from inside the preset assets —
+        // they all look fine — which is exactly why it belongs in an audit.
+        var packGuids = AssetDatabase.FindAssets("t:EnvPack");
+        sb.AppendLine($"\n--- theme weather pools ({packGuids.Length} pack(s)) ---");
+        foreach (string pg in packGuids.OrderBy(g => AssetDatabase.GUIDToAssetPath(g),
+                                                System.StringComparer.Ordinal))
+        {
+            var pack = AssetDatabase.LoadAssetAtPath<EnvPack>(AssetDatabase.GUIDToAssetPath(pg));
+            if (pack == null)
+                continue;
+            int n = pack.weatherPool != null ? pack.weatherPool.Count(w => w != null) : 0;
+            if (n >= 2)
+            {
+                sb.AppendLine($"  {pack.name}: {n} preset(s) — rolls per wave");
+                continue;
+            }
+            sb.AppendLine($"  WARN {pack.name}: weatherPool has {n} preset(s). Levels on this theme " +
+                          "show ONE sky for the whole run, every run — the per-wave roll needs at " +
+                          "least two. Duplicates weight the draw: [Clear, Clear, Dust] is 2:1 clear.");
+            warns++;
+        }
+
         sb.AppendLine($"  {warns} warning(s).");
         if (warns > 0) Debug.LogWarning(sb.ToString()); else Debug.Log(sb.ToString());
     }

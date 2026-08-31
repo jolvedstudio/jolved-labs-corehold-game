@@ -255,7 +255,81 @@ namespace Corehold.Systems
             return _runSeed;
         }
 
+        /// <summary>
+        /// Longest run of consecutive waves one rolled weather may hold before
+        /// it is forced to break.
+        ///
+        /// Without a cap nothing stops a ten-wave level rolling dust ten times
+        /// — improbable, but improbable is not never, and "never the whole
+        /// level" is a promise a player can feel being broken. A spell of two
+        /// or three waves is weather; a spell of ten is the old baked look with
+        /// extra steps.
+        /// </summary>
+        private const int MaxSpellWaves = 3;
+
+        /// <summary>
+        /// This wave's weather, with the spell cap applied.
+        ///
+        /// Computed forward from wave 1 rather than from stored state, so the
+        /// answer stays a pure function of (run seed, wave number): a wave
+        /// re-entered mid-run cannot disagree with itself, and nothing has to
+        /// be saved or restored. Ten-odd iterations of integer hashing, once
+        /// per wave start.
+        /// </summary>
         private WeatherPreset RollWaveWeather(int waveNumber)
+        {
+            if (waveWeatherPool == null || waveWeatherPool.Length == 0)
+                return null;
+
+            WeatherPreset prev = null;
+            WeatherPreset current = null;
+            int run = 0;
+
+            for (int w = 1; w <= waveNumber; w++)
+            {
+                WeatherPreset raw = RawRoll(w);
+
+                // The spell has held long enough — displace it, so the same sky
+                // can never own the level.
+                if (raw != null && raw == prev && run >= MaxSpellWaves)
+                    raw = Displace(w, raw);
+
+                if (raw == null) run = 0;
+                else if (raw == prev) run++;
+                else run = 1;
+
+                prev = raw;
+                current = raw;
+            }
+            return current;
+        }
+
+        /// <summary>Something OTHER than the weather that has overstayed — or
+        /// the base look, when the pool has nothing else to offer, which breaks
+        /// the spell just as well.</summary>
+        private WeatherPreset Displace(int waveNumber, WeatherPreset banned)
+        {
+            int alternatives = 0;
+            for (int i = 0; i < waveWeatherPool.Length; i++)
+                if (waveWeatherPool[i] != null && waveWeatherPool[i] != banned)
+                    alternatives++;
+            if (alternatives == 0)
+                return null;
+
+            int target = (int)(Hash(_runSeed, (uint)waveNumber ^ 0x7F4A7C15u) % (uint)alternatives);
+            for (int i = 0; i < waveWeatherPool.Length; i++)
+            {
+                WeatherPreset c = waveWeatherPool[i];
+                if (c == null || c == banned)
+                    continue;
+                if (target-- == 0)
+                    return c;
+            }
+            return null;
+        }
+
+        /// <summary>The unconstrained draw for one wave.</summary>
+        private WeatherPreset RawRoll(int waveNumber)
         {
             if (waveWeatherPool == null || waveWeatherPool.Length == 0)
                 return null;
