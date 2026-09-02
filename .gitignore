@@ -66,5 +66,8 @@ __pycache__/
 /[Aa]ssets/_COREHOLD/Data/Levels/Generated/
 /[Aa]ssets/_COREHOLD/Data/Levels/Generated.meta
 
+# ---- Vendored assets [TO BE REMOVED] ----
+/[Aa]ssets/_COREHOLD/Vendored/
+
 # ---- IDE ----
 *.slnx
