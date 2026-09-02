@@ -57,18 +57,39 @@ folder → size heuristic. `Assets/Vendor/` is already the git-ignored drop zone
 with a stated policy. **The "grab any asset store scene" feature is ~80%
 built.**
 
-**0.6 — One quality level exists, and it is the floor.** `COREHOLD_URP.asset`:
-MSAA off, 512 shadowmaps, 30 m shadow distance, 1 cascade, no soft shadows,
-dynamic batching off, no opaque texture. There are unused `PC_RPAsset` /
-`Mobile_RPAsset` template leftovers. `QualitySettings` has two levels, "Mobile"
-and "PC", with *identical* values.
+**0.6 — The tier scaffolding already exists, and its platform mapping is
+already right.** Two quality levels ship. WebGL, Android and Windows Store
+default to level 0 ("Mobile"); Standalone, PS4, PS5, Switch and GameCore
+default to level 1 ("PC"). Each level names its own pipeline asset:
 
-**0.7 — There are no assembly definitions for project code.** The only two
+```
+Mobile_RPAsset   render scale 0.8 · 1024 shadowmap · 1 cascade
+                 no depth texture · no opaque texture · LDR grading
+PC_RPAsset       render scale 1.0 · 2048 shadowmap · 4 cascades
+                 depth + opaque on
+both             shadow distance 50 · MSAA off · soft shadows off
+                 default volume profile: SampleSceneProfile
+```
+
+**0.7 — …but the project's own tuned render chain is orphaned.**
+`COREHOLD_URP.asset` is referenced by nothing — verified by GUID sweep across
+`ProjectSettings/` and all of `Assets/`. `COREHOLD_Renderer` is referenced only
+by that dead asset. `COREHOLD_PostFX` is referenced only by
+`GameBackup.unity`, which the readiness audit already lists for deletion. Both
+*live* pipeline assets name `SampleSceneProfile` — Unity's template volume
+profile — as their default.
+
+**So the shipping WebGL build renders at 0.8 render scale under a template
+post-processing profile, while the hand-tuned chain sits unreferenced.** This
+is hours of work to fix, it needs none of the phases below, and it is the
+largest immediate visual win available on the target that already ships.
+
+**0.8 — There are no assembly definitions for project code.** The only two
 `.asmdef` files in the tree belong to the Splines samples. Everything compiles
 into `Assembly-CSharp` / `Assembly-CSharp-Editor`. Sim, presentation, UI and
 generation are separated by folder convention and discipline alone.
 
-**0.8 — The camera is fixed at 38° pitch, framed to the whole playfield.**
+**0.9 — The camera is fixed at 38° pitch, framed to the whole playfield.**
 There is a second, closer view already (`TurretCamera`, `ManualTurretControl`,
 and `EnvPack.groundDetail` explicitly labelled *"near-field ground detail for
 POV cameras"*), but it is not the default view. **This is the single biggest
@@ -215,7 +236,14 @@ still lifted by sampling `TerrainField`, the T3 sight-line gate still samples
 layers/splatmaps, detail instancing (grass), tree instancing, basemap distance
 and the whole terrain toolset.
 
-Two constraints to write into the stage:
+**Both writers survive, selected by tier.** Unity Terrain costs more draw calls
+and more memory than one baked 96-cell mesh — fine on desktop, wrong on the
+web. So this is not a replacement: `TerrainStage` keeps the mesh writer as the
+web tier's output and gains the heightmap writer for desktop and console, with
+the `PresentationProfile` choosing. Both are fed by the same `TerrainField`, so
+the geometry the gates certified is identical either way.
+
+Three constraints to write into the stage:
 
 - **No terrain collider on the navigation path.** Movement stays spline-driven.
   If a collider is added for build-placement picking, decals or VFX, it goes on
@@ -323,9 +351,13 @@ the current single tier.*
 
 ### Phase 1 — Tiers as data
 
-**1.1 One URP asset per tier** — `URP_Web`, `URP_Desktop_Low/Medium/High/Ultra`,
-`URP_Console`. Retire or repurpose the unused `PC_RPAsset` / `Mobile_RPAsset`
-leftovers, and make the two identical `QualitySettings` levels actually differ.
+**1.1 Extend the ladder that already exists.** Phase 1 is smaller than it first
+looks, because §0.6's scaffolding is correct — two levels, per-platform mapping
+already right. The work is: fold the orphaned `COREHOLD_URP` tuning into the
+two live assets (or reconnect the chain and delete the duplicates — either way,
+one surviving lineage), then extend to the rungs desktop needs and add the
+console level, which today falls through to `PC`. Replace `SampleSceneProfile`
+with `COREHOLD_PostFX` as the default volume profile on both.
 
 **1.2 A `PresentationProfile` ScriptableObject** carrying what the URP asset
 cannot: grass and detail density, detail draw distance, prop LOD bias, texture
@@ -375,7 +407,65 @@ platform* work, not gameplay work.
 
 ---
 
-## 5. The decision that governs the art budget
+## 5. What this does for the build that already ships
+
+Phase 0 and Phase 1 are not a tax paid for desktop. Most of Phase 0 is work the
+WebGL game needs on its own merits, and one item is a live correctness problem.
+
+**Certification drift is real today.** The readiness audit's P1.1 found the
+model has drifted from the assets: 5 of 10 towers modelled, colossus 2800 HP
+against 2400 fielded, air groups named `drone` where the assets field Wasp, and
+a hand-authored Colossus Sentinel group in `Wave_01` the model never sees. The
+shipping WebGL game is therefore certified against a model that does not match
+its own content. Exporting the roster from `EnemyDefinition` / `TowerDefinition`
+per run fixes it, and it is the audit's own first item.
+
+**The Python dependency already costs a dev day.** Stages 16–17 hard-fail
+without Python 3, after the pipeline has done all its other work — a generation
+run that produces nothing. The C# port removes the dependency and lets the gate
+run in CI on every commit, on the WebGL target, now.
+
+**Zero tests, one manual ritual.** Every gameplay ticket currently ends with
+"re-run the balance model before tuning", by hand. The conformance replay
+automates exactly that ritual. Its value on WebGL is immediate and does not
+wait for a second tier to exist.
+
+**Compile time.** Editing one UI script today recompiles all ~21k runtime LOC
+and forces the ~27k-LOC editor assembly to rebuild behind it. After the split,
+editing `HUDController` rebuilds `Corehold.UI` and its dependents. That is
+daily-life iteration speed on the project as it stands.
+
+**Download size — the dominant WebGL constraint.** A GUID and symbol sweep
+finds these installed packages referenced by *no* project script and backed by
+*no* asset in the tree:
+
+```
+com.unity.visualscripting      0 references
+com.unity.postprocessing (v2)  0 references   (URP has its own volume system)
+com.unity.multiplayer.center   0 references
+com.unity.timeline             0 references
+com.unity.visualeffectgraph    0 references   (no .vfx assets)
+com.unity.ai.navigation        0 references
+com.unity.cinemachine         28 references   ← keep
+```
+
+Be precise about the mechanism: **the assembly split does not itself shrink the
+WASM.** IL2CPP's linker already does whole-program stripping regardless of how
+many assemblies there are. What the split buys is an explicit dependency graph
+— which is what makes deleting the six unreferenced packages a safe, verifiable
+change rather than a hopeful one. The deletion is the download-size win; the
+split is what lets you make it without guessing.
+
+**And before any of it:** §0.7's orphaned render chain. Reconnecting the tuned
+pipeline and swapping `SampleSceneProfile` for `COREHOLD_PostFX` is hours of
+work, on the live target, with no prerequisites at all.
+
+What Phases 2 and 3 add — terrain, grass, water, Shader Graph, 2K textures,
+console shell — does nothing for WebGL and should not be charged to it.
+
+---
+
+## 6. The decision that governs the art budget
 
 The strategy camera is fixed at 38° pitch with a 35° vertical FOV, solved to
 frame the whole playfield. At that framing, a 2K texture pass, per-blade grass
@@ -404,7 +494,7 @@ invalidating the camera-framing stage and the coverage gizmo's assumptions.
 
 ---
 
-## 6. What this deliberately does not do
+## 7. What this deliberately does not do
 
 - It does not touch `EnemyMover`, `RouteTraffic` or the gates.
 - It does not fork the project or the scenes. One project, one content set,
